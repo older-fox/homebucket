@@ -9,6 +9,10 @@ dist/
 .cache/
 .temp/
 
+# 本项目用 npm 管理依赖，忽略 pnpm 产物
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
 # 环境变量（.env.example 需要提交）
 .env
 .env.local
