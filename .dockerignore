@@ -1,0 +1,16 @@
+**/.git
+**/.idea
+**/node_modules
+**/dist
+**/.nuxt
+**/.output
+**/.cache
+**/.temp
+**/*.log
+.env
+.env.local
+.env.*.local
+**/*.db
+**/*.db-journal
+server/prisma/*/data
+README.md

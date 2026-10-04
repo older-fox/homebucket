@@ -1,0 +1,44 @@
+{
+  "name": "homebucket-server",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Homebucket backend (NestJS + Prisma)",
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "prisma:generate": "dotenv -e ../.env -c -- 'prisma generate --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'",
+    "prisma:migrate": "dotenv -e ../.env -c -- 'prisma migrate dev --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'",
+    "prisma:deploy": "dotenv -e ../.env -c -- 'prisma migrate deploy --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'",
+    "prisma:studio": "dotenv -e ../.env -c -- 'prisma studio --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'"
+  },
+  "dependencies": {
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/client": "^6.0.0",
+    "bcryptjs": "^3.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "dotenv": "^17.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "dotenv-cli": "^8.0.0",
+    "prisma": "^6.0.0",
+    "typescript": "^5.7.0"
+  },
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true
+  }
+}

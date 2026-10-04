@@ -1,0 +1,27 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+.output/
+.nuxt/
+.nitro/
+.cache/
+.temp/
+
+# 环境变量（.env.example 需要提交）
+.env
+.env.local
+.env.*.local
+
+# sqlite 数据文件（MySQL light）
+*.db
+*.db-journal
+server/prisma/*/data/
+
+# 日志 / 编辑器
+*.log
+npm-debug.log*
+.DS_Store
+.idea/*
+!.idea/.gitkeep

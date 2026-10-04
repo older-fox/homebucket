@@ -1,0 +1,25 @@
+{
+  "name": "homebucket-web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Homebucket frontend (Nuxt 3 / Vue 3)",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "nuxt": "^3.14.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "dotenv": "^17.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

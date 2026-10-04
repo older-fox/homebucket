@@ -1,0 +1,21 @@
+// SQLite（"MySQL light"）schema（DB_PROVIDER=sqlite 时使用）
+// 数据库就是一个文件，路径由 DB_FILE_PATH 指定，默认 prisma/sqlite/data/homebucket.db
+// 注意：prisma/mysql 与 prisma/sqlite 两个 schema 的模型必须保持一致。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DB_FILE_PATH")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

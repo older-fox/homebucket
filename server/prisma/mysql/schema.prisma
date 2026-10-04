@@ -1,0 +1,22 @@
+// MySQL 主库 schema（DB_PROVIDER=mysql 时使用）
+// 注意：prisma/mysql 与 prisma/sqlite 两个 schema 的模型必须保持一致，
+// 改模型时两边都要改（provider 不支持写成环境变量，只能分文件）。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  // shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // 取消注释后开启影子库（migrate dev 需要）
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

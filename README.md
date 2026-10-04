@@ -1,93 +1,139 @@
 # Homebucket
 
+类 HomeBox 的收纳归档工具：记录每样东西放在哪里。
 
+## 技术栈
 
-## Getting started
+| 层 | 选型 |
+| --- | --- |
+| 后端 | NestJS 11 + Prisma 6 |
+| 前端 | Nuxt 3（Vue 3），SSR |
+| 数据库 | MySQL（默认）/ SQLite（"MySQL light"，文件型） |
+| 部署 | 单个 Docker 容器同时跑前后端 |
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+**非 monorepo**：`server/` 与 `web/` 是两个完全独立的 npm 包，各有自己的 `package.json` 和 `node_modules`。仓库根目录只放环境变量、Dockerfile 和文档。
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## 目录结构
 
 ```
-cd existing_repo
-git remote add origin https://git.olderfox.com/olderfox/homebucket.git
-git branch -M main
-git push -uf origin main
+.
+├── .env                     # 真实环境变量（已 gitignore，前后端共用）
+├── .env.example             # 环境变量模板
+├── Dockerfile               # 多阶段构建，运行期单容器跑前后端
+├── docker-entrypoint.sh
+├── server/                  # NestJS + Prisma
+│   ├── prisma/
+│   │   ├── mysql/schema.prisma   # DB_PROVIDER=mysql
+│   │   └── sqlite/schema.prisma  # DB_PROVIDER=sqlite（MySQL light）
+│   └── src/
+│       ├── main.ts
+│       ├── app.module.ts
+│       ├── config/env.ts         # 所有配置项（惰性读取 process.env）
+│       ├── logger/               # 应用日志 + nginx 风格访问日志
+│       ├── auth/                 # 注册 / 登录 / me（JWT）
+│       └── prisma/
+└── web/                     # Nuxt 3
+    ├── nuxt.config.ts            # 监听地址、/api 代理、LOGO
+    ├── public/logo.svg
+    ├── composables/useAuth.ts
+    └── pages/{index,login,register}.vue
 ```
 
-## Integrate with your tools
+## 配置
 
-* [Set up project integrations](https://git.olderfox.com/olderfox/homebucket/-/settings/integrations)
+首次克隆后 `cp .env.example .env`。全部配置都在根目录 `.env`：
 
-## Collaborate with your team
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `DB_PROVIDER` | `mysql` | `mysql` 或 `sqlite`（MySQL light，无需数据库服务） |
+| `DATABASE_URL` | dev 库 | `mysql://user:pass@host:3306/db` |
+| `DB_FILE_PATH` | `file:./data/homebucket.db` | sqlite 数据库文件路径 |
+| `AUTO_MIGRATE` | `true` | 进程启动时自动执行 `prisma migrate deploy`（空库首次启动自动建表） |
+| `SERVER_PORT` / `API_PREFIX` | `3001` / `api` | 后端监听端口与路由前缀 |
+| `CORS_ORIGIN` | `*` | 允许跨域的来源，多个用逗号分隔 |
+| `MAX_UPLOAD_SIZE` | `1gb` | 请求体 / 上传上限，支持 `1024` / `10mb` / `1gb` |
+| `LOG_LEVEL` | `info` | `error` / `warn` / `info` / `debug` / `verbose` |
+| `LOG_FORMAT` | `pretty` | `pretty`（彩色）/ `json`（单行 JSON）/ `nginx`（nginx 风格） |
+| `LOG_ACCESS` | `true` | 是否输出 nginx combined 风格访问日志 |
+| `JWT_SECRET` / `JWT_EXPIRES_IN` | — / `7d` | 登录凭证签名 |
+| `WEB_HOST` | `0.0.0.0` | 前端监听 IP，`0.0.0.0` 表示局域网 / 容器外可访问 |
+| `WEB_PORT` | `3000` | 前端监听端口 |
+| `NUXT_PUBLIC_API_BASE` | `/api` | 浏览器访问后端地址（默认走代理，同源） |
+| `NUXT_API_BASE` | `http://127.0.0.1:3001/api` | SSR 时访问后端地址 |
+| `API_PROXY_TARGET` | `http://127.0.0.1:3001` | Nuxt 代理 `/api` 的目标 |
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+> 改 `.env` 后需重启进程；`LOG_*` 与端口类配置在启动时读取。
 
-## Test and Deploy
+## 跨域是怎么解决的
 
-Use the built-in continuous integration in GitLab.
+前端 `WEB_HOST=0.0.0.0` 对外后，浏览器可能用 `localhost`、`127.0.0.1`、局域网 IP、域名等各种来源访问，靠白名单穷举来源不可靠。因此：
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+1. Nuxt 用 nitro `routeRules` 把 `/api/**` 代理到后端（`API_PROXY_TARGET`），浏览器始终**同源**请求 `/api`，天然没有跨域问题；
+2. 后端同时开了 `CORS_ORIGIN`（默认 `*`）并放行 `Authorization` 头，方便直连 `:3001` 调试或第三方调用。
 
-***
+## 启动
 
-# Editing this README
+后端：
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```bash
+cd server
+npm install
+npm run prisma:generate              # 按 DB_PROVIDER 生成 Prisma Client
+npm run prisma:migrate               # 开发环境同步表结构（MySQL 需要 SHADOW_DATABASE_URL）
+# 生产/不想起影子库：npm run prisma:deploy
+npm run start:dev                    # http://localhost:3001/api
+```
 
-## Suggestions for a good README
+前端：
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+cd web
+npm install
+npm run dev                          # http://<本机IP>:3000
+```
 
-## Name
-Choose a self-explaining name for your project.
+接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）。
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## SQLite（MySQL light）
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```bash
+# .env
+DB_PROVIDER=sqlite
+DB_FILE_PATH="file:./data/homebucket.db"
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+然后 `npm run prisma:generate && npm run prisma:migrate`，数据库文件落在 `server/prisma/sqlite/data/`（已 gitignore）。
+两个 schema 的模型必须同步修改——Prisma 的 `provider` 不支持写成环境变量，只能分文件。
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## Docker（单容器）
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+docker build --build-arg DB_PROVIDER=mysql -t homebucket .
+docker run --env-file .env -p 3000:3000 -p 3001:3001 homebucket
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+容器内：Nuxt 监听 `0.0.0.0:3000`，Nest 监听 `:3001`，前端通过代理访问后端，通常只需暴露 3000。数据库迁移由后端进程启动时自动完成。
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+两个坑已处理：
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+- 基础镜像装了 `openssl`（Prisma 查询引擎依赖它），且必须在 `prisma generate` **之前**装好，否则生成出来的引擎版本和运行环境对不上；
+- `docker run --env-file` **不会**去掉值两侧的引号，所以 `.env` 里的 `DATABASE_URL` 不要加引号。
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## 启动即迁移
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+后端启动时（`AUTO_MIGRATE=true`，默认开）会先执行 `prisma migrate deploy`，按 `DB_PROVIDER` 选择 `prisma/<provider>/schema.prisma`：
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+- 空库首次启动自动建表，不会再出现"表不存在导致启动失败"；
+- 幂等，已应用过的迁移不会重复执行；
+- 迁移失败只打 `[migrate]` 错误日志、不阻断进程，`/health` 会显示 `degraded`；数据库连接失败同样不再中断启动。
 
-## License
-For open source projects, say how it is licensed.
+想自己控制迁移节奏：`AUTO_MIGRATE=false`，然后手动 `cd server && npm run prisma:deploy`。
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## 已验证
+
+- 后端：`nest build` 通过；注册 / 登录 / me 正常，重复注册 409、错误密码与伪造 token 401、参数校验 400；`MAX_UPLOAD_SIZE=1kb` 时 2KB 请求体返回 413；三种日志格式与 `LOG_ACCESS=false` 均生效。
+- 前端：构建通过；`0.0.0.0:3000` 监听；`/api` 代理转发正常；登录 / 注册页渲染正常。
+- Docker：镜像构建成功，单容器同时起前后端，`0.0.0.0:3000` 可访问、`/api` 代理通、后端连上 dev MySQL（`db:true`）。
+- 启动即迁移：删掉 sqlite 库文件后启动，自动建库建表并直接注册成功；二次启动输出 `No pending migrations to apply`；`AUTO_MIGRATE=false` 时跳过迁移。
+- MySQL 上也跑通了一次自动迁移（`User` 表已由启动流程创建），测试数据已清理。
+
