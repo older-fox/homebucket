@@ -1,4 +1,10 @@
+import { isAbsolute, resolve } from 'node:path';
 import type { LogLevel } from '@nestjs/common';
+
+/** 相对路径一律按 server/ 运行目录解析，方便 express 静态服务使用绝对路径 */
+function absolute(path: string): string {
+  return isAbsolute(path) ? path : resolve(process.cwd(), path);
+}
 
 const SIZE_UNITS: Record<string, number> = {
   b: 1,
@@ -92,6 +98,48 @@ export const env = {
   /** 启动时是否自动执行 prisma migrate deploy（默认开） */
   get autoMigrate(): boolean {
     return (process.env.AUTO_MIGRATE ?? 'true').toLowerCase() !== 'false';
+  },
+
+  // ---- 数据目录与文件存储 ----
+  get dataDir(): string {
+    return absolute(process.env.DATA_DIR || 'data');
+  },
+  get uploadDir(): string {
+    const dir = process.env.UPLOAD_DIR?.trim();
+    return dir ? absolute(dir) : resolve(this.dataDir, 'uploads');
+  },
+  get storageDriver(): 'local' | 's3' {
+    return (process.env.STORAGE_DRIVER ?? 'local').toLowerCase() === 's3' ? 's3' : 'local';
+  },
+  get s3Endpoint(): string | undefined {
+    return process.env.S3_ENDPOINT?.trim() || undefined;
+  },
+  get s3Region(): string {
+    return process.env.S3_REGION?.trim() || 'us-east-1';
+  },
+  get s3Bucket(): string {
+    return process.env.S3_BUCKET?.trim() || '';
+  },
+  get s3AccessKey(): string {
+    return process.env.S3_ACCESS_KEY?.trim() || '';
+  },
+  get s3SecretKey(): string {
+    return process.env.S3_SECRET_KEY?.trim() || '';
+  },
+  get s3ForcePathStyle(): boolean {
+    return (process.env.S3_FORCE_PATH_STYLE ?? 'true').toLowerCase() !== 'false';
+  },
+
+  // ---- 本地化 ----
+  get defaultCurrency(): string {
+    return (process.env.DEFAULT_CURRENCY || 'CNY').toUpperCase();
+  },
+  get defaultLocale(): string {
+    return process.env.DEFAULT_LOCALE || 'zh-CN';
+  },
+  /** 对外可访问的站点根地址，用于二维码里写完整链接；留空则二维码只写 token */
+  get publicBaseUrl(): string {
+    return (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
   },
 };
 

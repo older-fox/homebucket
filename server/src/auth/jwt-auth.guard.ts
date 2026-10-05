@@ -22,14 +22,14 @@ export class JwtAuthGuard implements CanActivate {
     const header = req.headers.authorization ?? '';
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 
-    if (!token) throw new UnauthorizedException('缺少登录凭证');
+    if (!token) throw new UnauthorizedException({ code: 'auth.missingToken', message: '缺少登录凭证' });
 
     try {
       const payload = await this.jwt.verifyAsync<{ sub: number; email: string; username: string }>(token);
       req.user = { id: payload.sub, email: payload.email, username: payload.username };
       return true;
     } catch {
-      throw new UnauthorizedException('登录凭证无效或已过期');
+      throw new UnauthorizedException({ code: 'auth.invalidToken', message: '登录凭证无效或已过期' });
     }
   }
 }

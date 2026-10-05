@@ -6,8 +6,8 @@
 
 | 层 | 选型 |
 | --- | --- |
-| 后端 | NestJS 11 + Prisma 6 |
-| 前端 | Nuxt 3（Vue 3），SSR |
+| 后端 | NestJS 11 + Prisma 6.19 |
+| 前端 | Nuxt 4（Vue 3.5）+ Nuxt UI v4 + Tailwind v4，SSR |
 | 数据库 | MySQL（默认）/ SQLite（"MySQL light"，文件型） |
 | 部署 | 单个 Docker 容器同时跑前后端 |
 
@@ -23,20 +23,40 @@
 ├── docker-entrypoint.sh
 ├── server/                  # NestJS + Prisma
 │   ├── prisma/
-│   │   ├── mysql/schema.prisma   # DB_PROVIDER=mysql
-│   │   └── sqlite/schema.prisma  # DB_PROVIDER=sqlite（MySQL light）
+│   │   ├── src/models.prisma     # 模型唯一来源（双 provider 共用）
+│   │   ├── mysql/schema.prisma   # 生成物：DB_PROVIDER=mysql
+│   │   └── sqlite/schema.prisma  # 生成物：DB_PROVIDER=sqlite（MySQL light）
+│   ├── scripts/build-schemas.mjs # 由唯一来源生成两份 schema
 │   └── src/
 │       ├── main.ts
 │       ├── app.module.ts
 │       ├── config/env.ts         # 所有配置项（惰性读取 process.env）
+│       ├── common/               # 家庭上下文守卫、参数装饰器、校验归一化
 │       ├── logger/               # 应用日志 + nginx 风格访问日志
 │       ├── auth/                 # 注册 / 登录 / me（JWT）
-│       └── prisma/
-└── web/                     # Nuxt 3
-    ├── nuxt.config.ts            # 监听地址、/api 代理、LOGO
+│       ├── families/             # 家庭、成员、邀请链接
+│       ├── locations/            # 位置树（拖拽排序由服务端裁决）
+│       ├── items/                # 物品 + SN 单元 + CSV 导出
+│       ├── tags/                 # 标签
+│       ├── templates/            # 模板与「用模板建物品」
+│       ├── uploads/              # 上传（local / S3 抽象）
+│       ├── notifiers/            # 通知器（SMTP / Telegram / 钉钉 …）
+│       ├── dashboard/            # 主页汇总
+│       ├── search/               # 统一搜索
+│       └── scan/                 # 二维码生成 + 扫码落地
+└── web/                     # Nuxt 4 + Nuxt UI v4 (Tailwind v4)
+    ├── nuxt.config.ts            # 监听地址、/api 代理、i18n、LOGO
+    ├── i18n/locales/{zh-CN,en}.json  # 翻译文件（唯一翻译源，社区可提交）
     ├── public/logo.svg
-    ├── composables/useAuth.ts
-    └── pages/{index,login,register}.vue
+    └── app/                      # Nuxt 4 的应用目录
+        ├── app.vue  app.config.ts
+        ├── assets/css/main.css   # Tailwind + 主题变量
+        ├── layouts/{default,auth}.vue  # 桌面侧栏 / 移动底部 Tab / 登录页壳
+        ├── middleware/auth.global.ts   # 未登录跳转
+        ├── composables/          # useApi / useFamily / useAuth / useFormat / useNav
+        ├── components/           # PhotoUploader / LocationTree / ItemForm 等
+        ├── types/                # 前后端共享的前端类型
+        └── pages/                # 主页、位置、物品、模板、设置、搜索、扫码、邀请
 ```
 
 ## 配置
@@ -47,8 +67,14 @@
 | --- | --- | --- |
 | `DB_PROVIDER` | `mysql` | `mysql` 或 `sqlite`（MySQL light，无需数据库服务） |
 | `DATABASE_URL` | dev 库 | `mysql://user:pass@host:3306/db` |
-| `DB_FILE_PATH` | `file:./data/homebucket.db` | sqlite 数据库文件路径 |
+| `DB_FILE_PATH` | `file:./data/homebucket.db` | sqlite 数据库文件路径（Docker 里用 `file:/data/homebucket.db`） |
 | `AUTO_MIGRATE` | `true` | 进程启动时自动执行 `prisma migrate deploy`（空库首次启动自动建表） |
+| `DATA_DIR` | `./data` | 数据根目录（Docker 里为 `/data`，挂卷持久化） |
+| `UPLOAD_DIR` | `${DATA_DIR}/uploads` | 上传文件目录，留空则自动推导 |
+| `STORAGE_DRIVER` | `local` | `local` 落本地磁盘并由 `/api/media/` 提供；`s3` 走对象存储 |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_FORCE_PATH_STYLE` | — | S3 兼容存储配置（`STORAGE_DRIVER=s3` 时生效） |
+| `DEFAULT_CURRENCY` / `DEFAULT_LOCALE` | `CNY` / `zh-CN` | 新家庭的默认主货币与语言 |
+| `PUBLIC_BASE_URL` | 空 | 二维码里写入的站点根地址（如 `http://192.168.1.10:3000`）；留空则二维码只含 token |
 | `SERVER_PORT` / `API_PREFIX` | `3001` / `api` | 后端监听端口与路由前缀 |
 | `CORS_ORIGIN` | `*` | 允许跨域的来源，多个用逗号分隔 |
 | `MAX_UPLOAD_SIZE` | `1gb` | 请求体 / 上传上限，支持 `1024` / `10mb` / `1gb` |
@@ -71,6 +97,39 @@
 1. Nuxt 用 nitro `routeRules` 把 `/api/**` 代理到后端（`API_PROXY_TARGET`），浏览器始终**同源**请求 `/api`，天然没有跨域问题；
 2. 后端同时开了 `CORS_ORIGIN`（默认 `*`）并放行 `Authorization` 头，方便直连 `:3001` 调试或第三方调用。
 
+## 前端说明（Nuxt 4）
+
+- 应用代码在 `web/app/`（Nuxt 4 目录规范）：`pages` / `components` / `composables` / `layouts` / `middleware` / `assets` / `types`；`nuxt.config.ts`、`public/`、`i18n/` 留在 `web/` 根下。
+- 图标使用本地图标集 `@iconify-json/lucide`，不依赖 Iconify 在线服务；**注意** `@nuxt/icon` 的接口已改到 `/_nuxt_icon`，否则会被下面的 `/api/**` 代理转发给 Nest 导致图标全部加载失败。
+- 关闭 `@nuxt/fonts`（`ui: { fonts: false }`）改用系统字体栈，离线 / 内网部署不需要外网。
+- 需要登录态的数据都在客户端加载（`onMounted` 或 `useAsyncData(..., { server: false })`），SSR 只负责渲染外壳，避免 SSR 阶段没有 cookie 时的 401。
+- `npm run typecheck`（= `nuxt typecheck`，vue-tsc），当前零错误。
+
+### 视觉规范（现代清爽）
+
+- 设计令牌集中在 `web/app/assets/css/main.css`：`--hb-brand` / `--hb-surface` / `--hb-text` / `--hb-shadow-*` / `--hb-r-*`，浅色与 `.dark` 各一套；**页面里不要再写死颜色**。
+- 通用类：`.hb-card`（卡片）、`.hb-card-hover`（悬浮上移）、`.hb-tile`（统计卡+光斑）、`.hb-icon-tile`（图标砖）、`.hb-section-title`、`.hb-chip`、`.hb-row`、`.hb-skeleton`、`.hb-rise`（进入动效）。
+- 壳层：桌面左侧栏（品牌块 + 家庭切换 + 导航高亮竖条），移动端底部 Tab（胶囊高亮）+ 抽屉；顶栏毛玻璃 + 搜索 + 深浅色/语言切换。
+- 深浅色由 `@nuxtjs/color-mode` 注入 `.dark` 类（跟随系统，可手动切换并记住）。
+- 品牌色在 `app.config.ts`（Nuxt UI primary=teal）。
+
+### 排版（字体）
+
+**字体族**：拉丁字母与数字自托管 **Inter Variable**（`@fontsource-variable/inter/wght.css`，本地 woff2，无外部请求、离线可用）；中文走各平台原生字体（PingFang SC / HarmonyOS Sans / MiSans / 微软雅黑 / Noto Sans CJK / 思源黑体）——CJK 字体动辄数 MB，原生字形更清晰也更省流量。等宽场景用 `--hb-font-mono`。
+
+**字号阶梯**（全部走令牌，页面里不要再写 px）：`--hb-fs-display`（clamp 自适应页标题）/`--hb-fs-h1`/`--hb-fs-h2`/`--hb-fs-h3`/`--hb-fs-body`/`--hb-fs-sm`/`--hb-fs-xs`；行高 `--hb-lh-*`、字重 `--hb-fw-*`、字距 `--hb-ls-*` 一一对应。
+
+**中文专门处理**：
+- `:lang(zh)` 提升行高到 1.75、字距放 0.01em（中文笔画密，需要更透气）；拉丁标题才做负字距收紧
+- `html lang` 跟随语言切换（`app.vue` 里 `useHead`），所以上面规则会随中英文自动切换
+- `text-spacing-trim: trim-start` + `text-autospace`（Chromium 123+ 渐进增强）优化中西文混排与标点
+- `font-synthesis: none` 禁止伪粗体/伪斜体（中文伪粗体会糊）
+- 长串（URL、序列号）用 `.hb-break` 安全换行，多行截断用 `.hb-clamp-2/3`
+
+**数字**：金额、数量、计数统一加 `.hb-num`（`tabular-nums` + `tnum`），列表与统计卡数值对齐不跳动。
+
+**工具类**：`.hb-display` `.hb-h1` `.hb-h2` `.hb-h3` `.hb-body` `.hb-sm` `.hb-xs` `.hb-eyebrow` `.hb-label` `.hb-num` `.hb-mono` `.hb-link` `.hb-truncate` `.hb-clamp-*` `.hb-break`。
+
 ## 启动
 
 后端：
@@ -90,6 +149,7 @@ npm run start:dev                    # http://localhost:3001/api
 cd web
 npm install
 npm run dev                          # http://<本机IP>:3000
+npm run typecheck                    # nuxt typecheck（vue-tsc，零错误）
 ```
 
 接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）。
@@ -129,7 +189,33 @@ docker run --env-file .env -p 3000:3000 -p 3001:3001 homebucket
 
 想自己控制迁移节奏：`AUTO_MIGRATE=false`，然后手动 `cd server && npm run prisma:deploy`。
 
+## 功能与页面
+
+| 页面 | 说明 |
+| --- | --- |
+| `/` 主页 | 物品总数 / 价值总和 / 位置总数 / 标签总数，最近新增物品、位置列表、书签式标签、搜索框 |
+| `/locations` | 左侧树 + 右侧内容；**拖拽排序与跨层移动由服务端裁决**（`PATCH /locations/:id/move`，防闭环 + sortIndex 量化重排），移动端为钻取式导航 |
+| `/items` | 库存概览与快速创建，按关键词 / SN / 位置 / 标签搜索，导出 CSV（不含缩略图） |
+| `/items/[id]` | 物品详情：照片、标签、位置、**每个 SN 可位于不同位置**、二维码 |
+| `/templates` | 模板管理，支持「用模板新增物品」 |
+| `/settings` | 家庭管理（成员 / 邀请链接 / 角色）、系统设置（家庭名、货币、语言、时区）、通知器 |
+| `/search` | 统一搜索：物品 + 位置 + 标签 + 序列号 |
+| `/scan`、`/r/[code]` | 摄像头扫码（需 https/localhost）、图片识别、手动输入/扫码枪，识别后跳转详情 |
+
+- **家庭即数据边界**：注册自动创建个人家庭；接受邀请后拥有多个家庭，通过 `X-Family-Id` 切换；所有查询强制按 `familyId` 过滤。仅家庭所有者可管理成员与邀请。
+- **通知器**：SMTP、Google Chat、Telegram、Discord、钉钉、飞书、企业微信、Bark、Server 酱，支持按事件订阅与测试发送。
+- **移动端**：底部 Tab、抽屉菜单、安全区适配、触控目标 ≥44px、表单原生键盘类型，不是简单重排版。
+
+## 多语言
+
+翻译文件只有一份，放在 `web/i18n/locales/`（主 `zh-CN`、次 `en`）。后端不做翻译，只返回机器可读的 `code`（如 `location.notFound`），前端按 code 查表，查不到才回退后端的中文兜底 `message`。
+
+新增语言：复制 `web/i18n/locales/en.json` → 改名 → 翻译 → 在 `nuxt.config.ts` 的 `locales` 里注册。详见 `web/i18n/README.md`。
+
 ## 已验证
+
+- **Nuxt 4 升级**：Nuxt 4.5.2 + @nuxt/ui 4.11 + @nuxtjs/i18n 10.6 + Tailwind 4.3 + vue-tsc，应用代码迁到 `web/app/`；`nuxt typecheck` 零错误、`nuxt build` 通过、全部页面 SSR 200、`/api` 代理正常（原先误装 @nuxt/ui v4 与 Nuxt 3 不兼容，已统一到 Nuxt 4）。
+- **新功能接口端到端 45/45 通过**（`/tmp/hb-smoke.mjs`）：家庭隔离与角色（跨家庭 403、非 owner 403）、邀请链接注册即入家庭、位置树拖拽 move + 闭环校验、同一物品多 SN 分布不同位置、SN 重复校验、仪表盘统计与价值合计、统一搜索、CSV（UTF-8 BOM、含 SN@位置、无缩略图字段）、扫码（物品二维码 / SN / 404）、模板建物品、通知器 9 种与类型校验、校验错误结构。测试数据已清理。
 
 - 后端：`nest build` 通过；注册 / 登录 / me 正常，重复注册 409、错误密码与伪造 token 401、参数校验 400；`MAX_UPLOAD_SIZE=1kb` 时 2KB 请求体返回 413；三种日志格式与 `LOG_ACCESS=false` 均生效。
 - 前端：构建通过；`0.0.0.0:3000` 监听；`/api` 代理转发正常；登录 / 注册页渲染正常。

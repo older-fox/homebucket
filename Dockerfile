@@ -35,6 +35,10 @@ FROM base AS runtime
 ENV NODE_ENV=production
 ENV WEB_HOST=0.0.0.0
 ENV WEB_PORT=3000
+# 容器内数据目录统一放 /data：sqlite 库文件、上传的图片都在这里，挂卷即可持久化
+ENV DATA_DIR=/data
+ENV UPLOAD_DIR=/data/uploads
+VOLUME ["/data"]
 
 # 注意：必须取 build 阶段的 node_modules，Prisma Client 是 generate 时写进去的
 COPY --from=build /app/server/node_modules ./server/node_modules

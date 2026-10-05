@@ -10,12 +10,15 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "prisma:generate": "dotenv -e ../.env -c -- 'prisma generate --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'",
-    "prisma:migrate": "dotenv -e ../.env -c -- 'prisma migrate dev --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'",
-    "prisma:deploy": "dotenv -e ../.env -c -- 'prisma migrate deploy --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'",
-    "prisma:studio": "dotenv -e ../.env -c -- 'prisma studio --schema prisma/${DB_PROVIDER:-mysql}/schema.prisma'"
+    "prisma:build": "node scripts/build-schemas.mjs",
+    "prisma:generate": "node scripts/prisma.mjs generate",
+    "prisma:migrate": "node scripts/prisma.mjs migrate dev",
+    "prisma:deploy": "node scripts/prisma.mjs migrate deploy",
+    "prisma:studio": "node scripts/prisma.mjs studio",
+    "prisma:diff": "node scripts/prisma.mjs migrate diff"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
@@ -24,6 +27,9 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "dotenv": "^17.0.0",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.14",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -31,8 +37,10 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@types/express": "^5.0.0",
+    "@types/multer": "^2.3.0",
     "@types/node": "^22.10.0",
-    "dotenv-cli": "^8.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/qrcode": "^1.5.6",
     "prisma": "^6.0.0",
     "typescript": "^5.7.0"
   },

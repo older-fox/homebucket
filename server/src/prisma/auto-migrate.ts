@@ -19,6 +19,15 @@ function locateCli(): string | null {
  * 幂等：已应用过的迁移不会重复执行；失败只打日志，不阻断进程（/health 会显示 degraded）。
  */
 export function autoMigrate(): void {
+  const buildScript = resolve(process.cwd(), 'scripts/build-schemas.mjs');
+  if (existsSync(buildScript)) {
+    try {
+      execFileSync(process.execPath, [buildScript], { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      console.error(`[migrate] 生成 schema 失败：${(error as Error).message}`);
+    }
+  }
+
   const schema = resolve(process.cwd(), 'prisma', env.dbProvider, 'schema.prisma');
   if (!existsSync(schema)) {
     console.error(`[migrate] 找不到 schema：${schema}，跳过自动迁移`);

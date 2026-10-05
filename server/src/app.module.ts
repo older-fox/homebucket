@@ -1,13 +1,36 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { FamiliesModule } from './families/families.module';
+import { ItemsModule } from './items/items.module';
 import { AppLogger } from './logger/app.logger';
 import { AccessLogMiddleware } from './logger/access-log.middleware';
+import { LocationsModule } from './locations/locations.module';
+import { NotifiersModule } from './notifiers/notifiers.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ScanModule } from './scan/scan.module';
+import { SearchModule } from './search/search.module';
+import { TagsModule } from './tags/tags.module';
+import { TemplatesModule } from './templates/templates.module';
+import { UploadsModule } from './uploads/uploads.module';
 import { env } from './config/env';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    FamiliesModule,
+    UploadsModule,
+    LocationsModule,
+    TagsModule,
+    ItemsModule,
+    TemplatesModule,
+    NotifiersModule,
+    DashboardModule,
+    SearchModule,
+    ScanModule,
+  ],
   controllers: [AppController],
   providers: [AppLogger],
   exports: [AppLogger],

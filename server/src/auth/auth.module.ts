@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
+import { FamiliesModule } from '../families/families.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -13,6 +14,7 @@ import { env } from '../config/env';
       secret: env.jwtSecret,
       signOptions: { expiresIn: env.jwtExpiresIn as StringValue },
     }),
+    FamiliesModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard],

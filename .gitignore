@@ -23,6 +23,9 @@ pnpm-workspace.yaml
 *.db-journal
 server/prisma/*/data/
 
+# 本地数据目录（上传的文件、sqlite 默认位置）
+server/data/
+
 # 日志 / 编辑器
 *.log
 npm-debug.log*

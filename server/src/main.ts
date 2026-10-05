@@ -6,7 +6,9 @@ import { config as loadEnv } from 'dotenv';
 loadEnv({ path: resolve(process.cwd(), '../.env') });
 
 import { json, urlencoded } from 'express';
-import { ValidationPipe } from '@nestjs/common';
+import { mkdirSync } from 'node:fs';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { flattenValidationErrors } from './common/validation';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
@@ -32,6 +34,13 @@ async function bootstrap() {
   app.use(json({ limit: env.maxUploadSize }));
   app.use(urlencoded({ extended: true, limit: env.maxUploadSize }));
 
+  // 本地存储模式下，上传的文件由后端直接提供（/api/media/<key>，走前端同源代理）
+  if (env.storageDriver === 'local') {
+    mkdirSync(env.uploadDir, { recursive: true });
+    app.useStaticAssets(env.uploadDir, { prefix: '/api/media/', index: false, fallthrough: true });
+    logger.log(`uploads dir: ${env.uploadDir}`, 'Bootstrap');
+  }
+
   // 前端以 0.0.0.0 对外后来源不固定，CORS_ORIGIN=* 放行全部；也可写死成逗号分隔的来源列表
   app.enableCors({
     origin: env.corsOrigin,
@@ -39,7 +48,19 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // 校验失败统一成 { code, fields }，前端按 code / 约束名做多语言
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      exceptionFactory: (errors) =>
+        new BadRequestException({
+          code: 'validation.failed',
+          message: '请求参数不合法',
+          fields: flattenValidationErrors(errors),
+        }),
+    }),
+  );
   app.setGlobalPrefix(env.apiPrefix);
 
   await app.listen(env.port, '0.0.0.0');

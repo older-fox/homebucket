@@ -1,0 +1,577 @@
+/* 拉丁字母与数字：自托管 Inter 变量字体（48KB latin 子集，离线可用，无外部请求） */
+@import '@fontsource-variable/inter/wght.css';
+@import 'tailwindcss';
+@import '@nuxt/ui';
+
+/* Tailwind v4：深色模式跟随 .dark 类（由 color-mode 注入），与 Nuxt UI 保持一致 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   Homebucket 设计令牌（现代清爽）
+   浅色 / 深色各一套；页面里一律用 var(--hb-*)，不要再写死颜色
+   ========================================================================== */
+
+:root {
+  /* ---------------- 字体族 ----------------
+     拉丁/数字用自托管 Inter；中文走各平台原生字体（PingFang / 鸿蒙 / MiSans / 雅黑 / Noto CJK），
+     原生中文字形更清晰，且避免打包数 MB 的 CJK 字体 */
+  --hb-font-sans:
+    'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    'Noto Sans CJK SC', 'Source Han Sans SC', 'Hiragino Sans GB', 'WenQuanYi Micro Hei',
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --hb-font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', 'JetBrains Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  /* ---------------- 字号 ----------------
+     语义化命名，页面里不要再写死 px */
+  --hb-fs-display: clamp(1.75rem, 1.4rem + 1.6vw, 2.125rem); /* 页面主标题 */
+  --hb-fs-h1: 1.625rem; /* 26px 区块大标题 */
+  --hb-fs-h2: 1.1875rem; /* 19px 卡片/区块标题 */
+  --hb-fs-h3: 0.9688rem; /* 15.5px 小标题 */
+  --hb-fs-body: 0.9063rem; /* 14.5px 正文 */
+  --hb-fs-sm: 0.8125rem; /* 13px 次要文本 */
+  --hb-fs-xs: 0.7188rem; /* 11.5px 标签/说明 */
+
+  /* ---------------- 行高 ----------------
+     拉丁文本紧凑、中文文本更宽松（中文笔画密，行高需更大才透气） */
+  --hb-lh-display: 1.15;
+  --hb-lh-h1: 1.2;
+  --hb-lh-h2: 1.32;
+  --hb-lh-h3: 1.45;
+  --hb-lh-body: 1.6;
+  --hb-lh-cjk: 1.75;
+  --hb-lh-sm: 1.6;
+  --hb-lh-xs: 1.5;
+
+  /* ---------------- 字重 ---------------- */
+  --hb-fw-regular: 400;
+  --hb-fw-medium: 500;
+  --hb-fw-semibold: 600;
+  --hb-fw-bold: 700;
+
+  /* ---------------- 字距 ----------------
+     大字号收紧、小字号放开；中文正文字距略放开更清晰 */
+  --hb-ls-display: -0.03em;
+  --hb-ls-h1: -0.025em;
+  --hb-ls-h2: -0.02em;
+  --hb-ls-h3: -0.01em;
+  --hb-ls-body: 0;
+  --hb-ls-cjk: 0.01em;
+  --hb-ls-eyebrow: 0.08em;
+
+  /* 品牌与强调色 */
+  --hb-brand: #0f766e;
+  --hb-brand-strong: #0b5f59;
+  --hb-brand-soft: rgb(15 118 110 / 10%);
+  --hb-brand-soft-2: rgb(15 118 110 / 18%);
+  --hb-accent: #f59e0b;
+  --hb-accent-soft: rgb(245 158 11 / 14%);
+
+  /* 表面与边框 */
+  --hb-bg: #f4f7f7;
+  --hb-bg-grad: radial-gradient(1200px 600px at 100% -10%, rgb(15 118 110 / 8%), transparent 60%);
+  --hb-surface: #ffffff;
+  --hb-surface-2: #f7faf9;
+  --hb-surface-3: #eef3f2;
+  --hb-border: #e3eae9;
+  --hb-border-strong: #d3dedb;
+
+  /* 文字 */
+  --hb-text: #0e1f1c;
+  --hb-text-2: #455955;
+  --hb-muted: #7a8d88;
+
+  /* 语义色 */
+  --hb-success: #15803d;
+  --hb-danger: #dc2626;
+  --hb-warning: #b45309;
+
+  /* 圆角 */
+  --hb-r-sm: 10px;
+  --hb-r-md: 14px;
+  --hb-r-lg: 18px;
+  --hb-r-xl: 24px;
+  --hb-r-full: 999px;
+
+  /* 阴影（低透明度，清爽不脏） */
+  --hb-shadow-xs: 0 1px 2px rgb(16 40 36 / 4%);
+  --hb-shadow-sm: 0 2px 6px rgb(16 40 36 / 6%), 0 1px 2px rgb(16 40 36 / 4%);
+  --hb-shadow-md: 0 8px 24px rgb(16 40 36 / 8%), 0 2px 6px rgb(16 40 36 / 4%);
+  --hb-shadow-lg: 0 24px 48px rgb(16 40 36 / 12%), 0 8px 16px rgb(16 40 36 / 6%);
+
+  /* 间距与布局 */
+  --hb-gap: 16px;
+  --hb-gap-lg: 24px;
+  --hb-page-max: 1200px;
+  --hb-sidebar-w: 248px;
+  --hb-topbar-h: 60px;
+  --hb-bottom-nav: 64px;
+  --hb-safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* 动效 */
+  --hb-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --hb-dur: 180ms;
+}
+
+.dark {
+  --hb-brand: #2dd4bf;
+  --hb-brand-strong: #5eead4;
+  --hb-brand-soft: rgb(45 212 191 / 14%);
+  --hb-brand-soft-2: rgb(45 212 191 / 22%);
+  --hb-accent: #fbbf24;
+  --hb-accent-soft: rgb(251 191 36 / 16%);
+
+  --hb-bg: #080f11;
+  --hb-bg-grad: radial-gradient(1200px 600px at 100% -10%, rgb(45 212 191 / 8%), transparent 60%);
+  --hb-surface: #0f1719;
+  --hb-surface-2: #141e21;
+  --hb-surface-3: #1b272a;
+  --hb-border: #1f2c2f;
+  --hb-border-strong: #2b3b3e;
+
+  --hb-text: #e9f1f0;
+  --hb-text-2: #b7c6c3;
+  --hb-muted: #839793;
+
+  --hb-success: #4ade80;
+  --hb-danger: #f87171;
+  --hb-warning: #fbbf24;
+
+  --hb-shadow-xs: 0 1px 2px rgb(0 0 0 / 30%);
+  --hb-shadow-sm: 0 2px 8px rgb(0 0 0 / 40%), 0 1px 2px rgb(0 0 0 / 30%);
+  --hb-shadow-md: 0 10px 28px rgb(0 0 0 / 45%), 0 2px 8px rgb(0 0 0 / 30%);
+  --hb-shadow-lg: 0 28px 56px rgb(0 0 0 / 55%), 0 10px 20px rgb(0 0 0 / 35%);
+}
+
+/* ==========================================================================
+   基础
+   ========================================================================== */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--hb-font-sans);
+  font-size: var(--hb-fs-body);
+  font-weight: var(--hb-fw-regular);
+  line-height: var(--hb-lh-body);
+  letter-spacing: var(--hb-ls-body);
+
+  /* 变量字体的光学尺寸自动优化；不要合成字重/斜体（中文伪粗体很难看） */
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  font-variant-ligatures: common-ligatures contextual;
+  font-kerning: normal;
+  font-feature-settings: 'calt' 1, 'kern' 1;
+
+  background-color: var(--hb-bg);
+  background-image: var(--hb-bg-grad);
+  background-attachment: fixed;
+  color: var(--hb-text);
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  text-size-adjust: 100%;
+
+  overscroll-behavior-y: none;
+  transition:
+    background-color var(--hb-dur) var(--hb-ease),
+    color var(--hb-dur) var(--hb-ease);
+}
+
+/* 中文：行高更宽松、字距略放开，标题不再额外压缩字距 */
+:lang(zh) {
+  line-height: var(--hb-lh-cjk);
+  letter-spacing: var(--hb-ls-cjk);
+}
+
+/* 中日韩标点/中西文混排间距（Chromium 123+ 渐进增强，不支持则忽略） */
+@supports (text-spacing-trim: trim-start) {
+  :lang(zh),
+  :lang(ja) {
+    text-spacing-trim: trim-start;
+    text-autospace: normal;
+  }
+}
+
+/* 标题字距按语言区分：拉丁收紧，中文保持自然 */
+:lang(zh) :is(h1, h2, h3, h4, .hb-display, .hb-h1) {
+  letter-spacing: normal;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: var(--hb-fw-semibold);
+  text-wrap: balance;
+  margin: 0;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* 表单控件继承排版，避免浏览器默认 13.33px 字体 */
+input,
+button,
+select,
+textarea {
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--hb-font-mono);
+  font-size: 0.9em;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hb-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--hb-border-strong);
+  border-radius: var(--hb-r-full);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--hb-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--hb-brand-soft-2);
+  color: var(--hb-text);
+}
+
+/* ==========================================================================
+   通用组件类
+   ========================================================================== */
+
+.hb-card {
+  background: var(--hb-surface);
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-lg);
+  box-shadow: var(--hb-shadow-sm);
+}
+
+.hb-card-hover {
+  transition:
+    transform var(--hb-dur) var(--hb-ease),
+    box-shadow var(--hb-dur) var(--hb-ease),
+    border-color var(--hb-dur) var(--hb-ease);
+}
+
+.hb-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--hb-shadow-md);
+  border-color: var(--hb-border-strong);
+}
+
+.hb-tile {
+  position: relative;
+  overflow: hidden;
+  background: var(--hb-surface);
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-lg);
+  box-shadow: var(--hb-shadow-xs);
+}
+
+/* 统计卡片右下角的柔和光斑 */
+.hb-tile::after {
+  content: '';
+  position: absolute;
+  right: -40px;
+  bottom: -70px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: var(--hb-brand-soft);
+  filter: blur(6px);
+  pointer-events: none;
+}
+
+.hb-icon-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--hb-r-md);
+  background: var(--hb-brand-soft);
+  color: var(--hb-brand);
+  flex-shrink: 0;
+}
+
+.hb-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--hb-text);
+}
+
+.hb-muted {
+  color: var(--hb-muted);
+}
+
+.hb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--hb-r-full);
+  border: 1px solid var(--hb-border);
+  background: var(--hb-surface-2);
+  color: var(--hb-text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.hb-divider {
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--hb-border);
+}
+
+.hb-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hb-border);
+  transition: background var(--hb-dur) var(--hb-ease);
+}
+
+.hb-row:last-child {
+  border-bottom: 0;
+}
+
+.hb-row:hover {
+  background: var(--hb-surface-2);
+}
+
+.hb-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--hb-surface-2) 25%,
+    var(--hb-surface-3) 37%,
+    var(--hb-surface-2) 63%
+  );
+  background-size: 400% 100%;
+  animation: hb-shimmer 1.4s ease infinite;
+  border-radius: var(--hb-r-md);
+}
+
+@keyframes hb-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.hb-rise {
+  animation: hb-rise var(--hb-dur) var(--hb-ease) both;
+}
+
+@keyframes hb-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   排版工具类
+   页面里用这些类，不要各写一套 font-size / line-height / letter-spacing
+   ========================================================================== */
+
+.hb-display {
+  font-size: var(--hb-fs-display);
+  line-height: var(--hb-lh-display);
+  letter-spacing: var(--hb-ls-display);
+  font-weight: var(--hb-fw-bold);
+  color: var(--hb-text);
+}
+
+.hb-h1 {
+  font-size: var(--hb-fs-h1);
+  line-height: var(--hb-lh-h1);
+  letter-spacing: var(--hb-ls-h1);
+  font-weight: var(--hb-fw-bold);
+}
+
+.hb-h2 {
+  font-size: var(--hb-fs-h2);
+  line-height: var(--hb-lh-h2);
+  letter-spacing: var(--hb-ls-h2);
+  font-weight: var(--hb-fw-semibold);
+}
+
+.hb-h3 {
+  font-size: var(--hb-fs-h3);
+  line-height: var(--hb-lh-h3);
+  letter-spacing: var(--hb-ls-h3);
+  font-weight: var(--hb-fw-semibold);
+}
+
+.hb-body {
+  font-size: var(--hb-fs-body);
+  line-height: var(--hb-lh-body);
+}
+
+.hb-sm {
+  font-size: var(--hb-fs-sm);
+  line-height: var(--hb-lh-sm);
+}
+
+.hb-xs {
+  font-size: var(--hb-fs-xs);
+  line-height: var(--hb-lh-xs);
+}
+
+/* 小号全大写标签（分区名、字段名） */
+.hb-eyebrow {
+  font-size: var(--hb-fs-xs);
+  font-weight: var(--hb-fw-semibold);
+  letter-spacing: var(--hb-ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--hb-muted);
+}
+
+/* 表单字段名等「有语气但不喧哗」的标签 */
+.hb-label {
+  font-size: var(--hb-fs-sm);
+  font-weight: var(--hb-fw-medium);
+  color: var(--hb-text-2);
+}
+
+/* 数字：等宽数字，金额/数量/统计数值对齐不跳动 */
+.hb-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'calt' 1;
+  letter-spacing: -0.01em;
+}
+
+.hb-num-xl {
+  font-size: var(--hb-fs-h1);
+  font-weight: var(--hb-fw-bold);
+  letter-spacing: -0.02em;
+}
+
+.hb-mono {
+  font-family: var(--hb-font-mono);
+  font-size: 0.92em;
+}
+
+.hb-link {
+  color: var(--hb-brand);
+  font-weight: var(--hb-fw-semibold);
+  text-decoration: none;
+}
+
+.hb-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.hb-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-clamp-2,
+.hb-clamp-3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.hb-clamp-2 {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.hb-clamp-3 {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+/* 长串（URL、序列号、路径）安全换行，避免撑破布局 */
+.hb-break {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* ==========================================================================
+   布局辅助
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .hb-content {
+    padding-bottom: calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 16px);
+  }
+}
+
+@media (pointer: coarse) {
+  .hb-tap {
+    min-height: 44px;
+  }
+}
+
+/* ==========================================================================
+   位置树拖拽
+   ========================================================================== */
+
+.hb-tree-ghost {
+  opacity: 0.45;
+  background: var(--hb-brand-soft);
+  border-radius: var(--hb-r-sm);
+}
+
+.hb-tree-drag {
+  background: var(--hb-surface);
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-sm);
+  box-shadow: var(--hb-shadow-lg);
+}

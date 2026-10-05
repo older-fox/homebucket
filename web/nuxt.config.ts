@@ -13,8 +13,26 @@ const port = Number(process.env.WEB_PORT ?? 3000);
 const apiProxyTarget = (process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:3001').replace(/\/+$/, '');
 
 export default defineNuxtConfig({
+  modules: ['@nuxt/ui', '@nuxtjs/i18n'],
+  // 关闭 @nuxt/fonts：不依赖 Google Fonts 等外部字体服务，改用系统字体栈（离线也能跑）
+  ui: { fonts: false },
+  icon: {
+    // 图标集装到本地（@iconify-json/lucide），不依赖 Iconify 在线接口
+    serverBundle: 'local',
+    // 默认的 /api/_nuxt_icon 会被下面的 /api/** 代理转发到 Nest，换成独立路径
+    localApiEndpoint: '/_nuxt_icon',
+  },
   devtools: { enabled: true },
   ssr: true,
+  css: ['~/assets/css/main.css'],
+
+  // 深浅色：跟随系统，用户可手动切换并记住（html 上加 .dark 类）
+  colorMode: {
+    preference: 'system',
+    fallback: 'light',
+    classSuffix: '',
+    storageKey: 'hb-color-mode',
+  },
 
   devServer: { host, port },
 
@@ -22,6 +40,26 @@ export default defineNuxtConfig({
     head: {
       title: 'Homebucket',
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+      meta: [
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+        { name: 'theme-color', content: '#1b7f74' },
+      ],
+    },
+  },
+
+  i18n: {
+    defaultLocale: 'zh-CN',
+    strategy: 'no_prefix',
+    locales: [
+      { code: 'zh-CN', name: '简体中文', file: 'zh-CN.json' },
+      { code: 'en', name: 'English', file: 'en.json' },
+    ],
+    langDir: 'locales',
+    detectBrowserLanguage: {
+      useCookie: true,
+      cookieKey: 'hb_locale',
+      redirectOn: 'root',
+      fallbackLocale: 'zh-CN',
     },
   },
 

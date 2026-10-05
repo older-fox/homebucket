@@ -1,4 +1,4 @@
-import { IsEmail, IsString, Length, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Length, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail({}, { message: '邮箱格式不正确' })
@@ -11,6 +11,11 @@ export class RegisterDto {
   @IsString()
   @MinLength(8, { message: '密码至少 8 位' })
   password: string;
+
+  /** 通过邀请链接注册时带上，注册完成后自动加入该家庭 */
+  @IsOptional()
+  @IsString()
+  inviteToken?: string;
 }
 
 export class LoginDto {
