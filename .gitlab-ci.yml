@@ -10,7 +10,7 @@
 # 加速域名（都可通过 CI/CD Variables 覆盖）：
 #   NODE_IMAGE     基础镜像，默认走 docker.1ms.run（Docker Hub 加速）
 #   NPM_REGISTRY   npm 源，默认走 npmmirror
-#   kaniko 镜像本身用 docker.m.daocloud.io 接 gcr.io / ghcr.io
+#   kaniko 镜像本身在 gcr.io，用 gcr.m.daocloud.io 加速（ghcr.io 对应 ghcr.m.daocloud.io）
 #
 # 触发：推送任意分支 / 打 tag 都会自动构建并推送镜像；也可在页面 / API 手动触发。
 
@@ -40,9 +40,14 @@ workflow:
 
 docker:image:
   stage: image
-  # 整个 job 在容器内执行。kaniko 走加速域名（替代 gcr.io / ghcr.io），无需 docker daemon / dind。
+  # 整个 job 在容器内执行，无需 docker daemon / dind。
+  # kaniko 官方镜像只在 gcr.io：gcr.io/kaniko-project/executor:debug
+  #   · 加速域名 → gcr.m.daocloud.io/kaniko-project/executor:debug（当前用法）
+  #   · 注意不要用 docker.m.daocloud.io（那是 Docker Hub 加速，没有这个仓库，会报“不在白名单”）
+  #   · runner 若能直连 gcr.io，也可改回官方地址
+  # debug 变体自带 shell，脚本里的 heredoc / mkdir 依赖它
   image:
-    name: docker.m.daocloud.io/kaniko-project/executor:debug
+    name: gcr.m.daocloud.io/kaniko-project/executor:debug
     entrypoint: [""]
   interruptible: true
   variables:
