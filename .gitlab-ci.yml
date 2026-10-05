@@ -1,77 +1,85 @@
-# Homebucket GitLab CI
+# Homebucket 镜像流水线
 #
-# 关于"屏蔽推送后的自动检查"：
-#   1. 仓库里存在 .gitlab-ci.yml 后，GitLab 的 Auto DevOps 自动流水线不会再运行；
-#   2. 本文件没有 include 任何 SAST / Secret-Detection / Dependency-Scanning 等安全模板，
-#      所以推送后不会自动跑这些检查任务；
-#   3. workflow.rules 把 push、merge_request、schedule 触发的流水线全部挡掉，
-#      只有在 GitLab 页面手动 "Run pipeline"、API 触发，或打 tag 时才执行。
+# 参照 DockerFileTest / ciTest 的取舍：
+#   · 只在容器内构建：用 kaniko 在容器里构建并推送镜像，不需要 docker daemon / dind，
+#     也不需要 privileged runner。kaniko 镜像走加速域名（替代 gcr.io / ghcr.io）。
+#   · 不做 typecheck、不做独立的 build 校验 job —— 编译发生在 docker build 内部
+#     （nest build / nuxt build），失败即整个 job 失败。
+#   · 不保留任何产物：没有 artifacts，构建结果只以镜像形式进入项目的容器注册表。
 #
-# 想恢复推送即构建：把 workflow.rules 里的 `- when: never` 改成
-#   - if: $CI_COMMIT_BRANCH
-#     when: always
+# 加速域名（都可通过 CI/CD Variables 覆盖）：
+#   NODE_IMAGE     基础镜像，默认走 docker.1ms.run（Docker Hub 加速）
+#   NPM_REGISTRY   npm 源，默认走 npmmirror
+#   kaniko 镜像本身用 docker.m.daocloud.io 接 gcr.io / ghcr.io
+#
+# 触发：推送默认分支、打 tag、或 GitLab 页面 / API 手动触发。
 
 stages:
-  - build
-  - docker
+  - image
+
+variables:
+  # 基础镜像：Docker Hub 官方仓库经加速域名拉取
+  # 若该路径 404，可去掉 library/ 前缀试试：docker.1ms.run/node:22-bookworm-slim
+  NODE_IMAGE: docker.1ms.run/library/node:22-bookworm-slim
+  # npm 加速源；留空则用官方 registry.npmjs.org
+  NPM_REGISTRY: https://registry.npmmirror.com
+  # 镜像内使用的 Prisma schema：mysql（默认）| sqlite
+  DB_PROVIDER: mysql
 
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "web" # 在 GitLab 页面手动 Run pipeline
+    # 推送默认分支
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+    # 打 tag
+    - if: $CI_COMMIT_TAG
+      when: always
+    # 页面手动 Run pipeline / API 触发
+    - if: $CI_PIPELINE_SOURCE == "web"
       when: always
     - if: $CI_PIPELINE_SOURCE == "api"
       when: always
-    - if: $CI_COMMIT_TAG
-      when: always
     - when: never
 
-.node:
-  image: node:22-slim
-  before_script:
-    # Prisma 查询引擎依赖 openssl
-    - apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
-
-build:server:
-  extends: .node
-  stage: build
-  cache:
-    key:
-      files:
-        - server/package-lock.json
-    paths:
-      - server/node_modules/
-  script:
-    - cd server
-    - npm ci --no-audit --no-fund
-    - npx prisma generate --schema "prisma/${DB_PROVIDER:-mysql}/schema.prisma"
-    - npm run build
-
-build:web:
-  extends: .node
-  stage: build
-  cache:
-    key:
-      files:
-        - web/package-lock.json
-    paths:
-      - web/node_modules/
-  script:
-    - cd web
-    - npm ci --no-audit --no-fund
-    - npm run build
-  artifacts:
-    paths:
-      - web/.output/
-    expire_in: 1 week
-
 docker:image:
-  stage: docker
-  image: docker:28
-  services:
-    - docker:28-dind
+  stage: image
+  # 整个 job 在容器内执行。kaniko 走加速域名（替代 gcr.io / ghcr.io），无需 docker daemon / dind。
+  image:
+    name: docker.m.daocloud.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  interruptible: true
   variables:
-    DOCKER_TLS_CERTDIR: "/certs"
-    DOCKER_BUILDKIT: "1"
-  when: manual # 手动触发，避免推送后自动构建镜像
+    GIT_STRATEGY: clone
   script:
-    - docker build --build-arg DB_PROVIDER=${DB_PROVIDER:-mysql} -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    # 目标 tag：始终推 sha；默认分支额外推 latest；打 tag 时额外推版本号
+    - |
+      dests="--destination $CI_REGISTRY_IMAGE:sha-$CI_COMMIT_SHORT_SHA"
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        dests="$dests --destination $CI_REGISTRY_IMAGE:latest"
+      fi
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        dests="$dests --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+      fi
+      echo "[ci] destinations: $dests"
+    # 写 kaniko 推送凭据（项目容器注册表；CI_REGISTRY_* 为 GitLab 预置变量）
+    - mkdir -p /kaniko/.docker
+    - |
+      cat > /kaniko/.docker/config.json <<EOF
+      {"auths":{"$CI_REGISTRY":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"}}}
+      EOF
+    # 在容器内构建并推送（无需 daemon）
+    - |
+      /kaniko/executor \
+        --context "$CI_PROJECT_DIR" \
+        --dockerfile "$CI_PROJECT_DIR/Dockerfile" \
+        --build-arg NODE_IMAGE="$NODE_IMAGE" \
+        --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
+        --build-arg DB_PROVIDER="$DB_PROVIDER" \
+        --cache=true \
+        --cache-repo "$CI_REGISTRY_IMAGE/cache" \
+        $dests
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "api"
