@@ -179,6 +179,19 @@ docker run --env-file .env -p 3000:3000 -p 3001:3001 homebucket
 - 基础镜像装了 `openssl`（Prisma 查询引擎依赖它），且必须在 `prisma generate` **之前**装好，否则生成出来的引擎版本和运行环境对不上；
 - `docker run --env-file` **不会**去掉值两侧的引号，所以 `.env` 里的 `DATABASE_URL` 不要加引号。
 
+## 演示数据（Mock）
+
+```bash
+cd server && npm run seed
+```
+
+会清空并重建演示账号自己的数据（不影响其它用户），生成一个适合看效果的样板：
+
+- 演示账号：`demo@homebucket.local` / `homebucket123`（默认家庭「样板间」，owner）
+- 共享成员：`family@homebucket.local` / `homebucket123`（「样板间」的普通成员，用来验证多家庭与权限）
+- 内容：16 个位置（五层树）、8 个标签、36 件物品、10 个序列号（含同一物品的 SN 分散在不同位置）、4 个模板、1 个未启用的通知器、1 条邀请链接
+- 可重复执行；脚本在 `server/scripts/seed.mjs`
+
 ## 启动即迁移
 
 后端启动时（`AUTO_MIGRATE=true`，默认开）会先执行 `prisma migrate deploy`，按 `DB_PROVIDER` 选择 `prisma/<provider>/schema.prisma`：

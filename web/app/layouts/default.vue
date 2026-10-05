@@ -208,7 +208,8 @@ function goSettings() {
 <style scoped>
 .shell {
   display: flex;
-  min-height: 100vh;
+  /* dvh 处理移动端浏览器工具栏高度变化 */
+  min-height: 100dvh;
 }
 
 /* ---------------- 侧边栏 ---------------- */
@@ -495,7 +496,9 @@ function goSettings() {
   width: 100%;
   max-width: var(--hb-page-max);
   margin: 0 auto;
-  padding: 20px 16px 32px;
+  padding: 20px 16px;
+  /* 关键：底部留出底部 Tab 的高度，否则内容（如新增物品的提交按钮）会被导航遮住 */
+  padding-bottom: calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 24px);
 }
 
 /* ---------------- 移动端底部 Tab ---------------- */
@@ -616,10 +619,23 @@ function goSettings() {
     padding: 26px 24px 40px;
   }
 }
-
 @media (max-width: 767px) {
   .search-kbd {
     display: none;
+  }
+}
+
+/* 触屏设备：可点元素至少 44×44，圆形头像/图标按钮同时放大宽高，避免被拉成椭圆 */
+@media (pointer: coarse) {
+  .avatar,
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+  }
+
+  .avatar {
+    aspect-ratio: 1 / 1;
   }
 }
 </style>

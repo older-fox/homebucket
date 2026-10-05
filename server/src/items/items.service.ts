@@ -62,6 +62,7 @@ export class ItemsService {
       where: { id, familyId },
       include: {
         location: { select: { id: true, name: true } },
+        template: { select: { id: true, name: true } },
         tags: true,
         images: true,
         coverImage: true,

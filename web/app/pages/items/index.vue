@@ -18,23 +18,16 @@
       </template>
     </PageHeader>
 
+    <!-- 统一搜索：名称/型号/制造商/描述 + SN/条码 + 位置 + 标签（后端一个 q 参数全包） -->
     <div class="filters">
       <UInput
         v-model="filters.q"
-        :placeholder="t('item.searchPlaceholder')"
+        :placeholder="t('item.searchPlaceholderAll')"
         icon="i-lucide-search"
         size="xl"
         class="grow"
         type="search"
         enterkeyhint="search"
-        @keyup.enter="applyFilters"
-      />
-      <UInput
-        v-model="filters.sn"
-        :placeholder="t('item.searchBySn')"
-        icon="i-lucide-barcode"
-        size="xl"
-        class="grow"
         @keyup.enter="applyFilters"
       />
       <UButton size="xl" class="hb-tap" @click="applyFilters">{{ t('common.search') }}</UButton>
@@ -45,7 +38,7 @@
       <TagPicker v-model="filters.tagIds" class="filter-tags" />
     </div>
 
-    <USkeleton v-if="pending" class="skeleton" />
+    <div v-if="pending" class="hb-skeleton skeleton" />
     <EmptyState v-else-if="!items.length" :text="t('item.empty')" icon="i-lucide-package">
       <UButton size="sm" @click="navigateTo('/items/new')">{{ t('item.new') }}</UButton>
     </EmptyState>
@@ -147,7 +140,6 @@ const exporting = ref(false);
 
 const filters = reactive({
   q: (route.query.q as string) ?? '',
-  sn: (route.query.sn as string) ?? '',
   locationId: route.query.locationId ? Number(route.query.locationId) : null,
   tagIds: route.query.tagId ? [Number(route.query.tagId)] : [],
 });
@@ -157,7 +149,6 @@ const { data, pending, refresh } = await useAsyncData(
   () =>
     api.get<{ items: Item[]; total: number }>('/items', {
       q: filters.q || undefined,
-      sn: filters.sn || undefined,
       locationId: filters.locationId ?? undefined,
       tagId: filters.tagIds[0] ?? undefined,
       page: page.value,
@@ -195,7 +186,6 @@ async function exportCsv() {
   try {
     const query = new URLSearchParams();
     if (filters.q) query.set('q', filters.q);
-    if (filters.sn) query.set('sn', filters.sn);
     if (filters.locationId) query.set('locationId', String(filters.locationId));
     if (filters.tagIds[0]) query.set('tagId', String(filters.tagIds[0]));
 
@@ -372,5 +362,31 @@ async function exportCsv() {
   .hide-sm {
     display: none;
   }
+}
+/* ---------------- 表格密度与可读性 ---------------- */
+.table th {
+  position: sticky;
+  top: var(--hb-topbar-h);
+  z-index: 1;
+  padding: 10px 12px;
+  background: var(--hb-surface-2);
+  border-bottom: 1px solid var(--hb-border);
+}
+
+.table td {
+  padding: 11px 12px;
+}
+
+.table tbody tr:hover {
+  background: var(--hb-surface-2);
+}
+
+.table .num {
+  white-space: nowrap;
+}
+
+/* 数值列右对齐时留出间距，避免贴边 */
+.table .num:last-of-type {
+  padding-right: 16px;
 }
 </style>

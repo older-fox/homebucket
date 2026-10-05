@@ -240,4 +240,59 @@ function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; n
   border-left: 1px dashed var(--hb-border);
   padding-left: 6px;
 }
+/* ---------------- 视觉细化 ---------------- */
+.node-row {
+  position: relative;
+  min-height: 38px;
+  transition:
+    background var(--hb-dur) var(--hb-ease),
+    color var(--hb-dur) var(--hb-ease);
+}
+
+/* 选中态：左侧品牌色标记条 + 柔和底色 */
+.node-row.selected::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 3px;
+  height: 20px;
+  border-radius: var(--hb-r-full);
+  background: var(--hb-brand);
+  transform: translateY(-50%);
+}
+
+/* 拖拽把手：平时半透明，悬停/选中时高亮，移动端常显 */
+.drag-handle {
+  opacity: 0.32;
+  transition: opacity var(--hb-dur) var(--hb-ease);
+}
+
+.node-row:hover .drag-handle,
+.node-row.selected .drag-handle {
+  opacity: 0.9;
+}
+
+.children {
+  border-left: 1px solid var(--hb-border);
+}
+
+.badge {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (pointer: coarse) {
+  .node-row {
+    min-height: 44px;
+  }
+
+  .drag-handle {
+    opacity: 0.6;
+  }
+
+  .expand {
+    width: 28px;
+    height: 28px;
+  }
+}
 </style>

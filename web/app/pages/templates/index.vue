@@ -8,7 +8,7 @@
       </template>
     </PageHeader>
 
-    <USkeleton v-if="pending" class="skeleton" />
+    <div v-if="pending" class="hb-skeleton skeleton" />
     <EmptyState v-else-if="!templates.length" :text="t('template.empty')" icon="i-lucide-layers">
       <UButton size="sm" @click="openCreate">{{ t('template.new') }}</UButton>
     </EmptyState>

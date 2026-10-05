@@ -1,6 +1,11 @@
 <template>
   <div v-if="item">
-    <PageHeader :title="item.name" :description="item.location?.name || t('item.noLocation')">
+    <PageHeader
+      :title="item.name"
+      :description="item.location?.name || t('item.noLocation')"
+      back="/items"
+      :back-label="t('item.title')"
+    >
       <template #actions>
         <UButton color="neutral" variant="soft" icon="i-lucide-qr-code" class="hb-tap" @click="showQr = true">
           <span class="hide-sm">{{ t('item.qrCode') }}</span>

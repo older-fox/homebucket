@@ -37,7 +37,40 @@ export class TemplatesService {
       },
     });
 
-    return rows.map((row) => ({
+    return rows.map((row) => this.toDetail(row));
+  }
+
+  /** 单个模板详情：创建物品时用来预填表单 */
+  async detail(familyId: number, id: number) {
+    const row = await this.prisma.template.findFirst({
+      where: { id, familyId },
+      include: {
+        image: { select: { key: true, url: true } },
+        defaultLocation: { select: { id: true, name: true } },
+        tags: { select: { id: true, name: true, color: true } },
+        _count: { select: { items: true } },
+      },
+    });
+    if (!row) throw new NotFoundException({ code: 'template.notFound', message: '模板不存在' });
+    return this.toDetail(row);
+  }
+
+  private toDetail(row: {
+    id: number;
+    name: string;
+    description: string | null;
+    imageId: number | null;
+    image: { key: string; url: string | null } | null;
+    quantity: number;
+    price: unknown;
+    model: string | null;
+    manufacturer: string | null;
+    defaultLocationId: number | null;
+    defaultLocation: { id: number; name: string } | null;
+    tags: { id: number; name: string; color: string }[];
+    _count: { items: number };
+  }) {
+    return {
       id: row.id,
       name: row.name,
       description: row.description,
@@ -51,7 +84,7 @@ export class TemplatesService {
       defaultLocation: row.defaultLocation,
       tags: row.tags,
       itemCount: row._count.items,
-    }));
+    };
   }
 
   async create(familyId: number, dto: CreateTemplateDto) {
@@ -172,6 +205,12 @@ export class TemplatesController {
   @Get()
   list(@CurrentFamily() family: FamilyContext) {
     return this.templates.list(family.id);
+  }
+
+  @FamilyScoped()
+  @Get(':id')
+  detail(@CurrentFamily() family: FamilyContext, @Param('id', ParseIntPipe) id: number) {
+    return this.templates.detail(family.id, id);
   }
 
   @FamilyScoped()

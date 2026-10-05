@@ -15,7 +15,8 @@
     "prisma:migrate": "node scripts/prisma.mjs migrate dev",
     "prisma:deploy": "node scripts/prisma.mjs migrate deploy",
     "prisma:studio": "node scripts/prisma.mjs studio",
-    "prisma:diff": "node scripts/prisma.mjs migrate diff"
+    "prisma:diff": "node scripts/prisma.mjs migrate diff",
+    "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

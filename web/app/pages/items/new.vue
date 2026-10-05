@@ -1,6 +1,6 @@
 <template>
   <div>
-    <PageHeader :title="templateId ? t('template.useTemplate') : t('item.new')" />
+    <PageHeader :title="templateId ? t('template.useTemplate') : t('item.new')" back="/items" :back-label="t('item.title')" />
     <ItemForm :template-id="templateId" />
   </div>
 </template>

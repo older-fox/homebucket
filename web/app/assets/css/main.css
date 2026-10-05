@@ -151,7 +151,12 @@
 
 html,
 body {
-  height: 100%;
+  /* 用 min-height 而不是 height：避免长页面（如新增物品表单）无法滚动到底 */
+  min-height: 100%;
+}
+
+body {
+  overflow-x: clip;
 }
 
 body {

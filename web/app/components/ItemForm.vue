@@ -1,5 +1,32 @@
 <template>
   <form class="item-form" @submit.prevent="submit">
+    <!-- 新增时可套用模板：选中后自动预填各字段，物品会记录 templateId -->
+    <div v-if="!itemId" class="template-bar">
+      <UIcon name="i-lucide-layers" class="template-icon" />
+      <USelect
+        v-model="selectedTemplateId"
+        :items="templateOptions"
+        :placeholder="t('item.fromTemplateLabel')"
+        size="lg"
+        class="template-select"
+        @update:model-value="onTemplateChange"
+      />
+      <UButton
+        v-if="selectedTemplateId"
+        color="neutral"
+        variant="ghost"
+        icon="i-lucide-x"
+        size="sm"
+        :aria-label="t('common.cancel')"
+        @click="clearTemplate"
+      />
+    </div>
+
+    <p v-else-if="templateName" class="template-from">
+      <UIcon name="i-lucide-layers" />
+      {{ t('item.createdFrom') }}：{{ templateName }}
+    </p>
+
     <UFormField :label="t('item.name')" required>
       <UInput v-model="form.name" size="xl" class="w-full" required />
     </UFormField>
@@ -79,6 +106,7 @@ interface Template {
   manufacturer: string | null;
   defaultLocationId: number | null;
   imageId: number | null;
+  imageUrl: string | null;
   tags: { id: number }[];
 }
 
@@ -94,6 +122,7 @@ interface ItemDetail {
   tags: { id: number }[];
   images: { id: number; url: string }[];
   coverImageUrl: string | null;
+  template: { id: number; name: string } | null;
 }
 
 const props = defineProps<{ itemId?: number; templateId?: number }>();
@@ -106,6 +135,13 @@ const { currency } = useFormat();
 
 const saving = ref(false);
 const initialImages = ref<{ id: number; url: string }[]>([]);
+const templates = ref<Template[]>([]);
+const selectedTemplateId = ref<number | undefined>(props.templateId ?? undefined);
+const templateName = ref<string | null>(null);
+
+const templateOptions = computed(() =>
+  templates.value.map((template) => ({ label: template.name, value: template.id })),
+);
 
 const form = reactive<{
   name: string;
@@ -156,25 +192,47 @@ onMounted(async () => {
       coverImageId: null,
     });
     initialImages.value = item.images;
-  } else if (props.templateId) {
-    const templates = await api.get<Template[]>('/templates');
-    const template = templates.find((row) => row.id === props.templateId);
-    if (template) {
-      Object.assign(form, {
-        name: template.name,
-        description: template.description ?? '',
-        quantity: template.quantity,
-        price: template.price,
-        model: template.model ?? '',
-        manufacturer: template.manufacturer ?? '',
-        locationId: template.defaultLocationId,
-        tagIds: template.tags.map((tag) => tag.id),
-        imageIds: template.imageId ? [template.imageId] : [],
-      });
-      if (template.imageId) initialImages.value = [{ id: template.imageId, url: `/api/media/${template.imageId}` }];
-    }
+    templateName.value = item.template?.name ?? null;
+  } else {
+    // 新增：加载模板列表供选择
+    templates.value = await api.get<Template[]>('/templates');
+    if (selectedTemplateId.value) await applyTemplate(selectedTemplateId.value);
   }
 });
+
+/** 套用模板：把模板字段填进表单（不覆盖用户已填的名称） */
+async function applyTemplate(templateId: number) {
+  try {
+    const template = await api.get<Template>(`/templates/${templateId}`);
+    templateName.value = template.name;
+    Object.assign(form, {
+      name: form.name || template.name,
+      description: template.description ?? '',
+      quantity: template.quantity,
+      price: template.price,
+      model: template.model ?? '',
+      manufacturer: template.manufacturer ?? '',
+      locationId: template.defaultLocationId,
+      tagIds: template.tags.map((tag) => tag.id),
+      imageIds: template.imageId ? [template.imageId] : [],
+    });
+    if (template.imageId) {
+      initialImages.value = [{ id: template.imageId, url: template.imageUrl ?? '' }];
+    }
+  } catch (error) {
+    toast.add({ title: (error as { message?: string }).message ?? t('errors.unknown'), color: 'error' });
+  }
+}
+
+function onTemplateChange(value: number) {
+  selectedTemplateId.value = value ?? undefined;
+  if (value) void applyTemplate(value);
+}
+
+function clearTemplate() {
+  selectedTemplateId.value = undefined;
+  templateName.value = null;
+}
 
 function addUnit() {
   form.units.push({ sn: '', locationId: null });
@@ -203,6 +261,7 @@ async function submit() {
     } else {
       const created = await api.post<{ id: number }>('/items', {
         ...payload,
+        templateId: selectedTemplateId.value ?? undefined,
         units: form.units
           .filter((unit) => unit.sn.trim())
           .map((unit) => ({ sn: unit.sn.trim(), locationId: unit.locationId ?? undefined })),
@@ -250,6 +309,46 @@ async function submit() {
 
 .unit-location {
   flex: 1 1 60%;
+}
+
+.template-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--hb-r-md);
+  border: 1px dashed var(--hb-border-strong);
+  background: var(--hb-surface-2);
+}
+
+.template-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--hb-brand);
+  flex-shrink: 0;
+}
+
+.template-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.template-from {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--hb-r-sm);
+  background: var(--hb-brand-soft);
+  color: var(--hb-brand);
+  font-size: var(--hb-fs-sm);
+  font-weight: var(--hb-fw-medium);
+}
+
+.template-from :deep(svg) {
+  width: 15px;
+  height: 15px;
 }
 
 .actions {
