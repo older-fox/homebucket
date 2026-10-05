@@ -4,14 +4,14 @@
     <p class="subtitle hb-muted">{{ t('common.slogan') }}</p>
 
     <form class="form" @submit.prevent="submit">
-      <UFormField :label="t('auth.email')">
+      <UFormField :label="t('auth.username')">
         <UInput
-          v-model="form.email"
-          type="email"
-          autocomplete="email"
-          inputmode="email"
+          v-model="form.username"
+          autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
           size="xl"
-          icon="i-lucide-mail"
+          icon="i-lucide-user-round"
           class="w-full"
           required
         />
@@ -53,7 +53,7 @@ const { t } = useI18n();
 const { login } = useAuth();
 const route = useRoute();
 
-const form = reactive({ email: '', password: '' });
+const form = reactive({ username: '', password: '' });
 const loading = ref(false);
 const error = ref('');
 
@@ -67,7 +67,7 @@ async function submit() {
   error.value = '';
   loading.value = true;
   try {
-    await login({ email: form.email, password: form.password }, redirect.value);
+    await login({ username: form.username, password: form.password }, redirect.value);
   } catch (e) {
     error.value = (e as { message?: string }).message ?? t('auth.loginFailed');
   } finally {

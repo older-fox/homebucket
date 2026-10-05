@@ -8,7 +8,8 @@ import { JwtService } from '@nestjs/jwt';
 
 export interface AuthUser {
   id: number;
-  email: string;
+  /** 邮箱可能为空（不再作为登录凭据） */
+  email: string | null;
   username: string;
 }
 
@@ -25,7 +26,7 @@ export class JwtAuthGuard implements CanActivate {
     if (!token) throw new UnauthorizedException({ code: 'auth.missingToken', message: '缺少登录凭证' });
 
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: number; email: string; username: string }>(token);
+      const payload = await this.jwt.verifyAsync<{ sub: number; email: string | null; username: string }>(token);
       req.user = { id: payload.sub, email: payload.email, username: payload.username };
       return true;
     } catch {

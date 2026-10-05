@@ -11,13 +11,15 @@
       :delay="160"
       :delay-on-touch-only="true"
       :touch-start-threshold="6"
+      @choose="dragging = true"
+      @start="dragging = true"
       @end="onEnd"
     >
       <div v-for="node in list" :key="node.id" class="node" :data-id="node.id">
         <div class="node-row" :class="{ selected: node.id === selectedId }" @click="emit('select', node.id)">
           <UIcon name="i-lucide-grip-vertical" class="drag-handle" />
 
-          <button v-if="node.children.length" type="button" class="expand" @click.stop="toggle(node.id)">
+          <button v-if="node.children.length || dragging" type="button" class="expand" @click.stop="toggle(node.id)">
             <UIcon :name="open.has(node.id) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" />
           </button>
           <span v-else class="expand placeholder" />
@@ -25,11 +27,7 @@
           <span class="name">{{ node.name }}</span>
           <span v-if="node.itemCount" class="badge hb-num">{{ node.itemCount }}</span>
 
-          <UDropdownMenu
-            :items="nodeMenu(node)"
-            :content="{ align: 'end' }"
-            @click.stop
-          >
+          <UDropdownMenu :items="nodeMenu(node)" :content="{ align: 'end' }" @click.stop>
             <UButton
               color="neutral"
               variant="ghost"
@@ -41,18 +39,20 @@
           </UDropdownMenu>
         </div>
 
-        <LocationTree
-          v-if="open.has(node.id)"
-          class="children"
-          :nodes="node.children"
-          :parent-id="node.id"
-          :selected-id="selectedId"
-          @select="emit('select', $event)"
-          @move="emit('move', $event)"
-          @create-child="emit('createChild', $event)"
-          @edit="emit('edit', $event)"
-          @remove="emit('remove', $event)"
-        />
+        <!-- 子层级：拖拽时全部展开，空节点也能作为落点（支持任意层级调整） -->
+        <div v-show="open.has(node.id) || dragging" class="children">
+          <LocationTree
+            :nodes="node.children"
+            :parent-id="node.id"
+            :selected-id="selectedId"
+            @select="emit('select', $event)"
+            @move="emit('move', $event)"
+            @create-child="emit('createChild', $event)"
+            @edit="emit('edit', $event)"
+            @remove="emit('remove', $event)"
+          />
+          <p v-if="dragging && !node.children.length" class="drop-hint">{{ t('location.dropHere') }}</p>
+        </div>
       </div>
     </VueDraggable>
   </div>
@@ -78,13 +78,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-/** 本地副本：拖拽只改本地，真正的落点由服务端裁决后用 tree 整体替换 */
+/** 本地数据由父页面统一维护（乐观更新），这里只负责把落点告诉父页面 */
 const list = computed({
   get: () => props.nodes,
   set: () => undefined,
 });
 
 const open = ref<Set<number>>(new Set());
+const dragging = ref(false);
 
 // 默认展开第一层，方便看到结构
 watch(
@@ -107,16 +108,8 @@ function toggle(id: number) {
 function nodeMenu(node: TreeNode) {
   return [
     [
-      {
-        label: t('location.newChild'),
-        icon: 'i-lucide-folder-plus',
-        onSelect: () => emit('createChild', node.id),
-      },
-      {
-        label: t('common.edit'),
-        icon: 'i-lucide-pencil',
-        onSelect: () => emit('edit', node),
-      },
+      { label: t('location.newChild'), icon: 'i-lucide-folder-plus', onSelect: () => emit('createChild', node.id) },
+      { label: t('common.edit'), icon: 'i-lucide-pencil', onSelect: () => emit('edit', node) },
     ],
     [
       {
@@ -133,7 +126,15 @@ function nodeMenu(node: TreeNode) {
  * 落点解析：SortableJS 的 end 事件里，evt.to 是落点所在的列表容器
  * （嵌套列表都带 data-parent，列表项都带 data-id），据此算出 parentId 与前后邻居。
  */
-function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; newIndex?: number; item: HTMLElement }) {
+function onEnd(event: {
+  from: HTMLElement;
+  to: HTMLElement;
+  oldIndex?: number;
+  newIndex?: number;
+  item: HTMLElement;
+}) {
+  dragging.value = false;
+
   const { from, to, oldIndex, newIndex, item } = event;
   if (from === to && oldIndex === newIndex) return;
 
@@ -174,6 +175,7 @@ function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; n
 }
 
 .node-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -181,6 +183,10 @@ function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; n
   border-radius: 8px;
   cursor: pointer;
   user-select: none;
+  min-height: 38px;
+  transition:
+    background var(--hb-dur) var(--hb-ease),
+    color var(--hb-dur) var(--hb-ease);
 }
 
 .node-row:hover {
@@ -188,9 +194,21 @@ function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; n
 }
 
 .node-row.selected {
-  background: color-mix(in srgb, var(--hb-brand) 14%, transparent);
+  background: var(--hb-brand-soft);
   color: var(--hb-brand);
   font-weight: var(--hb-fw-semibold);
+}
+
+.node-row.selected::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 3px;
+  height: 20px;
+  border-radius: var(--hb-r-full);
+  background: var(--hb-brand);
+  transform: translateY(-50%);
 }
 
 .drag-handle {
@@ -200,6 +218,13 @@ function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; n
   cursor: grab;
   flex-shrink: 0;
   touch-action: none;
+  opacity: 0.35;
+  transition: opacity var(--hb-dur) var(--hb-ease);
+}
+
+.node-row:hover .drag-handle,
+.node-row.selected .drag-handle {
+  opacity: 0.9;
 }
 
 .expand {
@@ -208,7 +233,7 @@ function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; n
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
+  border: 0;
   background: none;
   color: var(--hb-muted);
   flex-shrink: 0;
@@ -237,62 +262,38 @@ function onEnd(event: { from: HTMLElement; to: HTMLElement; oldIndex?: number; n
 
 .children {
   margin-left: 18px;
-  border-left: 1px dashed var(--hb-border);
+  border-left: 1px solid var(--hb-border);
   padding-left: 6px;
 }
-/* ---------------- 视觉细化 ---------------- */
-.node-row {
-  position: relative;
-  min-height: 38px;
-  transition:
-    background var(--hb-dur) var(--hb-ease),
-    color var(--hb-dur) var(--hb-ease);
-}
 
-/* 选中态：左侧品牌色标记条 + 柔和底色 */
-.node-row.selected::before {
-  content: '';
-  position: absolute;
-  left: -6px;
-  top: 50%;
-  width: 3px;
-  height: 20px;
-  border-radius: var(--hb-r-full);
-  background: var(--hb-brand);
-  transform: translateY(-50%);
-}
-
-/* 拖拽把手：平时半透明，悬停/选中时高亮，移动端常显 */
-.drag-handle {
-  opacity: 0.32;
-  transition: opacity var(--hb-dur) var(--hb-ease);
-}
-
-.node-row:hover .drag-handle,
-.node-row.selected .drag-handle {
-  opacity: 0.9;
-}
-
-.children {
-  border-left: 1px solid var(--hb-border);
-}
-
-.badge {
-  font-variant-numeric: tabular-nums;
+.drop-hint {
+  margin: 2px 0 4px;
+  padding: 6px 8px;
+  border: 1px dashed var(--hb-border-strong);
+  border-radius: var(--hb-r-sm);
+  color: var(--hb-muted);
+  font-size: var(--hb-fs-xs);
 }
 
 @media (pointer: coarse) {
   .node-row {
-    min-height: 44px;
+    min-height: 48px;
+    padding: 10px 8px;
   }
 
   .drag-handle {
     opacity: 0.6;
+    width: 18px;
+    height: 18px;
   }
 
   .expand {
     width: 28px;
     height: 28px;
+  }
+
+  .name {
+    font-size: var(--hb-fs-h3);
   }
 }
 </style>

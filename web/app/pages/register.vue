@@ -9,25 +9,14 @@
     <p v-else class="subtitle hb-muted">{{ t('common.slogan') }}</p>
 
     <form class="form" @submit.prevent="submit">
-      <UFormField :label="t('auth.username')">
+      <UFormField :label="t('auth.username')" :hint="t('auth.usernameHint')">
         <UInput
           v-model="form.username"
           autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
           size="xl"
           icon="i-lucide-user-round"
-          class="w-full"
-          required
-        />
-      </UFormField>
-
-      <UFormField :label="t('auth.email')">
-        <UInput
-          v-model="form.email"
-          type="email"
-          autocomplete="email"
-          inputmode="email"
-          size="xl"
-          icon="i-lucide-mail"
           class="w-full"
           required
         />
@@ -43,6 +32,19 @@
           class="w-full"
           minlength="8"
           required
+        />
+      </UFormField>
+
+      <!-- 邮箱选填：仅用于通知/找回，登录用用户名 -->
+      <UFormField :label="t('auth.email')" :hint="t('auth.emailOptional')">
+        <UInput
+          v-model="form.email"
+          type="email"
+          autocomplete="email"
+          inputmode="email"
+          size="xl"
+          icon="i-lucide-mail"
+          class="w-full"
         />
       </UFormField>
 
@@ -70,7 +72,7 @@ const { t } = useI18n();
 const { register } = useAuth();
 const route = useRoute();
 
-const form = reactive({ username: '', email: '', password: '' });
+const form = reactive({ username: '', password: '', email: '' });
 const loading = ref(false);
 const error = ref('');
 
@@ -83,9 +85,9 @@ async function submit() {
   try {
     await register(
       {
-        email: form.email,
         username: form.username,
         password: form.password,
+        email: form.email.trim() || undefined,
         inviteToken: invite.value,
       },
       invite.value ? `/invite/${invite.value}` : '/',

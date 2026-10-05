@@ -822,6 +822,17 @@ function goSettings() {
 }
 
 /* ---------------- 断点 ---------------- */
+@media (max-width: 767px) {
+  /* 移动端顶栏搜索太窄，展示不全，直接移除（主页/列表页各自有更大的搜索入口） */
+  .search {
+    display: none;
+  }
+
+  .topbar {
+    justify-content: space-between;
+  }
+}
+
 @media (min-width: 768px) {
   .sidebar {
     display: flex;

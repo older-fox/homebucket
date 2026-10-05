@@ -47,7 +47,7 @@
             <li v-for="member in members" :key="member.id" class="row">
               <div class="row-main">
                 <span class="row-title">{{ member.username }}</span>
-                <span class="row-sub">{{ member.email }}</span>
+                <span class="row-sub">{{ member.email || t('common.none') }}</span>
               </div>
               <USelect
                 v-if="isOwner && member.role !== 'owner'"
@@ -222,7 +222,7 @@
 interface Member {
   id: number;
   username: string;
-  email: string;
+  email: string | null;
   role: string;
 }
 

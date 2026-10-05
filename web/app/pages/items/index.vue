@@ -116,17 +116,30 @@
 
         <!-- 移动端：卡片流（同样在面板内滚动） -->
         <ul v-if="items.length" class="cards">
-          <li v-for="item in items" :key="item.id" class="card-row" @click="navigateTo(`/items/${item.id}`)">
+          <li v-for="item in items" :key="item.id" class="card-row hb-tap" @click="navigateTo(`/items/${item.id}`)">
+            <span class="hb-icon-tile small"><UIcon name="i-lucide-package" /></span>
             <div class="card-main">
               <span class="card-title">{{ item.name }}</span>
               <span class="card-sub">
+                <UIcon name="i-lucide-map-pin" class="inline-icon" />
                 {{ item.location?.name || t('item.noLocation') }}
                 <template v-if="item.model"> · {{ item.model }}</template>
-                <template v-if="item.barcode"> · <span class="hb-mono">{{ item.barcode }}</span></template>
+              </span>
+              <span v-if="item.barcode" class="card-sub hb-mono hb-truncate">{{ item.barcode }}</span>
+              <span class="card-meta">
+                <span class="hb-chip tiny hb-num">×{{ item.quantity }}</span>
+                <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                <span
+                  v-for="tag in item.tags.slice(0, 2)"
+                  :key="tag.id"
+                  class="mini-tag"
+                  :style="{ color: tag.color, borderColor: tag.color }"
+                >
+                  {{ tag.name }}
+                </span>
               </span>
             </div>
             <div class="card-side">
-              <span class="qty hb-num">×{{ item.quantity }}</span>
               <span class="price hb-num">{{ money(item.price * item.quantity) }}</span>
             </div>
           </li>
@@ -305,6 +318,35 @@ async function exportCsv() {
   text-align: right;
 }
 
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.inline-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.hb-icon-tile.small {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.hb-icon-tile.small :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.card-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .mini-tag {
   display: inline-block;
   margin-right: 4px;
@@ -356,12 +398,6 @@ async function exportCsv() {
   flex-shrink: 0;
 }
 
-.qty {
-  display: block;
-  font-size: var(--hb-fs-xs);
-  color: var(--hb-muted);
-}
-
 .price {
   font-weight: var(--hb-fw-semibold);
 }
@@ -386,6 +422,60 @@ async function exportCsv() {
 
   .filter-location {
     flex: 1 1 100%;
+  }
+
+  /* 移动端：更大的行、更清晰的层级（列表不再"小得看不清"） */
+  .card-row {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+    min-height: 72px;
+  }
+
+  .hb-icon-tile.small {
+    width: 40px;
+    height: 40px;
+  }
+
+  .hb-icon-tile.small :deep(svg) {
+    width: 20px;
+    height: 20px;
+  }
+
+  .card-title {
+    font-size: var(--hb-fs-h3);
+    font-weight: var(--hb-fw-semibold);
+  }
+
+  .card-sub {
+    margin-top: 4px;
+    font-size: var(--hb-fs-sm);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .card-side .price {
+    font-size: var(--hb-fs-h3);
+    font-weight: var(--hb-fw-bold);
+  }
+
+  .mini-tag {
+    padding: 1px 8px;
+    font-size: var(--hb-fs-xs);
+  }
+
+  .inline-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
   }
 }
 </style>

@@ -609,10 +609,10 @@ async function main() {
   };
   if (missingLocation) console.error(`  ! 有 ${missingLocation} 组物品没匹配到位置，已落到无位置`);
 
-  console.log('\n完成 ✓  账号（密码来自 .env 的 DEFAULT_ADMIN_*）：');
-  console.log(`  ${ADMIN.email}   密码 ${ADMIN.password}   （owner，默认家庭「样板间」）`);
-  console.log(`  ${PARTNER.email}   密码 ${PARTNER.password}   （admin 角色）`);
-  console.log(`  ${KID.email}       密码 ${KID.password}   （member 角色）`);
+  console.log('\n完成 ✓  登录用「用户名 + 密码」（邮箱仅作记录，不再用于登录）：');
+  console.log(`  用户名 ${ADMIN.username}   密码 ${ADMIN.password}   （owner，默认家庭「样板间」）`);
+  console.log(`  用户名 ${PARTNER.username}   密码 ${PARTNER.password}   （admin 角色）`);
+  console.log(`  用户名 ${KID.username}   密码 ${KID.password}   （member 角色）`);
   console.log('数据量：', counts);
 }
 

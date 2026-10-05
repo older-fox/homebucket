@@ -55,9 +55,11 @@ const features = computed(() => [
 
 <style scoped>
 .auth {
-  min-height: 100vh;
+  /* dvh 处理移动端工具栏高度变化，避免"表单被挤到屏幕外/底部留白" */
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: 1fr;
+  align-items: stretch;
 }
 
 /* ---------------- 品牌面板（桌面显示） ---------------- */
@@ -160,7 +162,9 @@ const features = computed(() => [
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 100dvh;
   padding: 32px 18px calc(32px + var(--hb-safe-bottom));
+  box-sizing: border-box;
 }
 
 .corner {

@@ -17,18 +17,23 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const email = dto.email.trim().toLowerCase();
+    const username = dto.username.trim();
+    const email = dto.email?.trim().toLowerCase() || null;
+
+    // 用户名是登录凭据，必须唯一；邮箱填了也要唯一
     const exists = await this.prisma.user.findFirst({
-      where: { OR: [{ email }, { username: dto.username }] },
+      where: { OR: [{ username }, ...(email ? [{ email }] : [])] },
       select: { id: true },
     });
-    if (exists) throw new ConflictException({ code: 'auth.emailTaken', message: '邮箱或用户名已被占用' });
+    if (exists) {
+      throw new ConflictException({ code: 'auth.usernameTaken', message: '用户名已被占用' });
+    }
 
     // 邀请链接先校验，无效就直接报错，避免注册完才发现
     if (dto.inviteToken) await this.families.inviteInfo(dto.inviteToken);
 
     const user = await this.prisma.user.create({
-      data: { email, username: dto.username, passwordHash: await hash(dto.password, SALT_ROUNDS) },
+      data: { username, email, passwordHash: await hash(dto.password, SALT_ROUNDS) },
     });
 
     // 每个用户都有一个自己的个人家庭
@@ -41,11 +46,12 @@ export class AuthService {
     return this.toAuthResult(user);
   }
 
+  /** 登录：使用用户名 + 密码（邮箱不再作为登录凭据） */
   async login(dto: LoginDto) {
-    const email = dto.email.trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const username = dto.username.trim();
+    const user = await this.prisma.user.findUnique({ where: { username } });
     if (!user || !(await compare(dto.password, user.passwordHash))) {
-      throw new UnauthorizedException({ code: 'auth.invalidCredentials', message: '邮箱或密码错误' });
+      throw new UnauthorizedException({ code: 'auth.invalidCredentials', message: '用户名或密码错误' });
     }
 
     return this.toAuthResult(user);
@@ -55,7 +61,7 @@ export class AuthService {
     return { id: user.id, email: user.email, username: user.username };
   }
 
-  private async toAuthResult(user: { id: number; email: string; username: string }) {
+  private async toAuthResult(user: { id: number; email: string | null; username: string }) {
     const accessToken = await this.jwt.signAsync({
       sub: user.id,
       email: user.email,

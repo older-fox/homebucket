@@ -28,7 +28,8 @@ datasource db {
 
 model User {
   id              Int      @id @default(autoincrement())
-  email           String   @unique
+  /// 邮箱：仅用于通知/找回，不再作为登录凭据（可空）
+  email           String?  @unique
   username        String   @unique
   passwordHash    String
   locale          String   @default("zh-CN")

@@ -75,7 +75,7 @@
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_FORCE_PATH_STYLE` | — | S3 兼容存储配置（`STORAGE_DRIVER=s3` 时生效） |
 | `DEFAULT_CURRENCY` / `DEFAULT_LOCALE` | `CNY` / `zh-CN` | 新家庭的默认主货币与语言 |
 | `AUTO_CREATE_ADMIN` | `true` | 空库首次启动时是否自动创建管理员 |
-| `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` / `DEFAULT_ADMIN_EMAIL` | `admin` / `admin` / `admin@example.com` | 首次初始化（空库启动或 npm run seed）使用的管理员账号 |
+| `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` / `DEFAULT_ADMIN_EMAIL` | `admin` / `admin` / `admin@example.com` | 首次初始化（空库启动或 npm run seed）使用的管理员账号；**登录用用户名**，邮箱仅作记录 |
 | `DATA_COLLECTION_ENABLED` | `true` | 条码数据收集总开关；关闭后本实例不向外部发送任何请求 |
 | `DATA_COLLECTION_ENDPOINT` | 占位地址 | 条码收集服务地址（**独立项目**，需替换成你自己的） |
 | `DATA_COLLECTION_SUBMIT` | `true` | 是否把本实例填写的条码信息回传 |
@@ -158,7 +158,7 @@ npm run dev                          # http://<本机IP>:3000
 npm run typecheck                    # nuxt typecheck（vue-tsc，零错误）
 ```
 
-接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）。
+接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`（用户名 + 密码，邮箱选填）、`POST /api/auth/login`（**用户名** + 密码）、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）。
 
 ## SQLite（MySQL light）
 
@@ -193,7 +193,7 @@ cd server && npm run seed
 
 会清空并重建演示账号自己的数据（不影响其它用户），生成一个适合看效果的样板：
 
-- 主账号取自 `.env` 的 `DEFAULT_ADMIN_*`（默认 `admin` / `admin` / `admin@example.com`），是「样板间」的 owner
+- 登录用**用户名 + 密码**（邮箱只是记录字段，不再作为登录凭据）：主账号来自 `.env` 的 `DEFAULT_ADMIN_*`（默认用户名 `admin` / 密码 `admin`），是「样板间」的 owner
 - 共享成员：`family@homebucket.local` / `homebucket123`（「样板间」的普通成员，用来验证多家庭与权限）
 - 内容：41 个位置（三层树，含玄关/客厅/厨房/主卧/儿童房/书房/卫生间/储藏室/车库/阁楼等）、17 个标签、147 件物品（总价值约 ¥5.99 万）、20 个序列号（12 件物品，含同一物品的 SN 分散在不同位置）、14 个模板、4 个未启用的通知器（Bark/Telegram/钉钉/SMTP）、3 条邀请链接
 - 图片：脚本会**本地生成** 43 张 SVG 占位图（37 件物品封面 + 6 个位置照片）写入 `UPLOAD_DIR`，不请求任何外部图片

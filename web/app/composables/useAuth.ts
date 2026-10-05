@@ -1,6 +1,7 @@
 export interface AuthUser {
   id: number;
-  email: string;
+  /** 邮箱选填（不再作为登录凭据） */
+  email: string | null;
   username: string;
 }
 
@@ -22,14 +23,14 @@ export function useAuth() {
   }
 
   async function register(
-    payload: { email: string; username: string; password: string; inviteToken?: string },
+    payload: { username: string; password: string; email?: string; inviteToken?: string },
     redirect = '/',
   ) {
     apply(await api.post<AuthResult>('/auth/register', payload));
     await navigateTo(redirect);
   }
 
-  async function login(payload: { email: string; password: string }, redirect = '/') {
+  async function login(payload: { username: string; password: string }, redirect = '/') {
     apply(await api.post<AuthResult>('/auth/login', payload));
     await navigateTo(redirect);
   }
