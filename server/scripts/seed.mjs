@@ -323,6 +323,14 @@ const TEMPLATES = [
   ['口罩', '日常防护', 1, 39, '50 只装', '稳健', '玄关/鞋柜', ['备用']],
 ];
 
+/** 模板条码：扫这个码可匹配模板并预填新建物品（避免与物品条码重复） */
+const TEMPLATE_BARCODES = {
+  猫粮: '6905555566666',
+  口罩: '6906666677777',
+  'A4 打印纸': '6907777788888',
+  创可贴: '6908888899999',
+};
+
 const NOTIFIERS = [
   ['bark', '手机推送（Bark）', 'item_created', { serverKey: 'demo-key', serverUrl: 'https://api.day.app' }],
   ['telegram', 'Telegram 家庭群', 'item_created,item_updated', { botToken: 'demo-token', chatId: 'demo-chat' }],
@@ -552,6 +560,7 @@ async function main() {
         price,
         model,
         manufacturer,
+        barcode: TEMPLATE_BARCODES[name] ?? null,
         defaultLocationId: locationId(place),
         tags: tagNames?.length
           ? { connect: tagNames.filter((t) => tags.has(t)).map((t) => ({ id: tags.get(t) })) }

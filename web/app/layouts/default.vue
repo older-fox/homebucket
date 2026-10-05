@@ -1,5 +1,5 @@
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ fluid }">
     <!-- ============ 桌面端左侧菜单 ============ -->
     <aside class="sidebar">
       <NuxtLink to="/" class="brand">
@@ -78,15 +78,17 @@
         </div>
       </header>
 
-      <main class="hb-content page">
-        <slot />
+      <main class="hb-content page" :class="{ fluid, contained }">
+        <div class="scroller" :class="{ 'scroller--contained': contained }">
+          <slot />
+        </div>
       </main>
     </div>
 
     <!-- ============ 移动端底部 Tab ============ -->
     <nav class="bottom-nav">
       <button
-        v-for="item in mobileItems"
+        v-for="item in leftTabs"
         :key="item.key"
         type="button"
         class="bottom-item"
@@ -98,6 +100,28 @@
         </span>
         <span class="bottom-label">{{ t(`nav.${item.key}`) }}</span>
       </button>
+
+      <!-- 扫码：底部中间的核心入口，点击后选择「创建 / 查找 / 编辑」 -->
+      <button type="button" class="bottom-scan" :aria-label="t('nav.scan')" @click="scanOpen = true">
+        <span class="scan-circle">
+          <UIcon :name="SCAN_ITEM.icon" class="scan-icon" />
+        </span>
+      </button>
+
+      <button
+        v-for="item in rightTabs"
+        :key="item.key"
+        type="button"
+        class="bottom-item"
+        :class="{ active: isActive(item, route.path) }"
+        @click="tap(item.to)"
+      >
+        <span class="bottom-pill">
+          <UIcon :name="item.icon" class="bottom-icon" />
+        </span>
+        <span class="bottom-label">{{ t(`nav.${item.key}`) }}</span>
+      </button>
+
       <button type="button" class="bottom-item" @click="moreOpen = true">
         <span class="bottom-pill">
           <UIcon name="i-lucide-menu" class="bottom-icon" />
@@ -105,6 +129,36 @@
         <span class="bottom-label">{{ t('common.more') }}</span>
       </button>
     </nav>
+
+    <!-- 扫码动作选择 -->
+    <USlideover v-model:open="scanOpen" :title="t('scan.title')">
+      <template #body>
+        <div class="scan-actions">
+          <p class="hb-muted scan-hint">{{ t('scan.chooseAction') }}</p>
+          <button type="button" class="scan-action hb-tap" @click="startScan('create')">
+            <span class="scan-action-icon"><UIcon name="i-lucide-package-plus" /></span>
+            <span class="scan-action-text">
+              <strong>{{ t('scan.actionCreate') }}</strong>
+              <small class="hb-muted">{{ t('scan.actionCreateDesc') }}</small>
+            </span>
+          </button>
+          <button type="button" class="scan-action hb-tap" @click="startScan('find')">
+            <span class="scan-action-icon"><UIcon name="i-lucide-search" /></span>
+            <span class="scan-action-text">
+              <strong>{{ t('scan.actionFind') }}</strong>
+              <small class="hb-muted">{{ t('scan.actionFindDesc') }}</small>
+            </span>
+          </button>
+          <button type="button" class="scan-action hb-tap" @click="startScan('edit')">
+            <span class="scan-action-icon"><UIcon name="i-lucide-pencil" /></span>
+            <span class="scan-action-text">
+              <strong>{{ t('scan.actionEdit') }}</strong>
+              <small class="hb-muted">{{ t('scan.actionEditDesc') }}</small>
+            </span>
+          </button>
+        </div>
+      </template>
+    </USlideover>
 
     <!-- ============ 移动端抽屉 ============ -->
     <USlideover v-model:open="moreOpen" :title="t('common.more')">
@@ -164,13 +218,29 @@
 const route = useRoute();
 const { t } = useI18n();
 const { items, mobileItems, isActive } = useNav();
+const { SCAN_ITEM } = await import('~/composables/useNav');
 const { user, logout, fetchMe } = useAuth();
 
 const keyword = ref('');
 const moreOpen = ref(false);
 const userMenuOpen = ref(false);
+const scanOpen = ref(false);
+
+// 底部 Tab：主页 / 位置 在扫码左侧，物品 / 更多 在右侧（设置收进「更多」）
+const leftTabs = computed(() => mobileItems.slice(0, 2));
+const rightTabs = computed(() => mobileItems.slice(2));
+
+/** 扫码动作：创建 / 查找 / 编辑，各自带不同的 mode 到扫码页 */
+function startScan(mode: 'create' | 'find' | 'edit') {
+  scanOpen.value = false;
+  navigateTo({ path: '/scan', query: { mode } });
+}
 
 const initial = computed(() => (user.value?.username ?? '?').slice(0, 1).toUpperCase());
+
+/** fluid：整页自然滚动（主页）；contained：页面自己管理内部滚动（列表面板类页面） */
+const fluid = computed(() => route.meta.fluid === true);
+const contained = computed(() => route.meta.contained === true);
 
 onMounted(() => {
   if (!user.value) void fetchMe();
@@ -210,8 +280,16 @@ function goSettings() {
 <style scoped>
 .shell {
   display: flex;
-  /* dvh 处理移动端浏览器工具栏高度变化 */
+  /* 锁住视口高度：默认让内容在页面内部滚动，不产生文档级滚动条 */
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* 主页例外：允许整页自然滚动 */
+.shell.fluid {
+  height: auto;
   min-height: 100dvh;
+  overflow: visible;
 }
 
 /* ---------------- 侧边栏 ---------------- */
@@ -368,6 +446,7 @@ function goSettings() {
 .main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -498,12 +577,54 @@ function goSettings() {
 }
 
 .page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: var(--hb-page-max);
   margin: 0 auto;
-  padding: 20px 16px;
-  /* 关键：底部留出底部 Tab 的高度，否则内容（如新增物品的提交按钮）会被导航遮住 */
-  padding-bottom: calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 24px);
+}
+
+/* 页面内容滚动容器：底部留出底部 Tab 的高度，避免遮挡 */
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 16px calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 24px);
+}
+
+/* 列表/面板类页面：滚动交给页面内部的具体区域 */
+.scroller--contained {
+  overflow: hidden;
+  display: flex;
+  padding-bottom: calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 12px);
+}
+
+.scroller--contained > * {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 页面标题在滚动时吸顶，长列表不丢上下文 */
+.scroller > :deep(.page-header),
+.scroller > .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--hb-bg);
+}
+
+/* 主页：不设内部滚动 */
+.page.fluid {
+  flex: none;
+}
+
+.page.fluid .scroller {
+  overflow: visible;
+  flex: none;
 }
 
 /* ---------------- 移动端底部 Tab ---------------- */
@@ -566,6 +687,102 @@ function goSettings() {
   font-weight: var(--hb-fw-semibold);
 }
 
+/* 中间的核心扫码入口 */
+.bottom-scan {
+  flex: 0 0 64px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.scan-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-top: -14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--hb-brand), var(--hb-brand-strong));
+  color: #fff;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--hb-brand) 45%, transparent);
+  transition: transform var(--hb-dur) var(--hb-ease);
+}
+
+.bottom-scan:active .scan-circle {
+  transform: scale(0.94);
+}
+
+.scan-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.scan-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scan-hint {
+  margin: 0 0 4px;
+  font-size: var(--hb-fs-sm);
+}
+
+.scan-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-md);
+  background: var(--hb-surface);
+  color: var(--hb-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.scan-action:hover {
+  background: var(--hb-surface-2);
+  border-color: var(--hb-border-strong);
+}
+
+.scan-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--hb-r-sm);
+  background: var(--hb-brand-soft);
+  color: var(--hb-brand);
+  flex-shrink: 0;
+}
+
+.scan-action-icon :deep(svg) {
+  width: 20px;
+  height: 20px;
+}
+
+.scan-action-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scan-action-text strong {
+  font-size: var(--hb-fs-body);
+  font-weight: var(--hb-fw-semibold);
+}
+
+.scan-action-text small {
+  font-size: var(--hb-fs-xs);
+}
+
 /* ---------------- 抽屉 / 弹窗内容 ---------------- */
 .more-list {
   display: flex;
@@ -620,8 +837,12 @@ function goSettings() {
     padding: 0 24px;
   }
 
-  .page {
+  .scroller {
     padding: 26px 24px 40px;
+  }
+
+  .scroller--contained {
+    padding-bottom: 24px;
   }
 }
 @media (max-width: 767px) {

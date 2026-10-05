@@ -53,7 +53,7 @@
       <UnitEditor :item-id="item.id" :units="item.units" @changed="load" />
     </section>
 
-    <section class="block">
+    <section ref="editSection" class="block">
       <h2>{{ t('item.edit') }}</h2>
       <ItemForm :item-id="item.id" @saved="load" />
     </section>
@@ -135,7 +135,16 @@ async function remove() {
   }
 }
 
-onMounted(load);
+const editSection = ref<HTMLElement | null>(null);
+
+onMounted(async () => {
+  await load();
+  // 从扫码「编辑物品」进来（?edit=1）：滚动到编辑区块
+  if (route.query.edit === '1') {
+    await nextTick();
+    editSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
 </script>
 
 <style scoped>

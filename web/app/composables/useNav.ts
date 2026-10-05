@@ -2,8 +2,12 @@ export interface NavItem {
   key: string;
   to: string;
   icon: string;
+  /** 是否出现在移动端底部 Tab（设置等次级页面收纳进「更多」） */
   mobile?: boolean;
 }
+
+/** 底部 Tab 中间的扫码入口 */
+export const SCAN_ITEM: NavItem = { key: 'scan', to: '/scan', icon: 'i-lucide-scan-line' };
 
 /** 侧边栏 / 底部 Tab 共用的导航定义（label 用 i18n key 的 nav.* ） */
 export function useNav() {
@@ -12,7 +16,7 @@ export function useNav() {
     { key: 'locations', to: '/locations', icon: 'i-lucide-map-pinned', mobile: true },
     { key: 'items', to: '/items', icon: 'i-lucide-package', mobile: true },
     { key: 'templates', to: '/templates', icon: 'i-lucide-layers' },
-    { key: 'settings', to: '/settings', icon: 'i-lucide-settings', mobile: true },
+    { key: 'settings', to: '/settings', icon: 'i-lucide-settings', mobile: false },
   ];
 
   return {

@@ -8,13 +8,47 @@
       </template>
     </PageHeader>
 
+    <!-- 搜索：支持扫码匹配现有模板（扫到条码直接搜/建模板） -->
+    <div class="hb-toolbar">
+      <UInput
+        v-model="q"
+        :placeholder="t('template.searchPlaceholder')"
+        icon="i-lucide-search"
+        size="lg"
+        class="hb-toolbar-grow"
+        type="text"
+        inputmode="search"
+        enterkeyhint="search"
+      />
+      <UButton
+        color="neutral"
+        variant="soft"
+        icon="i-lucide-scan-line"
+        size="lg"
+        class="hb-tap"
+        @click="navigateTo('/scan?mode=template')"
+      >
+        {{ t('template.scanToFind') }}
+      </UButton>
+      <UButton v-if="q" color="neutral" variant="ghost" size="lg" icon="i-lucide-x" class="hb-tap" @click="q = ''" />
+    </div>
+
     <div v-if="pending" class="hb-skeleton skeleton" />
     <EmptyState v-else-if="!templates.length" :text="t('template.empty')" icon="i-lucide-layers">
       <UButton size="sm" @click="openCreate">{{ t('template.new') }}</UButton>
     </EmptyState>
 
+    <!-- 搜索无结果：直接用这个条码建模板 -->
+    <div v-else-if="q && !filtered.length" class="no-match hb-card">
+      <UIcon name="i-lucide-search-x" class="no-match-icon" />
+      <p class="hb-muted">{{ t('template.noMatch', { query: q }) }}</p>
+      <UButton icon="i-lucide-plus" class="hb-tap" @click="createFromQuery">
+        {{ t('template.createWithBarcode') }}
+      </UButton>
+    </div>
+
     <div v-else class="grid">
-      <article v-for="template in templates" :key="template.id" class="card hb-card">
+      <article v-for="template in filtered" :key="template.id" class="card hb-card">
         <img v-if="template.imageUrl" :src="template.imageUrl" class="cover" :alt="template.name" />
         <div class="body">
           <h3>{{ template.name }}</h3>
@@ -24,6 +58,10 @@
             <span v-if="template.manufacturer">· {{ template.manufacturer }}</span>
             <span>· ×{{ template.quantity }}</span>
             <span>· {{ money(template.price) }}</span>
+          </p>
+          <p v-if="template.barcode" class="meta">
+            <UIcon name="i-lucide-barcode" class="meta-icon" />
+            <span class="hb-mono">{{ template.barcode }}</span>
           </p>
           <p class="meta">
             <span>{{ template.defaultLocation?.name || t('item.noLocation') }}</span>
@@ -51,6 +89,26 @@
         <form class="form" @submit.prevent="save">
           <UFormField :label="t('template.name')" required>
             <UInput v-model="form.name" size="xl" class="w-full" required />
+          </UFormField>
+          <UFormField :label="t('item.barcode')" :hint="t('template.barcodeHint')">
+            <div class="barcode-row">
+              <UInput
+                v-model="form.barcode"
+                :placeholder="t('item.barcodePlaceholder')"
+                icon="i-lucide-barcode"
+                inputmode="numeric"
+                size="xl"
+                class="hb-mono"
+              />
+              <UButton
+                color="neutral"
+                variant="soft"
+                icon="i-lucide-scan-line"
+                size="xl"
+                class="hb-tap"
+                @click="scanIntoForm"
+              />
+            </div>
           </UFormField>
           <div class="grid-2">
             <UFormField :label="t('item.quantity')">
@@ -93,6 +151,7 @@
 <script setup lang="ts">
 interface Template {
   id: number;
+  barcode: string | null;
   name: string;
   description: string | null;
   imageUrl: string | null;
@@ -110,6 +169,7 @@ const { t } = useI18n();
 const api = useApi();
 const toast = useToast();
 const { money } = useFormat();
+const route = useRoute();
 
 const { data, pending, refresh } = await useAsyncData('templates', () => api.get<Template[]>('/templates'), {
   server: false,
@@ -121,8 +181,29 @@ const formOpen = ref(false);
 const editing = ref<Template | null>(null);
 const saving = ref(false);
 const initialImage = ref<{ id: number; url: string }[]>([]);
+const q = ref((route.query.q as string) ?? '');
+/** 搜索：名称/描述/型号/制造商/条码/标签 */
+const filtered = computed(() => {
+  const keyword = q.value.trim().toLowerCase();
+  if (!keyword) return templates.value;
+  return templates.value.filter((template) =>
+    [
+      template.name,
+      template.description ?? '',
+      template.model ?? '',
+      template.manufacturer ?? '',
+      template.barcode ?? '',
+      template.tags.map((tag) => tag.name).join(' '),
+    ]
+      .join(' ')
+      .toLowerCase()
+      .includes(keyword),
+  );
+});
+
 const form = reactive<{
   name: string;
+  barcode: string;
   description: string;
   quantity: number;
   price: number;
@@ -138,6 +219,7 @@ const form = reactive<{
   price: 0,
   model: '',
   manufacturer: '',
+  barcode: '',
   defaultLocationId: null,
   tagIds: [],
   imageIds: [],
@@ -169,6 +251,7 @@ function openEdit(template: Template) {
     price: template.price,
     model: template.model ?? '',
     manufacturer: template.manufacturer ?? '',
+    barcode: template.barcode ?? '',
     defaultLocationId: template.defaultLocationId,
     tagIds: template.tags.map((tag) => tag.id),
     imageIds: [],
@@ -176,6 +259,22 @@ function openEdit(template: Template) {
   initialImage.value = template.imageUrl ? [] : [];
   formOpen.value = true;
 }
+
+/** 表单里的扫码：带 fill=1 去扫码页，回来时自动打开新建并填入条码 */
+function scanIntoForm() {
+  navigateTo('/scan?mode=template&fill=1');
+}
+
+/** 搜索无结果时，用搜索词当作条码直接建模板 */
+function createFromQuery() {
+  openCreate();
+  form.barcode = q.value.trim();
+}
+
+// 从扫码页带 fill=1 回来：直接打开新建并填入扫到的条码
+onMounted(() => {
+  if (route.query.fill === '1' && q.value.trim()) createFromQuery();
+});
 
 async function save() {
   saving.value = true;
@@ -187,6 +286,7 @@ async function save() {
       price: form.price,
       model: form.model || undefined,
       manufacturer: form.manufacturer || undefined,
+      barcode: form.barcode.trim() || undefined,
       defaultLocationId: form.defaultLocationId ?? undefined,
       tagIds: form.tagIds,
       imageId: form.imageIds[0] ?? undefined,
@@ -216,6 +316,37 @@ async function remove(template: Template) {
 </script>
 
 <style scoped>
+.barcode-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.barcode-row :deep(input) {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.no-match {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.no-match-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--hb-muted);
+}
+
 .skeleton {
   height: 160px;
   border-radius: 12px;

@@ -148,7 +148,7 @@
               <div class="row-main">
                 <span class="row-title">
                   {{ notifier.name }}
-                  <UBadge size="sm" variant="soft">{{ t(`notifier.${notifier.type}`) }}</UBadge>
+                  <UBadge size="sm" variant="soft">{{ t(`notifier.types.${notifier.type}`) }}</UBadge>
                 </span>
                 <span class="row-sub">
                   {{ notifier.events.length ? notifier.events.map((event) => t(`event.${event}`)).join(' / ') : t('common.all') }}
@@ -308,7 +308,7 @@ const currencyOptions = [
 
 const localeOptions = ['zh-CN', 'zh-TW', 'en', 'ja', 'ko', 'fr', 'de', 'es'].map((code) => ({ label: code, value: code }));
 
-const typeOptions = Object.keys(NOTIFIER_FIELDS).map((type) => ({ label: t(`notifier.${type}`), value: type }));
+const typeOptions = Object.keys(NOTIFIER_FIELDS).map((type) => ({ label: t(`notifier.types.${type}`), value: type }));
 const eventOptions = computed(() => EVENTS.map((event) => ({ label: t(`event.${event}`), value: event })));
 const currentFields = computed(() => NOTIFIER_FIELDS[notifierForm.type] ?? []);
 

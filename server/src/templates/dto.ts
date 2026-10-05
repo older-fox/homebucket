@@ -32,6 +32,12 @@ export class CreateTemplateDto {
   @IsString()
   manufacturer?: string;
 
+  /** 模板关联的商品条码（可选）：扫这个码可匹配到模板并预填 */
+  @IsOptional()
+  @IsString()
+  @Length(4, 64)
+  barcode?: string;
+
   @IsOptional()
   @IsInt()
   defaultLocationId?: number;
@@ -48,6 +54,13 @@ export class UpdateTemplateDto {
   @IsString()
   @Length(1, 120)
   name?: string;
+
+  /** 模板关联的商品条码（可选）：扫这个码可匹配到模板并预填 */
+  @IsOptional()
+  @IsString()
+  @Length(4, 64)
+  barcode?: string;
+
 
   @IsOptional()
   @IsString()

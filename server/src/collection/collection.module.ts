@@ -112,12 +112,20 @@ export class CollectionController {
   @Get(':code/lookup')
   async lookup(@CurrentFamily() family: FamilyContext, @Param('code') code: string) {
     const barcode = code.trim();
-    const local = await this.collection.local(family.id, barcode);
-    const remote = await this.collection.lookup(barcode);
+    const [local, remote, template] = await Promise.all([
+      this.collection.local(family.id, barcode),
+      this.collection.lookup(barcode),
+      this.prisma.template.findFirst({
+        where: { familyId: family.id, barcode },
+        select: { id: true, name: true },
+      }),
+    ]);
 
     return {
       barcode,
       local,
+      /** 命中模板时前端会自动套用（用于「扫码快速填充模板」） */
+      template,
       remote,
       /** 收集功能是否可用（前端可据此提示"条码库未启用"） */
       collectionEnabled: env.dataCollectionEnabled,

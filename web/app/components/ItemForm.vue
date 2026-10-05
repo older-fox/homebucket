@@ -53,6 +53,15 @@
         @update:model-value="onTemplateChange"
       />
       <UButton
+        color="neutral"
+        variant="soft"
+        icon="i-lucide-scan-line"
+        size="lg"
+        class="hb-tap"
+        :aria-label="t('scan.title')"
+        @click="navigateTo('/scan?mode=template')"
+      />
+      <UButton
         v-if="selectedTemplateId"
         color="neutral"
         variant="ghost"
@@ -276,10 +285,19 @@ async function checkBarcode() {
   try {
     const result = await api.get<{
       local: { id: number; name: string } | null;
+      template: { id: number; name: string } | null;
       remote: { name?: string | null; manufacturer?: string | null; model?: string | null } | null;
     }>(`/barcodes/${encodeURIComponent(code)}/lookup`);
 
     foundLocal.value = result.local;
+
+    // 这个条码对应某个模板时，自动套用模板（扫条码快速填充）
+    if (result.template && !props.itemId) {
+      selectedTemplateId.value = result.template.id;
+      await applyTemplate(result.template.id);
+      barcodeChecked.value = true;
+      return;
+    }
 
     if (result.remote) {
       const remote = result.remote;
@@ -506,6 +524,21 @@ async function submit() {
   display: flex;
   gap: 8px;
   padding-top: 4px;
+}
+
+/* 移动端：表单撑满可视高度，提交按钮吸底，避免下方大片空白 */
+@media (max-width: 767px) {
+  .item-form {
+    min-height: 100%;
+  }
+
+  .actions {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding: 12px 0 calc(10px + var(--hb-safe-bottom));
+    background: var(--hb-bg);
+  }
 }
 
 @media (max-width: 640px) {

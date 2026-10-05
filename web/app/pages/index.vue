@@ -175,6 +175,9 @@ interface Dashboard {
   tags: { id: number; name: string; color: string; itemCount: number }[];
 }
 
+// 主页例外：允许整页自然滚动（其余页面改为页面内滚动）
+definePageMeta({ fluid: true });
+
 const { t } = useI18n();
 const api = useApi();
 const { current, load } = useFamily();
@@ -263,11 +266,13 @@ h1 {
 .search-input {
   flex: 1;
   min-width: 0;
-  height: 34px;
+  height: 38px;
+  padding: 0 12px;
   border: 0;
-  background: transparent;
+  border-radius: var(--hb-r-full);
+  background: var(--hb-surface-2);
   color: var(--hb-text);
-  font-size: 15px;
+  font-size: var(--hb-fs-body);
   outline: none;
 }
 
@@ -548,6 +553,22 @@ h1 {
 @media (max-width: 640px) {
   .hide-sm {
     display: none;
+  }
+
+  /* 移动端：搜索框占满一行、高度足够、字号 16px 避免 iOS 聚焦缩放 */
+  .search {
+    padding: 5px;
+    gap: 0;
+  }
+
+  .search-icon {
+    margin: 0 4px 0 10px;
+  }
+
+  .search-input {
+    height: 46px;
+    font-size: 16px;
+    padding: 0 14px;
   }
 
   .search-btn {

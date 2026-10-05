@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -60,6 +61,7 @@ export class TemplatesService {
     name: string;
     description: string | null;
     imageId: number | null;
+    barcode: string | null;
     image: { key: string; url: string | null } | null;
     quantity: number;
     price: unknown;
@@ -76,6 +78,7 @@ export class TemplatesService {
       description: row.description,
       imageId: row.imageId,
       imageUrl: mediaUrl(row.image),
+      barcode: row.barcode,
       quantity: row.quantity,
       price: Number(row.price),
       model: row.model,
@@ -89,6 +92,7 @@ export class TemplatesService {
 
   async create(familyId: number, dto: CreateTemplateDto) {
     await this.assertRelations(familyId, dto);
+    await this.assertBarcodeAvailable(familyId, dto.barcode);
     const row = await this.prisma.template.create({
       data: {
         familyId,
@@ -99,6 +103,7 @@ export class TemplatesService {
         price: dto.price ?? 0,
         model: dto.model,
         manufacturer: dto.manufacturer,
+        barcode: dto.barcode?.trim() || null,
         defaultLocationId: dto.defaultLocationId,
         tags: dto.tagIds?.length ? { connect: dto.tagIds.map((id) => ({ id })) } : undefined,
       },
@@ -110,6 +115,7 @@ export class TemplatesService {
   async update(familyId: number, id: number, dto: UpdateTemplateDto) {
     await this.mustExist(familyId, id);
     await this.assertRelations(familyId, dto);
+    await this.assertBarcodeAvailable(familyId, dto.barcode, id);
     await this.prisma.template.update({
       where: { id },
       data: {
@@ -120,6 +126,7 @@ export class TemplatesService {
         price: dto.price,
         model: dto.model,
         manufacturer: dto.manufacturer,
+        barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,
         defaultLocationId: dto.defaultLocationId,
         tags: dto.tagIds ? { set: dto.tagIds.map((tagId) => ({ id: tagId })) } : undefined,
       },
@@ -166,6 +173,23 @@ export class TemplatesService {
       },
       select: { id: true, name: true },
     });
+  }
+
+  /** 模板条码在同一家庭内唯一 */
+  private async assertBarcodeAvailable(familyId: number, barcode?: string, exceptId?: number) {
+    const code = barcode?.trim();
+    if (!code) return;
+
+    const exists = await this.prisma.template.findFirst({
+      where: { familyId, barcode: code, id: exceptId ? { not: exceptId } : undefined },
+      select: { id: true },
+    });
+    if (exists) {
+      throw new ConflictException({
+        code: 'template.barcodeTaken',
+        message: '该商品条码已被其他模板使用',
+      });
+    }
   }
 
   private async mustExist(familyId: number, id: number) {

@@ -18,6 +18,8 @@
     "empty": "暂无数据",
     "retry": "重试",
     "back": "返回",
+    "prev": "上一页",
+    "next": "下一页",
     "more": "更多",
     "all": "全部",
     "name": "名称",
@@ -191,7 +193,12 @@
     "defaultTags": "默认标签",
     "useTemplate": "用模板新增物品",
     "deleteConfirm": "确定删除模板「{name}」？",
-    "empty": "还没有模板，用模板可以快速新增同类物品"
+    "empty": "还没有模板，用模板可以快速新增同类物品",
+    "searchPlaceholder": "搜索模板：名称 / 型号 / 条码",
+    "scanToFind": "扫码找模板",
+    "noMatch": "没有匹配「{query}」的模板",
+    "createWithBarcode": "用这个条码新建模板",
+    "barcodeHint": "绑定商品条码后，添加物品时扫这个码即可套用模板"
   },
   "search": {
     "title": "搜索",
@@ -250,6 +257,13 @@
   "scan": {
     "title": "扫码",
     "hint": "对准二维码或条码，也可以手动输入",
+    "chooseAction": "扫完之后要做什么？",
+    "actionCreate": "创建物品",
+    "actionCreateDesc": "扫商品条码 → 直接新建物品并填入条码",
+    "actionFind": "查找物品 / 位置",
+    "actionFindDesc": "扫二维码或 SN → 打开对应物品或位置",
+    "actionEdit": "编辑物品",
+    "actionEditDesc": "扫到物品 → 直接进入编辑",
     "camera": "摄像头扫码",
     "insecureContext": "当前不是安全上下文（https 或 localhost），浏览器不允许调用摄像头；请使用图片识别或手动输入",
     "upload": "上传图片识别",
@@ -270,33 +284,53 @@
     "unitOf": "属于物品「{name}」"
   },
   "notifier": {
-    "smtp": "SMTP 邮件",
-    "googlechat": "Google Chat",
-    "telegram": "Telegram",
-    "discord": "Discord",
-    "dingtalk": "钉钉",
-    "feishu": "飞书",
-    "wecom": "企业微信",
-    "bark": "Bark",
-    "serverchan": "Server 酱",
-    "smtp.host": "SMTP 服务器",
-    "smtp.port": "端口",
-    "smtp.secure": "使用 TLS",
-    "smtp.user": "用户名",
-    "smtp.pass": "密码",
-    "smtp.from": "发件人",
-    "smtp.to": "收件人（逗号分隔）",
-    "googlechat.webhookUrl": "Webhook 地址",
-    "telegram.botToken": "Bot Token",
-    "telegram.chatId": "Chat ID",
-    "discord.webhookUrl": "Webhook 地址",
-    "dingtalk.webhookUrl": "Webhook 地址",
-    "dingtalk.secret": "加签密钥",
-    "feishu.webhookUrl": "Webhook 地址",
-    "wecom.webhookUrl": "Webhook 地址",
-    "bark.serverKey": "Server Key",
-    "bark.serverUrl": "服务器地址",
-    "serverchan.sendKey": "SendKey"
+    "types": {
+      "smtp": "SMTP 邮件",
+      "googlechat": "Google Chat",
+      "telegram": "Telegram",
+      "discord": "Discord",
+      "dingtalk": "钉钉",
+      "feishu": "飞书",
+      "wecom": "企业微信",
+      "bark": "Bark",
+      "serverchan": "Server 酱"
+    },
+    "smtp": {
+      "host": "SMTP 服务器",
+      "port": "端口",
+      "secure": "使用 TLS",
+      "user": "用户名",
+      "pass": "密码",
+      "from": "发件人",
+      "to": "收件人（逗号分隔）"
+    },
+    "googlechat": {
+      "webhookUrl": "Webhook 地址"
+    },
+    "telegram": {
+      "botToken": "Bot Token",
+      "chatId": "Chat ID"
+    },
+    "discord": {
+      "webhookUrl": "Webhook 地址"
+    },
+    "dingtalk": {
+      "webhookUrl": "Webhook 地址",
+      "secret": "加签密钥"
+    },
+    "feishu": {
+      "webhookUrl": "Webhook 地址"
+    },
+    "wecom": {
+      "webhookUrl": "Webhook 地址"
+    },
+    "bark": {
+      "serverKey": "Server Key",
+      "serverUrl": "服务器地址"
+    },
+    "serverchan": {
+      "sendKey": "SendKey"
+    }
   },
   "event": {
     "invite_created": "新增邀请",
@@ -332,6 +366,7 @@
     "tag.notFound": "标签不存在",
     "tag.nameTaken": "标签名已存在",
     "template.notFound": "模板不存在",
+    "template.barcodeTaken": "该条码已被其他模板使用",
     "notifier.notFound": "通知器不存在",
     "notifier.typeUnknown": "不支持的通知器类型",
     "notifier.sendFailed": "发送失败",

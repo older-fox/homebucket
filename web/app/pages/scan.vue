@@ -109,6 +109,13 @@ const activeMode = ref<Mode>('manual');
 const pendingCode = ref('');
 /** ?new=1 时，扫到的条码直接带进新建表单 */
 const createMode = ref(route.query.new === '1');
+/** ?mode=template 时，扫到的码去模板页搜索/新建模板 */
+const templateMode = computed(() => route.query.mode === 'template');
+/** 从模板表单点扫码进来时带上，回来直接打开新建模板 */
+const fillMode = computed(() => route.query.fill === '1');
+/** 底部扫码入口选择的动作：create 新建物品 / find 查找 / edit 编辑（缺省为 find） */
+const editMode = computed(() => route.query.mode === 'edit');
+const createByMode = computed(() => route.query.mode === 'create');
 const secure = ref(false);
 const scanning = ref(false);
 const loading = ref(false);
@@ -210,7 +217,14 @@ async function decodeImage(event: Event) {
 
 async function onDetected(code: string) {
   stopCamera();
-  if (createMode.value) {
+  if (templateMode.value) {
+    navigateTo({
+      path: '/templates',
+      query: fillMode.value ? { q: code.trim(), fill: '1' } : { q: code.trim() },
+    });
+    return;
+  }
+  if (createMode.value || createByMode.value) {
     navigateTo({ path: '/items/new', query: { barcode: code.trim() } });
     return;
   }
@@ -221,7 +235,15 @@ async function lookup(code: string) {
   const value = code.trim();
   if (!value) return;
 
-  if (createMode.value) {
+  if (templateMode.value) {
+    navigateTo({
+      path: '/templates',
+      query: fillMode.value ? { q: value, fill: '1' } : { q: value },
+    });
+    return;
+  }
+
+  if (createMode.value || createByMode.value) {
     navigateTo({ path: '/items/new', query: { barcode: value } });
     return;
   }
@@ -242,8 +264,14 @@ async function lookup(code: string) {
       toast.add({ title: t('scan.matchedByBarcode'), color: 'success' });
     }
 
-    if (result.type === 'location') await navigateTo(`/locations?focus=${result.id}`);
-    else await navigateTo(`/items/${result.type === 'unit' ? result.itemId : result.id}`);
+    if (result.type === 'location') {
+      await navigateTo(`/locations?focus=${result.id}`);
+      return;
+    }
+
+    const itemId = result.type === 'unit' ? result.itemId : result.id;
+    // edit：打开物品详情并定位到编辑区
+    await navigateTo(editMode.value ? `/items/${itemId}?edit=1` : `/items/${itemId}`);
   } catch (e) {
     const err = e as { status?: number; message?: string };
     error.value = err.status === 404 ? t('scan.notFound') : (err.message ?? t('scan.notFound'));

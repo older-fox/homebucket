@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="hb-fill">
     <PageHeader :title="t('location.title')" :description="t('location.dragHint')">
       <template #actions>
         <UButton icon="i-lucide-plus" class="hb-tap" @click="openCreate(null)">
@@ -8,103 +8,185 @@
       </template>
     </PageHeader>
 
-    <div class="layout" :class="{ 'show-detail': isMobileDetail }">
-      <!-- 移动端详情视图的返回条 -->
-      <div v-if="isMobileDetail" class="mobile-back">
-        <UButton color="neutral" variant="ghost" icon="i-lucide-arrow-left" @click="select(null)">
-          {{ t('location.tree') }}
-        </UButton>
-      </div>
-
-      <aside class="tree-pane hb-card" :class="{ 'mobile-hidden': isMobileDetail }">
-        <EmptyState v-if="!tree.length" :text="t('location.emptyTree')" icon="i-lucide-map-pinned">
-          <UButton size="sm" @click="openCreate(null)">{{ t('location.new') }}</UButton>
-        </EmptyState>
-        <LocationTree
-          v-else
-          :key="treeVersion"
-          :nodes="tree"
-          :selected-id="selectedId"
-          @select="select"
-          @move="move"
-          @create-child="openCreate"
-          @edit="openEdit"
-          @remove="remove"
-        />
+    <div class="hb-split layout" :class="{ 'show-detail': selectedId !== null }">
+      <!-- 左：位置树（高度与右侧面板一致，内部滚动） -->
+      <aside class="hb-pane tree-pane">
+        <div class="hb-pane-head">
+          <UIcon name="i-lucide-list-tree" class="head-icon" />
+          <span class="hb-h3">{{ t('location.tree') }}</span>
+          <span class="muted hb-num">{{ tree.length }}</span>
+        </div>
+        <div class="hb-pane-body tree-body">
+          <EmptyState v-if="!tree.length" :text="t('location.emptyTree')" icon="i-lucide-map-pinned">
+            <UButton size="sm" @click="openCreate(null)">{{ t('location.new') }}</UButton>
+          </EmptyState>
+          <LocationTree
+            v-else
+            :key="treeVersion"
+            :nodes="tree"
+            :selected-id="selectedId"
+            @select="select"
+            @move="move"
+            @create-child="openCreate"
+            @edit="openEdit"
+            @remove="remove"
+          />
+        </div>
       </aside>
 
-      <section class="detail hb-card">
-        <EmptyState v-if="!selectedId" :text="t('location.emptyContent')" icon="i-lucide-mouse-pointer-click" />
-
-        <template v-else-if="contents">
-          <header class="detail-head">
-            <div class="head-main">
-              <h2>{{ contents.location.name }}</h2>
-              <p v-if="contents.location.breadcrumb?.length" class="crumb">
-                {{ contents.location.breadcrumb.map((item) => item.name).join(' / ') }}
-              </p>
-              <p v-if="contents.location.description" class="desc">{{ contents.location.description }}</p>
-            </div>
-            <div class="head-actions">
-              <UButton color="neutral" variant="soft" icon="i-lucide-qr-code" size="sm" class="hb-tap" @click="openQr">
-                {{ t('common.more') }}
-              </UButton>
-              <UButton size="sm" icon="i-lucide-folder-plus" class="hb-tap" @click="openCreate(selectedId)">
-                {{ t('location.newChild') }}
-              </UButton>
-            </div>
-          </header>
-
-          <img v-if="contents.location.imageUrl" :src="contents.location.imageUrl" class="cover" :alt="contents.location.name" />
-
-          <h3 v-if="contents.locations.length > 1">{{ t('location.subLocations') }}</h3>
-          <div v-if="contents.locations.length > 1" class="grid">
-            <button
-              v-for="child in contents.locations.filter((row) => row.id !== selectedId)"
-              :key="child.id"
-              type="button"
-              class="mini hb-tap"
-              @click="select(child.id)"
-            >
-              <UIcon name="i-lucide-folder" />
-              <span class="mini-name">{{ child.name }}</span>
-              <span class="mini-count hb-num">{{ child.itemCount }}</span>
-            </button>
+      <!-- 右：固定面板，内容再多也在面板内滚动 -->
+      <section class="hb-pane detail-pane">
+        <div class="hb-pane-head">
+          <UButton
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-arrow-left"
+            size="sm"
+            class="hb-tap back-sm"
+            @click="select(null)"
+          />
+          <div class="head-main">
+            <span class="hb-h3">{{ contents?.location.name ?? t('location.title') }}</span>
+            <span v-if="crumb" class="muted crumb">{{ crumb }}</span>
           </div>
-
-          <h3>{{ t('location.directItems') }}</h3>
-          <EmptyState v-if="!contents.items.length" :text="t('location.emptyContent')" icon="i-lucide-package" />
-          <ul v-else class="rows">
-            <li v-for="item in contents.items" :key="item.id" class="row" @click="navigateTo(`/items/${item.id}`)">
-              <div class="row-main">
-                <span class="row-title">{{ item.name }}</span>
-                <span class="row-sub">
-                  {{ item.location?.name || t('item.noLocation') }}
-                  <template v-if="item.unitCount"> · {{ t('item.unitCount', { count: item.unitCount }) }}</template>
-                </span>
-              </div>
-              <span class="qty hb-num">×{{ item.quantity }}</span>
-            </li>
-          </ul>
-
-          <template v-if="contents.itemUnits.length">
-            <h3>{{ t('location.unitsHere') }}</h3>
-            <ul class="rows">
-              <li v-for="unit in contents.itemUnits" :key="unit.id" class="row" @click="navigateTo(`/items/${unit.itemId}`)">
-                <div class="row-main">
-                  <span class="row-title">{{ unit.sn || '—' }}</span>
-                  <span class="row-sub">{{ unit.itemName }} · {{ unit.locationName || t('item.noLocation') }}</span>
-                </div>
-                <UIcon name="i-lucide-chevron-right" class="chev" />
-              </li>
-            </ul>
+          <template v-if="selectedId">
+            <UButton
+              color="neutral"
+              variant="soft"
+              size="sm"
+              icon="i-lucide-qr-code"
+              class="hb-tap"
+              :aria-label="t('location.qrCode')"
+              @click="openQr"
+            />
+            <UButton size="sm" icon="i-lucide-folder-plus" class="hb-tap" @click="openCreate(selectedId)">
+              <span class="hide-sm">{{ t('location.newChild') }}</span>
+            </UButton>
           </template>
-        </template>
+        </div>
+
+        <div class="hb-pane-body detail-body">
+          <EmptyState v-if="!selectedId" :text="t('location.emptyContent')" icon="i-lucide-mouse-pointer-click" />
+
+          <template v-else-if="contents">
+            <img v-if="contents.location.imageUrl" :src="contents.location.imageUrl" class="cover" :alt="contents.location.name" />
+            <p v-if="contents.location.description" class="muted desc">{{ contents.location.description }}</p>
+
+            <!-- 子位置 -->
+            <template v-if="childLocations.length">
+              <h3 class="hb-section-title">
+                <UIcon name="i-lucide-folder" />
+                {{ t('location.subLocations') }}
+                <span class="muted hb-num">{{ childLocations.length }}</span>
+              </h3>
+              <div class="grid">
+                <button v-for="child in childLocations" :key="child.id" type="button" class="mini hb-tap" @click="select(child.id)">
+                  <UIcon name="i-lucide-folder" />
+                  <span class="mini-name">{{ child.name }}</span>
+                  <span class="mini-count hb-num">{{ child.itemCount }}</span>
+                </button>
+              </div>
+            </template>
+
+            <!-- 物品（分页） -->
+            <h3 class="hb-section-title">
+              <UIcon name="i-lucide-package" />
+              {{ t('location.directItems') }}
+              <span class="muted hb-num">{{ contents.items.length }}</span>
+            </h3>
+            <EmptyState v-if="!contents.items.length" :text="t('location.emptyContent')" icon="i-lucide-package" />
+            <div v-else class="sub-pane">
+              <table class="hb-table">
+                <thead>
+                  <tr>
+                    <th>{{ t('item.name') }}</th>
+                    <th class="num">{{ t('item.quantity') }}</th>
+                    <th>{{ t('item.location') }}</th>
+                    <th class="num">{{ t('item.totalPrice') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in pagedItems" :key="item.id" class="clickable" @click="navigateTo(`/items/${item.id}`)">
+                    <td class="strong">
+                      {{ item.name }}
+                      <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                    </td>
+                    <td class="num hb-num">{{ item.quantity }}</td>
+                    <td class="muted">{{ item.location?.name || t('item.noLocation') }}</td>
+                    <td class="num hb-num">{{ money(item.price * item.quantity) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="contents.items.length > pageSize" class="pager">
+                <UButton color="neutral" variant="soft" size="xs" :disabled="itemPage <= 1" @click="itemPage -= 1">
+                  {{ t('common.prev') }}
+                </UButton>
+                <span class="muted hb-num">{{ itemPage }} / {{ Math.ceil(contents.items.length / pageSize) }}</span>
+                <UButton
+                  color="neutral"
+                  variant="soft"
+                  size="xs"
+                  :disabled="itemPage >= Math.ceil(contents.items.length / pageSize)"
+                  @click="itemPage += 1"
+                >
+                  {{ t('common.next') }}
+                </UButton>
+              </div>
+            </div>
+
+            <!-- 序列号（分页） -->
+            <template v-if="contents.itemUnits.length">
+              <h3 class="hb-section-title">
+                <UIcon name="i-lucide-barcode" />
+                {{ t('location.unitsHere') }}
+                <span class="muted hb-num">{{ contents.itemUnits.length }}</span>
+              </h3>
+              <div class="sub-pane">
+                <table class="hb-table">
+                  <thead>
+                    <tr>
+                      <th>{{ t('item.sn') }}</th>
+                      <th>{{ t('item.name') }}</th>
+                      <th>{{ t('item.unitLocation') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="unit in pagedUnits" :key="unit.id" class="clickable" @click="navigateTo(`/items/${unit.itemId}`)">
+                      <td class="hb-mono">{{ unit.sn || '—' }}</td>
+                      <td>{{ unit.itemName }}</td>
+                      <td class="muted">{{ unit.locationName || t('item.noLocation') }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-if="contents.itemUnits.length > pageSize" class="pager">
+                  <UButton color="neutral" variant="soft" size="xs" :disabled="unitPage <= 1" @click="unitPage -= 1">
+                    {{ t('common.prev') }}
+                  </UButton>
+                  <span class="muted hb-num">{{ unitPage }} / {{ Math.ceil(contents.itemUnits.length / pageSize) }}</span>
+                  <UButton
+                    color="neutral"
+                    variant="soft"
+                    size="xs"
+                    :disabled="unitPage >= Math.ceil(contents.itemUnits.length / pageSize)"
+                    @click="unitPage += 1"
+                  >
+                    {{ t('common.next') }}
+                  </UButton>
+                </div>
+              </div>
+            </template>
+          </template>
+        </div>
       </section>
     </div>
 
-    <!-- 新建 / 编辑 -->
-    <UModal v-model:open="formOpen" :title="editing ? t('location.edit') : t('location.new')">
+    <!-- 新建 / 编辑位置 -->
+    <UModal
+      v-model:open="formOpen"
+      :title="editing ? t('location.edit') : t('location.new')"
+      :fullscreen="isMobile"
+      class="fill-modal"
+    >
       <template #body>
         <form class="form" @submit.prevent="save">
           <UFormField :label="t('location.name')" required>
@@ -143,6 +225,9 @@
 <script setup lang="ts">
 import type { MovePayload, TreeNode } from '~/types/location';
 
+// contained：整页不滚动，树与右侧面板各自内部滚动
+definePageMeta({ contained: true });
+
 interface Contents {
   location: {
     id: number;
@@ -156,6 +241,7 @@ interface Contents {
     id: number;
     name: string;
     quantity: number;
+    price: number;
     location: { id: number; name: string } | null;
     unitCount: number;
   }[];
@@ -166,11 +252,15 @@ const { t } = useI18n();
 const api = useApi();
 const route = useRoute();
 const toast = useToast();
+const { money } = useFormat();
 
+const pageSize = 20;
 const tree = ref<TreeNode[]>([]);
 const treeVersion = ref(0);
 const selectedId = ref<number | null>(route.query.focus ? Number(route.query.focus) : null);
 const contents = ref<Contents | null>(null);
+const itemPage = ref(1);
+const unitPage = ref(1);
 
 const formOpen = ref(false);
 const editing = ref<TreeNode | null>(null);
@@ -186,12 +276,35 @@ const form = reactive<{ name: string; description: string; parentId: number | un
 const qrOpen = ref(false);
 const qrUrl = ref('');
 
-const isMobileDetail = computed(() => selectedId.value !== null);
+/** 移动端把弹窗做成全屏，避免“表单不满屏、下面空一大块” */
+const isMobile = ref(false);
+onMounted(() => {
+  const query = window.matchMedia('(max-width: 767px)');
+  const update = () => {
+    isMobile.value = query.matches;
+  };
+  update();
+  query.addEventListener('change', update);
+  onBeforeUnmount(() => query.removeEventListener('change', update));
+});
 
-const parentOptions = computed(() => [
-  { label: t('location.root'), value: -1 },
-  ...flatten(tree.value),
-]);
+const crumb = computed(() => contents.value?.location.breadcrumb?.map((item) => item.name).join(' / ') ?? '');
+
+const childLocations = computed(() =>
+  (contents.value?.locations ?? []).filter((row) => row.id !== selectedId.value),
+);
+
+const pagedItems = computed(() => {
+  const rows = contents.value?.items ?? [];
+  return rows.slice((itemPage.value - 1) * pageSize, itemPage.value * pageSize);
+});
+
+const pagedUnits = computed(() => {
+  const rows = contents.value?.itemUnits ?? [];
+  return rows.slice((unitPage.value - 1) * pageSize, unitPage.value * pageSize);
+});
+
+const parentOptions = computed(() => [{ label: t('location.root'), value: -1 }, ...flatten(tree.value)]);
 
 function flatten(nodes: TreeNode[], depth = 0): { label: string; value: number }[] {
   return nodes.flatMap((node) => [
@@ -210,6 +323,8 @@ async function loadContents() {
     return;
   }
   contents.value = await api.get<Contents>(`/locations/${selectedId.value}/contents`);
+  itemPage.value = 1;
+  unitPage.value = 1;
 }
 
 function select(id: number | null) {
@@ -231,7 +346,7 @@ function findNode(nodes: TreeNode[], id: number): TreeNode | null {
   return null;
 }
 
-/** 拖拽：本地先挡掉「拖进自己子孙」，再把落点交给服务端裁决，用返回的树整体重绘 */
+/** 拖拽：本地先挡闭环，落点交给服务端裁决，用返回的树整体重绘 */
 async function move(payload: MovePayload) {
   const node = findNode(tree.value, payload.id);
   if (node && payload.parentId !== null && descendsFrom(node, payload.parentId)) {
@@ -330,66 +445,58 @@ onMounted(async () => {
 
 <style scoped>
 .layout {
-  display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
-  align-items: start;
+  grid-template-rows: 1fr;
 }
 
 .tree-pane {
-  padding: 10px;
-  max-height: 62vh;
-  overflow: auto;
+  min-height: 0;
 }
 
-.detail {
-  padding: 16px;
-  min-height: 220px;
+.tree-body {
+  padding: 8px;
 }
 
-.detail-head {
+.detail-pane {
+  min-height: 0;
+}
+
+.detail-body {
+  padding: 14px 16px;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
+  flex-direction: column;
+  gap: 8px;
 }
 
-h2 {
-  margin: 0;
-  font-size: var(--hb-fs-h2);
+.head-icon {
+  width: 17px;
+  height: 17px;
+  color: var(--hb-brand);
 }
 
-.crumb {
-  margin: 4px 0 0;
-  font-size: var(--hb-fs-xs);
-  color: var(--hb-muted);
+.head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
+.crumb,
 .desc {
-  margin: 6px 0 0;
-  font-size: var(--hb-fs-sm);
-  color: var(--hb-text-2);
+  font-size: var(--hb-fs-xs);
 }
 
-.head-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-h3 {
-  margin: 18px 0 8px;
-  font-size: var(--hb-fs-body);
-  font-weight: var(--hb-fw-semibold);
-  color: var(--hb-text-2);
+h3.hb-section-title {
+  margin: 10px 0 6px;
+  font-size: var(--hb-fs-h3);
 }
 
 .cover {
   width: 100%;
-  max-height: 200px;
+  max-height: 180px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: var(--hb-r-md);
 }
 
 .grid {
@@ -402,14 +509,20 @@ h3 {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 12px;
-  min-height: 44px;
+  padding: 9px 12px;
+  min-height: 40px;
   border: 1px solid var(--hb-border);
-  border-radius: 10px;
+  border-radius: var(--hb-r-md);
   background: var(--hb-surface);
+  color: var(--hb-text);
   font-size: var(--hb-fs-sm);
   cursor: pointer;
   text-align: left;
+}
+
+.mini:hover {
+  border-color: var(--hb-border-strong);
+  background: var(--hb-surface-2);
 }
 
 .mini-name {
@@ -424,59 +537,62 @@ h3 {
   font-size: var(--hb-fs-xs);
 }
 
-.rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* 表格类内容各占一块，超出在块内滚动 */
+.sub-pane {
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-md);
+  overflow: auto;
+  max-height: 42%;
+  flex: 0 0 auto;
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 4px;
-  border-bottom: 1px solid var(--hb-border);
+.clickable {
   cursor: pointer;
 }
 
-.row-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.row-title {
-  display: block;
-  font-size: var(--hb-fs-body);
+.strong {
   font-weight: var(--hb-fw-medium);
 }
 
-.row-sub {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--hb-fs-xs);
+.muted {
   color: var(--hb-muted);
 }
 
-.qty {
-  font-size: var(--hb-fs-sm);
-  color: var(--hb-text-2);
-}
-
-.chev {
-  width: 16px;
-  height: 16px;
-  color: var(--hb-muted);
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px;
+  border-top: 1px solid var(--hb-border);
+  position: sticky;
+  bottom: 0;
+  background: var(--hb-surface);
 }
 
 .form {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* 全屏弹窗下把内容撑开，提交按钮固定在底部 */
+  min-height: 100%;
 }
 
 .form-actions {
   display: flex;
   gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.fill-modal :deep([data-slot='body']) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fill-modal .form {
+  flex: 1;
 }
 
 .qr-box {
@@ -489,26 +605,30 @@ h3 {
   height: 240px;
 }
 
-.muted {
-  color: var(--hb-muted);
-}
-
-.mobile-back {
-  margin-bottom: 8px;
+.back-sm {
+  display: inline-flex;
 }
 
 /* 移动端：钻取式（树 / 详情二选一） */
 @media (max-width: 767px) {
-  .mobile-hidden {
+  .show-detail .tree-pane {
     display: none;
   }
 
-  .detail {
+  .detail-pane {
     display: none;
   }
 
-  .show-detail .detail {
-    display: block;
+  .show-detail .detail-pane {
+    display: flex;
+  }
+
+  .hide-sm {
+    display: none;
+  }
+
+  .sub-pane {
+    max-height: 50%;
   }
 }
 
@@ -517,23 +637,7 @@ h3 {
     grid-template-columns: 300px 1fr;
   }
 
-  .tree-pane {
-    position: sticky;
-    top: 72px;
-    max-height: calc(100vh - 120px);
-  }
-
-  .hide-sm {
-    display: inline;
-  }
-
-  .mobile-back {
-    display: none;
-  }
-}
-
-@media (max-width: 767px) {
-  .hide-sm {
+  .back-sm {
     display: none;
   }
 }

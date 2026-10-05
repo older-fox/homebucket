@@ -549,6 +549,118 @@ samp {
 }
 
 /* ==========================================================================
+   页面内滚动 / 固定面板（列表类页面用）
+   ========================================================================== */
+
+/* 占满父级剩余高度，内部再分栏 */
+.hb-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hb-gap);
+}
+
+/* 列布局的横向分栏 */
+.hb-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: var(--hb-gap);
+}
+
+/* 面板：固定高度、内部滚动，内容多了也不会把页面拉长 */
+.hb-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--hb-surface);
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-lg);
+  box-shadow: var(--hb-shadow-sm);
+  overflow: hidden;
+}
+
+.hb-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hb-border);
+  flex-shrink: 0;
+}
+
+.hb-pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.hb-pane-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--hb-border);
+}
+
+/* 表格：表头吸在滚动容器顶部（而不是页面顶部） */
+.hb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--hb-fs-sm);
+}
+
+.hb-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 9px 12px;
+  text-align: left;
+  font-size: var(--hb-fs-xs);
+  font-weight: var(--hb-fw-semibold);
+  color: var(--hb-muted);
+  background: var(--hb-surface-2);
+  border-bottom: 1px solid var(--hb-border);
+  white-space: nowrap;
+}
+
+.hb-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hb-border);
+  vertical-align: middle;
+}
+
+.hb-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.hb-table tbody tr:hover {
+  background: var(--hb-surface-2);
+}
+
+.hb-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 工具条：搜索/筛选一行，避免被标签撑高 */
+.hb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.hb-toolbar > .hb-toolbar-grow {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* ==========================================================================
    布局辅助
    ========================================================================== */
 

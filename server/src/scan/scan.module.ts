@@ -30,6 +30,21 @@ export class ScanService {
       };
     }
 
+    // 其次是模板条码：扫码后可直接按模板创建物品
+    const template = await this.prisma.template.findFirst({
+      where: { familyId, barcode: code },
+      select: { id: true, name: true, barcode: true },
+    });
+    if (template) {
+      return {
+        type: 'template' as const,
+        id: template.id,
+        name: template.name,
+        barcode: template.barcode,
+        matchedBy: 'barcode' as const,
+      };
+    }
+
     const location = await this.prisma.location.findFirst({
       where: { familyId, qrToken: code },
       select: { id: true, name: true },

@@ -18,6 +18,8 @@
     "empty": "Nothing here yet",
     "retry": "Retry",
     "back": "Back",
+    "prev": "Previous",
+    "next": "Next",
     "more": "More",
     "all": "All",
     "name": "Name",
@@ -191,7 +193,12 @@
     "defaultTags": "Default tags",
     "useTemplate": "Create item from template",
     "deleteConfirm": "Delete template \"{name}\"?",
-    "empty": "No templates yet — use templates to add similar items quickly"
+    "empty": "No templates yet — use templates to add similar items quickly",
+    "searchPlaceholder": "Search templates: name / model / barcode",
+    "scanToFind": "Scan to find",
+    "noMatch": "No template matches {query}",
+    "createWithBarcode": "Create a template with this barcode",
+    "barcodeHint": "Bind a product barcode so scanning it applies this template"
   },
   "search": {
     "title": "Search",
@@ -250,6 +257,13 @@
   "scan": {
     "title": "Scan",
     "hint": "Point at a QR code or barcode, or type it in",
+    "chooseAction": "What should happen after scanning?",
+    "actionCreate": "Create an item",
+    "actionCreateDesc": "Scan a product barcode → start a new item with it",
+    "actionFind": "Find item / location",
+    "actionFindDesc": "Scan a QR code or SN → open the match",
+    "actionEdit": "Edit an item",
+    "actionEditDesc": "Scan an item → jump straight to editing",
     "camera": "Camera",
     "insecureContext": "Camera access needs a secure context (https or localhost). Use image upload or manual input instead.",
     "upload": "Upload image",
@@ -270,33 +284,53 @@
     "unitOf": "Part of \"{name}\""
   },
   "notifier": {
-    "smtp": "SMTP email",
-    "googlechat": "Google Chat",
-    "telegram": "Telegram",
-    "discord": "Discord",
-    "dingtalk": "DingTalk",
-    "feishu": "Feishu",
-    "wecom": "WeCom",
-    "bark": "Bark",
-    "serverchan": "ServerChan",
-    "smtp.host": "SMTP host",
-    "smtp.port": "Port",
-    "smtp.secure": "Use TLS",
-    "smtp.user": "Username",
-    "smtp.pass": "Password",
-    "smtp.from": "From",
-    "smtp.to": "To (comma separated)",
-    "googlechat.webhookUrl": "Webhook URL",
-    "telegram.botToken": "Bot token",
-    "telegram.chatId": "Chat ID",
-    "discord.webhookUrl": "Webhook URL",
-    "dingtalk.webhookUrl": "Webhook URL",
-    "dingtalk.secret": "Signing secret",
-    "feishu.webhookUrl": "Webhook URL",
-    "wecom.webhookUrl": "Webhook URL",
-    "bark.serverKey": "Server key",
-    "bark.serverUrl": "Server URL",
-    "serverchan.sendKey": "SendKey"
+    "types": {
+      "smtp": "SMTP email",
+      "googlechat": "Google Chat",
+      "telegram": "Telegram",
+      "discord": "Discord",
+      "dingtalk": "DingTalk",
+      "feishu": "Feishu",
+      "wecom": "WeCom",
+      "bark": "Bark",
+      "serverchan": "ServerChan"
+    },
+    "smtp": {
+      "host": "SMTP host",
+      "port": "Port",
+      "secure": "Use TLS",
+      "user": "Username",
+      "pass": "Password",
+      "from": "From",
+      "to": "To (comma separated)"
+    },
+    "googlechat": {
+      "webhookUrl": "Webhook URL"
+    },
+    "telegram": {
+      "botToken": "Bot token",
+      "chatId": "Chat ID"
+    },
+    "discord": {
+      "webhookUrl": "Webhook URL"
+    },
+    "dingtalk": {
+      "webhookUrl": "Webhook URL",
+      "secret": "Signing secret"
+    },
+    "feishu": {
+      "webhookUrl": "Webhook URL"
+    },
+    "wecom": {
+      "webhookUrl": "Webhook URL"
+    },
+    "bark": {
+      "serverKey": "Server key",
+      "serverUrl": "Server URL"
+    },
+    "serverchan": {
+      "sendKey": "SendKey"
+    }
   },
   "event": {
     "invite_created": "Invitation created",
@@ -332,6 +366,7 @@
     "tag.notFound": "Tag not found",
     "tag.nameTaken": "This tag name already exists",
     "template.notFound": "Template not found",
+    "template.barcodeTaken": "Another template already uses this barcode",
     "notifier.notFound": "Notifier not found",
     "notifier.typeUnknown": "Unsupported notifier type",
     "notifier.sendFailed": "Send failed",

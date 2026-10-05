@@ -221,6 +221,8 @@ model Template {
   familyId          Int
   name              String
   description       String?
+  /// 模板关联的商品条码：扫这个码可以找到模板并预填新建物品
+  barcode           String?
   imageId           Int?
   quantity          Int      @default(1)
   price             Decimal  @default(0)
@@ -236,6 +238,7 @@ model Template {
   tags            Tag[]       @relation("TemplateTags")
   items           Item[]
 
+  @@unique([familyId, barcode])
   @@index([familyId, name])
 }
 
