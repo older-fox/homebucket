@@ -10,6 +10,7 @@
 # 加速域名（都可通过 CI/CD Variables 覆盖）：
 #   NODE_IMAGE     基础镜像，默认走 docker.1ms.run（Docker Hub 加速）
 #   NPM_REGISTRY   npm 源，默认走 npmmirror
+#   APT_MIRROR     Debian apt 源，默认走清华（容器内 apt-get install openssl 提速）
 #   kaniko 镜像本身在 gcr.io，用 gcr.m.daocloud.io 加速（ghcr.io 对应 ghcr.m.daocloud.io）
 #
 # 触发：推送任意分支 / 打 tag 都会自动构建并推送镜像；也可在页面 / API 手动触发。
@@ -23,6 +24,8 @@ variables:
   NODE_IMAGE: docker.1ms.run/library/node:22-bookworm-slim
   # npm 加速源；留空则用官方 registry.npmjs.org
   NPM_REGISTRY: https://registry.npmmirror.com
+  # Debian apt 加速源（装 openssl 用）；留空则用镜像自带源。用 http（slim 镜像无 ca-certificates）
+  APT_MIRROR: http://mirrors.tuna.tsinghua.edu.cn
   # 镜像内使用的 Prisma schema：mysql（默认）| sqlite
   DB_PROVIDER: mysql
 
@@ -78,6 +81,7 @@ docker:image:
         --dockerfile "$CI_PROJECT_DIR/Dockerfile" \
         --build-arg NODE_IMAGE="$NODE_IMAGE" \
         --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
+        --build-arg APT_MIRROR="$APT_MIRROR" \
         --build-arg DB_PROVIDER="$DB_PROVIDER" \
         --cache=true \
         --cache-repo "$CI_REGISTRY_IMAGE/cache" \

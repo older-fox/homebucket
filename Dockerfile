@@ -10,13 +10,28 @@
 # 基础镜像：可换成加速域名，例如 --build-arg NODE_IMAGE=docker.1ms.run/library/node:22-bookworm-slim
 ARG NODE_IMAGE=node:22-bookworm-slim
 
-# ---------- 基础层：openssl（Prisma 引擎需要）+ npm 加速源 ----------
+# ---------- 基础层：openssl（Prisma 引擎需要）+ apt / npm 加速源 ----------
 FROM ${NODE_IMAGE} AS base
-ARG NPM_REGISTRY
-RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi \
- && apt-get update -y \
- && apt-get install -y --no-install-recommends openssl \
- && rm -rf /var/lib/apt/lists/*
+# 显式给默认值：配合下面的 set -u，未传参时也不会因"变量未定义"报错
+ARG NPM_REGISTRY=""
+# Debian apt 加速源：默认清华（bookworm），只为这一层装 openssl 提速。
+# 留空（--build-arg APT_MIRROR=）则沿用镜像自带源。
+# 用 http:// —— slim 镜像里没有 ca-certificates，改成 https 会在 apt-get update
+# 阶段直接证书校验失败（Cannot verify certificate）。
+ARG APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn
+RUN set -eu; \
+    if [ -n "${APT_MIRROR:-}" ]; then \
+      # bookworm 镜像用的是 deb822 的 debian.sources；老镜像可能是 sources.list，两个都覆盖
+      for f in /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list; do \
+        if [ -f "$f" ]; then \
+          sed -i -E "s#https?://(deb\.debian\.org|security\.debian\.org)#$APT_MIRROR#g" "$f"; \
+        fi; \
+      done; \
+    fi; \
+    if [ -n "${NPM_REGISTRY:-}" ]; then npm config set registry "$NPM_REGISTRY"; fi; \
+    apt-get update -y; \
+    apt-get install -y --no-install-recommends openssl; \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # ---------- 后端：装依赖 → 生成 Prisma Client → nest build ----------

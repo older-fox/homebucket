@@ -254,6 +254,7 @@ docker build \
   --build-arg DB_PROVIDER=mysql \
   --build-arg NODE_IMAGE=docker.1ms.run/library/node:22-bookworm-slim \
   --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn \
   -t homebucket .
 
 docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 homebucket
@@ -261,9 +262,9 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 - 容器内数据统一放 `/data`（sqlite 库文件 + 上传图片），`VOLUME ["/data"]`，挂卷即可持久化；通常只需暴露 3000。
 - 数据库迁移由后端进程启动时自动完成。
-- 基础镜像装了 `openssl`（Prisma 查询引擎依赖），且在 `prisma generate` 之前装好。
+- 基础镜像装了 `openssl`（Prisma 查询引擎依赖），且在 `prisma generate` 之前装好。装它走的 apt 源默认换成清华（`APT_MIRROR`），只为这一层提速。
 - **运行期刻意不裁剪 devDependencies**：启动自动迁移依赖 `prisma` CLI（`server/src/prisma/auto-migrate.ts` 会 `require.resolve('prisma/build/index.js')`），`--omit=dev` 会让迁移被静默跳过。前端 `.output` 自包含，运行期不带 `web/node_modules`。
-- `NODE_IMAGE` / `NPM_REGISTRY` 是加速用构建参数，本地默认走官方源即可不传。
+- `NODE_IMAGE` / `NPM_REGISTRY` / `APT_MIRROR` 都是加速用构建参数，本地默认走官方源即可不传；`APT_MIRROR` 用 `http://`（slim 镜像里没有 `ca-certificates`，`https` 会让 `apt-get update` 证书校验失败）。
 
 ## CI（GitLab + kaniko）
 
@@ -281,9 +282,10 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 | --- | --- | --- |
 | `NODE_IMAGE` | `docker.1ms.run/library/node:22-bookworm-slim` | 基础镜像（Docker Hub 加速） |
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | npm 源 |
+| `APT_MIRROR` | `http://mirrors.tuna.tsinghua.edu.cn` | Debian apt 源（装 openssl 提速）；用 `http://` |
 | `DB_PROVIDER` | `mysql` | 打进镜像的 Prisma schema |
 
-kaniko 镜像本身走 `docker.m.daocloud.io/kaniko-project/executor:debug`（替代 gcr.io / ghcr.io）。首次运行会创建 `$CI_REGISTRY_IMAGE/cache` 作为构建缓存；若注册表禁用了子仓库，去掉脚本里的 `--cache=true --cache-repo ...` 两行即可。
+kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:debug` 加速（`docker.m.daocloud.io` 是 Docker Hub 的加速域名，没有这个仓库，会报「不在白名单」）。首次运行会创建 `$CI_REGISTRY_IMAGE/cache` 作为构建缓存；若注册表禁用了子仓库，去掉脚本里的 `--cache=true --cache-repo ...` 两行即可。
 
 ## 跨域是怎么解决的
 
