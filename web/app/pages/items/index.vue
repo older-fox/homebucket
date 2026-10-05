@@ -18,8 +18,8 @@
       </template>
     </PageHeader>
 
-    <!-- 工具条：一行搞定，标签默认收起，避免把控件撑高 -->
-    <div class="hb-toolbar">
+    <!-- 桌面工具条（移动端改用 SearchBox，见下） -->
+    <div class="hb-toolbar desktop-only">
       <UInput
         v-model="filters.q"
         :placeholder="t('item.searchPlaceholderAll')"
@@ -31,34 +31,30 @@
         enterkeyhint="search"
         @keyup.enter="applyFilters"
       />
-      <LocationPicker v-model="filters.locationId" class="filter-location" />
+      <UButton size="lg" class="hb-tap" @click="applyFilters">{{ t('common.search') }}</UButton>
+      <!-- 从主页/搜索页的标签书签进来时，显示当前标签筛选，可一键清除 -->
       <UButton
+        v-if="filters.tagId"
         color="neutral"
-        :variant="filters.tagIds.length ? 'solid' : 'soft'"
-        icon="i-lucide-tag"
+        variant="soft"
         size="lg"
+        icon="i-lucide-tag"
+        trailing-icon="i-lucide-x"
         class="hb-tap"
-        @click="showTags = !showTags"
+        @click="clearTagFilter"
       >
         {{ t('item.tags') }}
-        <span v-if="filters.tagIds.length" class="count hb-num">{{ filters.tagIds.length }}</span>
-        <UIcon :name="showTags ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" />
       </UButton>
-      <UButton size="lg" class="hb-tap" @click="applyFilters">{{ t('common.search') }}</UButton>
       <UButton v-if="hasFilters" color="neutral" variant="ghost" size="lg" icon="i-lucide-x" class="hb-tap" @click="clearFilters">
         {{ t('common.all') }}
       </UButton>
     </div>
 
-    <div v-if="showTags" class="tag-panel hb-card hb-rise">
-      <TagPicker v-model="filters.tagIds" />
-    </div>
-
-    <!-- 固定面板：内容再多也在面板内滚动，不拉扯整页 -->
-    <div class="hb-pane">
+    <!-- 桌面：固定面板，内容在面板内滚动 -->
+    <div v-if="!isMobile" class="hb-pane desktop-only">
       <div class="hb-pane-body">
         <div v-if="pending" class="pad">
-          <div v-for="n in 8" :key="n" class="hb-skeleton row-skeleton" />
+          <ListSkeleton :rows="8" :line-height="38" />
         </div>
 
         <EmptyState v-else-if="!items.length" :text="t('item.empty')" icon="i-lucide-package">
@@ -92,8 +88,8 @@
                 <span
                   v-for="tag in item.tags.slice(0, 3)"
                   :key="tag.id"
-                  class="mini-tag"
-                  :style="{ color: tag.color, borderColor: tag.color }"
+                  class="hb-tag"
+                  :style="{ color: tag.color }"
                 >
                   {{ tag.name }}
                 </span>
@@ -114,62 +110,90 @@
           </tbody>
         </table>
 
-        <!-- 移动端：卡片流（同样在面板内滚动） -->
-        <ul v-if="items.length" class="cards">
-          <li v-for="item in items" :key="item.id" class="card-row hb-tap" @click="navigateTo(`/items/${item.id}`)">
-            <span class="hb-icon-tile small"><UIcon name="i-lucide-package" /></span>
-            <div class="card-main">
-              <span class="card-title">{{ item.name }}</span>
-              <span class="card-sub">
-                <UIcon name="i-lucide-map-pin" class="inline-icon" />
-                {{ item.location?.name || t('item.noLocation') }}
-                <template v-if="item.model"> · {{ item.model }}</template>
-              </span>
-              <span v-if="item.barcode" class="card-sub hb-mono hb-truncate">{{ item.barcode }}</span>
-              <span class="card-meta">
-                <span class="hb-chip tiny hb-num">×{{ item.quantity }}</span>
-                <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
-                <span
-                  v-for="tag in item.tags.slice(0, 2)"
-                  :key="tag.id"
-                  class="mini-tag"
-                  :style="{ color: tag.color, borderColor: tag.color }"
-                >
-                  {{ tag.name }}
-                </span>
-              </span>
-            </div>
-            <div class="card-side">
-              <span class="price hb-num">{{ money(item.price * item.quantity) }}</span>
-            </div>
-          </li>
-        </ul>
       </div>
 
       <div v-if="total > pageSize" class="hb-pane-foot">
-        <span class="muted hb-num">{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
-        <div class="pager">
-          <UButton color="neutral" variant="soft" size="sm" :disabled="page <= 1" @click="go(page - 1)">
-            {{ t('common.prev') }}
-          </UButton>
-          <UButton
-            color="neutral"
-            variant="soft"
-            size="sm"
-            :disabled="page >= Math.ceil(total / pageSize)"
-            @click="go(page + 1)"
-          >
-            {{ t('common.next') }}
-          </UButton>
-        </div>
+        <ListPager :page="page" :total="total" :page-size="pageSize" @update:page="go" />
       </div>
     </div>
+
+    <!-- 移动端：整页滚动；行卡片与主页「最近新增」统一（.hb-list / .hb-list-row） -->
+    <ClientOnly>
+      <template v-if="isMobile">
+        <!-- 移动端搜索框：与主页同一套（SearchBox） -->
+        <SearchBox v-model="filters.q" :placeholder="t('item.searchPlaceholderAll')" @submit="applyFilters" />
+        <div v-if="filters.tagId" class="tag-filter">
+          <UButton
+            size="sm"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-tag"
+            trailing-icon="i-lucide-x"
+            class="hb-tap"
+            @click="clearTagFilter"
+          >
+            {{ t('item.tags') }}
+          </UButton>
+        </div>
+
+        <ListSkeleton v-if="pending" :rows="6" card />
+
+        <EmptyState v-else-if="!items.length" :text="t('item.empty')" icon="i-lucide-package">
+          <UButton size="sm" @click="navigateTo('/items/new')">{{ t('item.new') }}</UButton>
+        </EmptyState>
+
+        <ul v-else class="hb-list">
+          <SwipeRow
+            v-for="item in items"
+            :key="item.id"
+            @edit="navigateTo(`/items/${item.id}?edit=1`)"
+            @delete="remove(item.id, item.name)"
+          >
+            <div class="hb-list-row top" @click="navigateTo(`/items/${item.id}`)">
+              <span class="hb-icon-tile small"><UIcon name="i-lucide-package" /></span>
+
+              <div class="hb-list-main">
+                <p class="hb-list-title">{{ item.name }}</p>
+                <p class="hb-list-sub">
+                  <UIcon name="i-lucide-map-pin" class="inline-icon" />
+                  <span class="hb-truncate">
+                    {{ item.location?.name || t('item.noLocation') }}
+                    <template v-if="item.model"> · {{ item.model }}</template>
+                  </span>
+                </p>
+                <div class="hb-list-meta">
+                  <span class="hb-chip tiny hb-num">×{{ item.quantity }}</span>
+                  <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                  <!-- 条码只在没有标签时占位，避免和标签挤成两行 -->
+                  <span v-if="item.barcode && !item.tags.length" class="hb-chip tiny hb-mono">{{ item.barcode }}</span>
+                  <span
+                    v-for="tag in item.tags.slice(0, 2)"
+                    :key="tag.id"
+                    class="hb-tag"
+                    :style="{ color: tag.color }"
+                  >
+                    {{ tag.name }}
+                  </span>
+                  <span v-if="item.tags.length > 2" class="hb-muted hb-num">+{{ item.tags.length - 2 }}</span>
+                </div>
+              </div>
+
+              <div class="hb-list-side">
+                <span class="hb-num">{{ money(item.price * item.quantity) }}</span>
+              </div>
+            </div>
+          </SwipeRow>
+        </ul>
+
+        <ListPager :page="page" :total="total" :page-size="pageSize" @update:page="go" />
+      </template>
+    </ClientOnly>
   </div>
 </template>
 
 <script setup lang="ts">
-// contained：页面不产生文档级滚动，列表在面板内滚动
-definePageMeta({ contained: true });
+// 桌面：面板内滚动；移动：整页滚动（更符合移动端操作习惯）
+definePageMeta({ layoutMode: 'fixed', layoutModeMobile: 'scroll' });
 
 interface Item {
   id: number;
@@ -188,31 +212,30 @@ const api = useApi();
 const route = useRoute();
 const toast = useToast();
 const { money } = useFormat();
+const isMobile = useBreakpoint();
 
 const page = ref(1);
 const pageSize = 50;
 const exporting = ref(false);
-const showTags = ref(false);
 
 const filters = reactive({
   q: (route.query.q as string) ?? '',
-  locationId: route.query.locationId ? Number(route.query.locationId) : null,
-  tagIds: route.query.tagId ? [Number(route.query.tagId)] : [],
+  // 物品页不再提供标签选择器；仅保留从主页/搜索页标签书签进来的筛选
+  tagId: route.query.tagId ? Number(route.query.tagId) : null,
 });
 
-const hasFilters = computed(() => !!filters.q || !!filters.locationId || filters.tagIds.length > 0);
+const hasFilters = computed(() => !!filters.q || filters.tagId !== null);
 
 const { data, pending, refresh } = await useAsyncData(
   'items-list',
   () =>
     api.get<{ items: Item[]; total: number }>('/items', {
       q: filters.q || undefined,
-      locationId: filters.locationId ?? undefined,
-      tagId: filters.tagIds[0] ?? undefined,
+      tagId: filters.tagId ?? undefined,
       page: page.value,
       pageSize,
     }),
-  { server: false, watch: [page, filters.tagIds], default: () => ({ items: [], total: 0 }) },
+  { server: false, watch: [page, () => filters.tagId], default: () => ({ items: [], total: 0 }) },
 );
 
 const items = computed(() => data.value?.items ?? []);
@@ -223,10 +246,14 @@ function applyFilters() {
   void refresh();
 }
 
+function clearTagFilter() {
+  filters.tagId = null;
+  applyFilters();
+}
+
 function clearFilters() {
   filters.q = '';
-  filters.locationId = null;
-  filters.tagIds = [];
+  filters.tagId = null;
   applyFilters();
 }
 
@@ -251,8 +278,7 @@ async function exportCsv() {
   try {
     const query = new URLSearchParams();
     if (filters.q) query.set('q', filters.q);
-    if (filters.locationId) query.set('locationId', String(filters.locationId));
-    if (filters.tagIds[0]) query.set('tagId', String(filters.tagIds[0]));
+    if (filters.tagId) query.set('tagId', String(filters.tagId));
 
     const blob = await api.request<Blob>(`/items/export.csv?${query.toString()}`, { responseType: 'blob' });
     const url = URL.createObjectURL(blob as unknown as Blob);
@@ -270,47 +296,12 @@ async function exportCsv() {
 </script>
 
 <style scoped>
-.filter-location {
-  flex: 0 0 190px;
-  align-self: center;
-}
-
-.count {
-  margin: 0 2px;
-  padding: 0 6px;
-  border-radius: var(--hb-r-full);
-  background: color-mix(in srgb, #fff 25%, transparent);
-  font-size: var(--hb-fs-xs);
-}
-
-.tag-panel {
-  flex-shrink: 0;
-  padding: 12px 14px;
-}
-
 .pad {
   padding: 12px 16px;
 }
 
-.row-skeleton {
-  height: 38px;
-  margin-bottom: 8px;
-}
-
 .table-desktop {
   min-width: 760px;
-}
-
-.clickable {
-  cursor: pointer;
-}
-
-.strong {
-  font-weight: var(--hb-fw-medium);
-}
-
-.muted {
-  color: var(--hb-muted);
 }
 
 .ops-col {
@@ -318,164 +309,21 @@ async function exportCsv() {
   text-align: right;
 }
 
-.card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
+/* 移动端列表使用全局 .hb-list / .hb-list-row / .hb-tag / .hb-list-side（见 assets/css/main.css） */
+
+/* 左滑行：分隔线与裁剪由 SwipeRow 的 .swipe-item 负责，行自身不再画线 */
+.hb-list-row {
+  border-bottom: 0;
 }
 
-.inline-icon {
-  width: 13px;
-  height: 13px;
-}
-
-.hb-icon-tile.small {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-}
-
-.hb-icon-tile.small :deep(svg) {
-  width: 18px;
-  height: 18px;
-}
-
-.card-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.mini-tag {
-  display: inline-block;
-  margin-right: 4px;
-  padding: 0 7px;
-  border: 1px solid;
-  border-radius: var(--hb-r-full);
-  font-size: var(--hb-fs-xs);
-}
-
-.cards {
-  display: none;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.card-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--hb-border);
-  cursor: pointer;
-}
-
-.card-row:hover {
-  background: var(--hb-surface-2);
-}
-
-.card-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.card-title {
-  display: block;
-  font-weight: var(--hb-fw-medium);
-}
-
-.card-sub {
-  display: block;
-  margin-top: 3px;
-  font-size: var(--hb-fs-xs);
-  color: var(--hb-muted);
-}
-
-.card-side {
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.price {
-  font-weight: var(--hb-fw-semibold);
-}
-
-.pager {
-  display: flex;
-  gap: 8px;
+/* 从标签书签进来时的筛选提示（移动端） */
+.tag-filter {
+  margin: 0 0 14px;
 }
 
 @media (max-width: 767px) {
-  .table-desktop {
-    display: none;
-  }
-
-  .cards {
-    display: block;
-  }
-
   .hide-sm {
     display: none;
-  }
-
-  .filter-location {
-    flex: 1 1 100%;
-  }
-
-  /* 移动端：更大的行、更清晰的层级（列表不再"小得看不清"） */
-  .card-row {
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px;
-    min-height: 72px;
-  }
-
-  .hb-icon-tile.small {
-    width: 40px;
-    height: 40px;
-  }
-
-  .hb-icon-tile.small :deep(svg) {
-    width: 20px;
-    height: 20px;
-  }
-
-  .card-title {
-    font-size: var(--hb-fs-h3);
-    font-weight: var(--hb-fw-semibold);
-  }
-
-  .card-sub {
-    margin-top: 4px;
-    font-size: var(--hb-fs-sm);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .card-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-  }
-
-  .card-side .price {
-    font-size: var(--hb-fs-h3);
-    font-weight: var(--hb-fw-bold);
-  }
-
-  .mini-tag {
-    padding: 1px 8px;
-    font-size: var(--hb-fs-xs);
-  }
-
-  .inline-icon {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
   }
 }
 </style>

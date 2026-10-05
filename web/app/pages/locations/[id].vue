@@ -1,7 +1,7 @@
 <template>
   <div class="hb-fill">
     <!-- 独立的移动端位置详情页：竖屏排版，不再被左右分栏挤压 -->
-    <div class="hb-pane">
+    <div class="hb-pane detail-shell">
       <LocationDetail
         ref="detail"
         :id="id"
@@ -19,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ contained: true });
+definePageMeta({ layoutMode: 'fixed', layoutModeMobile: 'scroll' });
 
 const route = useRoute();
 
@@ -48,3 +48,15 @@ if (!Number.isInteger(id) || id <= 0) {
   await navigateTo('/locations');
 }
 </script>
+
+<style scoped>
+/* 移动端整页滚动：去掉面板外框，让内容跟随页面 */
+@media (max-width: 767px) {
+  .detail-shell {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+}
+</style>

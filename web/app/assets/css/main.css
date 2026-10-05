@@ -379,6 +379,168 @@ samp {
   background: var(--hb-surface-2);
 }
 
+/* ==========================================================================
+   列表行与标签（跨页面共用）
+   移动端大行列表：主页「最近新增」、物品列表、位置详情都走这套，别再各写一份
+   ========================================================================== */
+
+/* 统一的列表背景框 */
+.hb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-lg);
+  background: var(--hb-surface);
+  box-shadow: var(--hb-shadow-sm);
+  overflow: hidden;
+}
+
+.hb-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  min-height: 64px;
+  border-bottom: 1px solid var(--hb-border);
+  cursor: pointer;
+  transition: background var(--hb-dur) var(--hb-ease);
+}
+
+.hb-list-row:last-child {
+  border-bottom: 0;
+}
+
+.hb-list-row:hover,
+.hb-list-row:active {
+  background: var(--hb-surface-2);
+}
+
+/* 多行信息（图标 + 标题/副标题/标签）顶部对齐 */
+.hb-list-row.top {
+  align-items: flex-start;
+}
+
+.hb-list-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hb-list-title {
+  margin: 0;
+  font-size: var(--hb-fs-body);
+  font-weight: var(--hb-fw-semibold);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-list-sub {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--hb-fs-sm);
+  line-height: 1.45;
+  color: var(--hb-muted);
+  min-width: 0;
+}
+
+.hb-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  /* 关键：不写 center 的话，标签会被 flex 拉伸成竖椭圆 */
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.hb-list-side {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: var(--hb-fs-body);
+  font-weight: var(--hb-fw-semibold);
+  white-space: nowrap;
+}
+
+.hb-list-chev {
+  width: 18px;
+  height: 18px;
+  color: var(--hb-muted);
+  flex-shrink: 0;
+}
+
+/* 标签胶囊：inline-flex + 固定行高，字号再小也不会被拉成椭圆 */
+.hb-tag {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 100%;
+  padding: 1px 9px;
+  border: 1px solid currentColor;
+  border-radius: var(--hb-r-full);
+  font-size: var(--hb-fs-xs);
+  line-height: 1.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 图标砖：紧凑尺寸 + 图标大小统一（列表行内用） */
+.hb-icon-tile.small {
+  width: 38px;
+  height: 38px;
+}
+
+.hb-icon-tile svg {
+  width: 20px;
+  height: 20px;
+}
+
+.hb-icon-tile.small svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 行内小图标（位置、标签等前缀） */
+.inline-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+/* 小号胶囊（数量、SN 计数等） */
+.hb-chip.tiny {
+  padding: 1px 7px;
+  font-size: 11px;
+}
+
+/* 列表行右侧的次要文字（如数量 ×N） */
+.hb-list-note {
+  font-size: var(--hb-fs-xs);
+  font-weight: 400;
+  color: var(--hb-muted);
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.muted {
+  color: var(--hb-muted);
+}
+
+.strong {
+  font-weight: var(--hb-fw-medium);
+}
+
 .hb-skeleton {
   background: linear-gradient(
     90deg,
@@ -389,6 +551,35 @@ samp {
   background-size: 400% 100%;
   animation: hb-shimmer 1.4s ease infinite;
   border-radius: var(--hb-r-md);
+}
+
+/* 列表骨架屏（ListSkeleton 组件用） */
+.hb-skeleton-list {
+  --hb-skeleton-line: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hb-skeleton-list.card {
+  padding: 10px 14px;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-lg);
+  background: var(--hb-surface);
+}
+
+.hb-skeleton-line {
+  height: var(--hb-skeleton-line);
+}
+
+/* 分页（ListPager 组件用；在带 space-between 的容器里也能自动居中） */
+.hb-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-inline: auto;
 }
 
 @keyframes hb-shimmer {
@@ -519,6 +710,7 @@ samp {
 }
 
 .hb-truncate {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -653,6 +845,7 @@ samp {
   gap: 8px;
   flex-wrap: wrap;
   flex-shrink: 0;
+  margin-bottom: 12px;
 }
 
 .hb-toolbar > .hb-toolbar-grow {
@@ -668,6 +861,11 @@ samp {
   .hb-content {
     padding-bottom: calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 16px);
   }
+
+  /* 只在桌面端渲染的结构：移动端直接不显示，避免首帧闪出桌面布局 */
+  .desktop-only {
+    display: none !important;
+  }
 }
 
 @media (pointer: coarse) {
@@ -680,10 +878,22 @@ samp {
    位置树拖拽
    ========================================================================== */
 
+/*
+ * 空占位：落点只腾出空间，顶部一条品牌色插入指示线标出落点，
+ * 不复制被拖动节点的名称/内容，避免和真实节点混淆、看不出落点。
+ */
 .hb-tree-ghost {
-  opacity: 0.45;
   background: var(--hb-brand-soft);
+  border-top: 2px solid var(--hb-brand);
   border-radius: var(--hb-r-sm);
+}
+
+.hb-tree-ghost > .node-row {
+  visibility: hidden;
+}
+
+.hb-tree-ghost > .children {
+  display: none;
 }
 
 .hb-tree-drag {

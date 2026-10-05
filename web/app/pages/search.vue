@@ -22,52 +22,52 @@
       <template v-else>
         <section v-if="results.items.length" class="block">
           <h2>{{ t('search.items') }}</h2>
-          <ul class="rows hb-card">
-            <li v-for="item in results.items" :key="item.id" class="row" @click="navigateTo(`/items/${item.id}`)">
-              <div class="row-main">
-                <span class="row-title">{{ item.name }}</span>
-                <span class="row-sub">
+          <ul class="hb-list">
+            <li v-for="item in results.items" :key="item.id" class="hb-list-row" @click="navigateTo(`/items/${item.id}`)">
+              <div class="hb-list-main">
+                <span class="hb-list-title">{{ item.name }}</span>
+                <span class="hb-list-sub">
                   {{ item.location?.name || t('item.noLocation') }}
                   <template v-if="item.model"> · {{ item.model }}</template>
                 </span>
               </div>
-              <span class="qty hb-num">{{ money(item.price) }}</span>
+              <span class="hb-list-side hb-num">{{ money(item.price) }}</span>
             </li>
           </ul>
         </section>
 
         <section v-if="results.units.length" class="block">
           <h2>{{ t('search.units') }}</h2>
-          <ul class="rows hb-card">
-            <li v-for="unit in results.units" :key="unit.id" class="row" @click="navigateTo(`/items/${unit.itemId}`)">
-              <div class="row-main">
-                <span class="row-title">{{ unit.sn }}</span>
-                <span class="row-sub">
+          <ul class="hb-list">
+            <li v-for="unit in results.units" :key="unit.id" class="hb-list-row" @click="navigateTo(`/items/${unit.itemId}`)">
+              <div class="hb-list-main">
+                <span class="hb-list-title hb-mono">{{ unit.sn }}</span>
+                <span class="hb-list-sub">
                   {{ unit.item?.name }} · {{ unit.location?.name || t('item.noLocation') }}
                 </span>
               </div>
-              <UIcon name="i-lucide-chevron-right" class="chev" />
+              <UIcon name="i-lucide-chevron-right" class="hb-list-chev" />
             </li>
           </ul>
         </section>
 
         <section v-if="results.locations.length" class="block">
           <h2>{{ t('search.locations') }}</h2>
-          <ul class="rows hb-card">
+          <ul class="hb-list">
             <li
               v-for="location in results.locations"
               :key="location.id"
-              class="row"
+              class="hb-list-row"
               @click="navigateTo(`/locations?focus=${location.id}`)"
             >
-              <div class="row-main">
-                <span class="row-title">{{ location.name }}</span>
-                <span class="row-sub">
+              <div class="hb-list-main">
+                <span class="hb-list-title">{{ location.name }}</span>
+                <span class="hb-list-sub">
                   {{ t('location.itemCount', { count: location.itemCount }) }}
                   <template v-if="location.childCount"> · {{ t('location.childCount', { count: location.childCount }) }}</template>
                 </span>
               </div>
-              <UIcon name="i-lucide-chevron-right" class="chev" />
+              <UIcon name="i-lucide-chevron-right" class="hb-list-chev" />
             </li>
           </ul>
         </section>
@@ -156,61 +156,7 @@ h2 {
   font-weight: var(--hb-fw-semibold);
 }
 
-.rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--hb-border);
-  cursor: pointer;
-}
-
-.row:last-child {
-  border-bottom: none;
-}
-
-.row:hover {
-  background: var(--hb-surface-2);
-}
-
-.row-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.row-title {
-  display: block;
-  font-size: var(--hb-fs-body);
-  font-weight: var(--hb-fw-medium);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-sub {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--hb-fs-xs);
-  color: var(--hb-muted);
-}
-
-.qty {
-  font-size: var(--hb-fs-sm);
-  color: var(--hb-text-2);
-}
-
-.chev {
-  width: 16px;
-  height: 16px;
-  color: var(--hb-muted);
-}
+/* 列表行使用全局 .hb-list / .hb-list-row / .hb-list-*（见 assets/css/main.css） */
 
 .bookmarks {
   display: flex;

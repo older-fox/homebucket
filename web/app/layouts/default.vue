@@ -1,5 +1,5 @@
 <template>
-  <div class="shell" :class="{ fluid }">
+  <div class="shell" :class="[shellModeClass, mobileModeClass]">
     <!-- ============ 桌面端左侧菜单 ============ -->
     <aside class="sidebar">
       <NuxtLink to="/" class="brand">
@@ -78,8 +78,8 @@
         </div>
       </header>
 
-      <main class="hb-content page" :class="{ fluid, contained }">
-        <div class="scroller" :class="{ 'scroller--contained': contained }">
+      <main class="hb-content page" :class="[shellModeClass, mobileModeClass]">
+        <div class="scroller">
           <slot />
         </div>
       </main>
@@ -101,12 +101,44 @@
         <span class="bottom-label">{{ t(`nav.${item.key}`) }}</span>
       </button>
 
-      <!-- 扫码：底部中间的核心入口，点击后选择「创建 / 查找 / 编辑」 -->
-      <button type="button" class="bottom-scan" :aria-label="t('nav.scan')" @click="scanOpen = true">
-        <span class="scan-circle">
-          <UIcon :name="SCAN_ITEM.icon" class="scan-icon" />
-        </span>
-      </button>
+      <!-- 扫码：底部中间的核心入口，点击后就地弹出气泡（不跳页） -->
+      <UPopover
+        v-model:open="scanOpen"
+        :content="{ side: 'top', align: 'center', sideOffset: 14 }"
+        :ui="{ content: 'w-[15rem] p-2 rounded-[14px]' }"
+      >
+        <button type="button" class="bottom-scan" :aria-label="t('nav.scan')">
+          <span class="scan-circle">
+            <UIcon :name="SCAN_ITEM.icon" class="scan-icon" />
+          </span>
+        </button>
+
+        <template #content>
+          <div class="scan-actions">
+            <button type="button" class="scan-action hb-tap" @click="startScan('create')">
+              <span class="scan-action-icon"><UIcon name="i-lucide-package-plus" /></span>
+              <span class="scan-action-text">
+                <strong>{{ t('scan.actionCreate') }}</strong>
+                <small class="hb-muted">{{ t('scan.actionCreateDesc') }}</small>
+              </span>
+            </button>
+            <button type="button" class="scan-action hb-tap" @click="startScan('find')">
+              <span class="scan-action-icon"><UIcon name="i-lucide-search" /></span>
+              <span class="scan-action-text">
+                <strong>{{ t('scan.actionFind') }}</strong>
+                <small class="hb-muted">{{ t('scan.actionFindDesc') }}</small>
+              </span>
+            </button>
+            <button type="button" class="scan-action hb-tap" @click="startScan('edit')">
+              <span class="scan-action-icon"><UIcon name="i-lucide-pencil" /></span>
+              <span class="scan-action-text">
+                <strong>{{ t('scan.actionEdit') }}</strong>
+                <small class="hb-muted">{{ t('scan.actionEditDesc') }}</small>
+              </span>
+            </button>
+          </div>
+        </template>
+      </UPopover>
 
       <button
         v-for="item in rightTabs"
@@ -130,35 +162,7 @@
       </button>
     </nav>
 
-    <!-- 扫码动作选择 -->
-    <USlideover v-model:open="scanOpen" :title="t('scan.title')">
-      <template #body>
-        <div class="scan-actions">
-          <p class="hb-muted scan-hint">{{ t('scan.chooseAction') }}</p>
-          <button type="button" class="scan-action hb-tap" @click="startScan('create')">
-            <span class="scan-action-icon"><UIcon name="i-lucide-package-plus" /></span>
-            <span class="scan-action-text">
-              <strong>{{ t('scan.actionCreate') }}</strong>
-              <small class="hb-muted">{{ t('scan.actionCreateDesc') }}</small>
-            </span>
-          </button>
-          <button type="button" class="scan-action hb-tap" @click="startScan('find')">
-            <span class="scan-action-icon"><UIcon name="i-lucide-search" /></span>
-            <span class="scan-action-text">
-              <strong>{{ t('scan.actionFind') }}</strong>
-              <small class="hb-muted">{{ t('scan.actionFindDesc') }}</small>
-            </span>
-          </button>
-          <button type="button" class="scan-action hb-tap" @click="startScan('edit')">
-            <span class="scan-action-icon"><UIcon name="i-lucide-pencil" /></span>
-            <span class="scan-action-text">
-              <strong>{{ t('scan.actionEdit') }}</strong>
-              <small class="hb-muted">{{ t('scan.actionEditDesc') }}</small>
-            </span>
-          </button>
-        </div>
-      </template>
-    </USlideover>
+
 
     <!-- ============ 移动端抽屉 ============ -->
     <USlideover v-model:open="moreOpen" :title="t('common.more')">
@@ -238,9 +242,18 @@ function startScan(mode: 'create' | 'find' | 'edit') {
 
 const initial = computed(() => (user.value?.username ?? '?').slice(0, 1).toUpperCase());
 
-/** fluid：整页自然滚动（主页）；contained：页面自己管理内部滚动（列表面板类页面） */
-const fluid = computed(() => route.meta.fluid === true);
-const contained = computed(() => route.meta.contained === true);
+/**
+ * 页面滚动模式（纯 CSS 驱动，渲染期不依赖 matchMedia，避免水合不匹配与首帧闪动）：
+ *   layoutMode       桌面端（scroll = 整页滚动；fixed = 面板内滚动）
+ *   layoutModeMobile 移动端（缺省沿用桌面端）
+ * 具体切换在样式里用媒体查询完成。
+ */
+const layoutMode = computed(() => (route.meta.layoutMode as 'scroll' | 'fixed') ?? 'scroll');
+const layoutModeMobile = computed(
+  () => (route.meta.layoutModeMobile as 'scroll' | 'fixed') ?? layoutMode.value,
+);
+const shellModeClass = computed(() => `mode-${layoutMode.value}`);
+const mobileModeClass = computed(() => `mode-mobile-${layoutModeMobile.value}`);
 
 onMounted(() => {
   if (!user.value) void fetchMe();
@@ -280,16 +293,17 @@ function goSettings() {
 <style scoped>
 .shell {
   display: flex;
-  /* 锁住视口高度：默认让内容在页面内部滚动，不产生文档级滚动条 */
+  min-height: 100dvh;
+}
+
+/* fixed 模式：锁住视口，滚动交给内部容器 */
+.shell.mode-fixed {
   height: 100dvh;
   overflow: hidden;
 }
 
-/* 主页例外：允许整页自然滚动 */
-.shell.fluid {
-  height: auto;
-  min-height: 100dvh;
-  overflow: visible;
+.shell.mode-fixed .main {
+  min-height: 0;
 }
 
 /* ---------------- 侧边栏 ---------------- */
@@ -578,7 +592,6 @@ function goSettings() {
 
 .page {
   flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -590,18 +603,21 @@ function goSettings() {
 .scroller {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
   padding: 20px 16px calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 24px);
 }
 
-/* 列表/面板类页面：滚动交给页面内部的具体区域 */
-.scroller--contained {
+/* fixed：滚动交给页面内部的具体区域 */
+.page.mode-fixed {
+  min-height: 0;
+}
+
+.page.mode-fixed .scroller {
   overflow: hidden;
   display: flex;
   padding-bottom: calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 12px);
 }
 
-.scroller--contained > * {
+.page.mode-fixed .scroller > * {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -617,14 +633,24 @@ function goSettings() {
   background: var(--hb-bg);
 }
 
-/* 主页：不设内部滚动 */
-.page.fluid {
-  flex: none;
-}
+/* 移动端覆盖：声明了 mobile=scroll 的页面回到整页自然滚动 */
+@media (max-width: 767px) {
+  .shell.mode-mobile-scroll {
+    height: auto;
+    overflow: visible;
+  }
 
-.page.fluid .scroller {
-  overflow: visible;
-  flex: none;
+  .page.mode-mobile-scroll .scroller {
+    overflow: visible;
+    display: block;
+    flex: none;
+    padding-bottom: calc(var(--hb-bottom-nav) + var(--hb-safe-bottom) + 24px);
+  }
+
+  .page.mode-mobile-scroll .scroller > * {
+    display: block;
+    flex: none;
+  }
 }
 
 /* ---------------- 移动端底部 Tab ---------------- */
@@ -724,20 +750,15 @@ function goSettings() {
 .scan-actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.scan-hint {
-  margin: 0 0 4px;
-  font-size: var(--hb-fs-sm);
+  gap: 4px;
 }
 
 .scan-action {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 12px 14px;
+  padding: 9px 10px;
   border: 1px solid var(--hb-border);
   border-radius: var(--hb-r-md);
   background: var(--hb-surface);
@@ -755,8 +776,8 @@ function goSettings() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--hb-r-sm);
   background: var(--hb-brand-soft);
   color: var(--hb-brand);
@@ -781,6 +802,11 @@ function goSettings() {
 
 .scan-action-text small {
   font-size: var(--hb-fs-xs);
+  line-height: 1.35;
+}
+
+.scan-action-text strong {
+  line-height: 1.3;
 }
 
 /* ---------------- 抽屉 / 弹窗内容 ---------------- */
@@ -852,7 +878,7 @@ function goSettings() {
     padding: 26px 24px 40px;
   }
 
-  .scroller--contained {
+  .page.mode-fixed .scroller {
     padding-bottom: 24px;
   }
 }
@@ -879,6 +905,20 @@ function goSettings() {
 
   .avatar {
     aspect-ratio: 1 / 1;
+  }
+}
+
+/* 小屏（≤420px）：能纵向就纵向，避免元素被挤扁 */
+@media (max-width: 420px) {
+  .topbar {
+    padding: 0 10px;
+    gap: 6px;
+  }
+
+  .page,
+  .scroller {
+    padding-left: 10px;
+    padding-right: 10px;
   }
 }
 </style>

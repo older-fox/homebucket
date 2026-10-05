@@ -17,7 +17,11 @@
           <span class="hb-muted hb-num">{{ tree.length }}</span>
         </div>
         <div class="hb-pane-body tree-body">
-          <EmptyState v-if="!tree.length" :text="t('location.emptyTree')" icon="i-lucide-map-pinned">
+          <!-- 加载中用骨架，避免看起来像"没有位置" -->
+          <div v-if="!tree.length && treePending" class="pad">
+            <ListSkeleton :rows="6" :line-height="40" />
+          </div>
+          <EmptyState v-else-if="!tree.length" :text="t('location.emptyTree')" icon="i-lucide-map-pinned">
             <UButton size="sm" @click="dialogs?.openCreate(null)">{{ t('location.new') }}</UButton>
           </EmptyState>
           <LocationTree
@@ -30,12 +34,13 @@
             @create-child="(id: number) => dialogs?.openCreate(id)"
             @edit="(node: TreeNode) => dialogs?.openEdit(node.id)"
             @remove="remove"
+            @abort="loadTree(true)"
           />
         </div>
       </aside>
 
-      <!-- 桌面端：右侧固定详情面板 -->
-      <section v-if="!isMobile" class="hb-pane detail-pane">
+      <!-- 桌面端：右侧固定详情面板（移动端由 CSS 隐藏，避免首帧闪出空态卡片） -->
+      <section class="hb-pane detail-pane desktop-only">
         <LocationDetail
           v-if="selectedId"
           :key="`${selectedId}-${detailKey}`"
@@ -56,15 +61,24 @@
 <script setup lang="ts">
 import type { MovePayload, TreeNode } from '~/types/location';
 
-// contained：页面不滚动，树/详情各自内部滚动
-definePageMeta({ contained: true });
+// 桌面：面板内滚动；移动：整页滚动（列表类页面统一按移动端习惯）
+definePageMeta({ layoutMode: 'fixed', layoutModeMobile: 'scroll' });
 
 const { t } = useI18n();
 const api = useApi();
 const route = useRoute();
 const toast = useToast();
 
-const tree = ref<TreeNode[]>([]);
+// 位置树走缓存：返回上一页直接渲染，不再"空列表等半天"
+const {
+  tree,
+  treePending,
+  loadTree: fetchTree,
+  invalidateTree,
+  invalidateAllContents,
+} = useLocations();
+const { prune: pruneExpansion } = useTreeExpansion();
+
 const treeVersion = ref(0);
 const selectedId = ref<number | null>(null);
 const detailKey = ref(0);
@@ -73,16 +87,7 @@ const dialogs = ref<{ openCreate: (id: number | null) => void; openEdit: (id: nu
 );
 
 /** 移动端：树独占整屏，点节点进入独立的位置详情路由 */
-const isMobile = ref(false);
-onMounted(() => {
-  const query = window.matchMedia('(max-width: 767px)');
-  const update = () => {
-    isMobile.value = query.matches;
-  };
-  update();
-  query.addEventListener('change', update);
-  onBeforeUnmount(() => query.removeEventListener('change', update));
-});
+const isMobile = useBreakpoint();
 
 // ---------------------------------------------------------------- 树工具
 const cloneTree = (nodes: TreeNode[]): TreeNode[] =>
@@ -140,21 +145,36 @@ function insertAt(nodes: TreeNode[], node: TreeNode, payload: MovePayload): bool
   return false;
 }
 
-/** 本地乐观移动：立即改本地数据，界面不再等服务器 */
-function applyLocalMove(source: TreeNode[], payload: MovePayload): TreeNode[] {
-  const next = cloneTree(source);
-  const node = findNode(next, payload.id);
-  if (!node) return source;
+/**
+ * 本地乐观移动：**就地**修改数组（Vue 只做局部 patch），
+ * 不再深拷贝整棵树、也不再用 :key 重挂载，拖拽跟手且不卡顿。
+ */
+function applyLocalMove(payload: MovePayload): boolean {
+  const node = findNode(tree.value, payload.id);
+  if (!node) return false;
 
-  detach(next, payload.id);
+  detach(tree.value, payload.id);
   node.parentId = payload.parentId;
-  if (!insertAt(next, node, payload)) return source;
-  return next;
+
+  if (!insertAt(tree.value, node, payload)) {
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------- 数据
-async function loadTree() {
-  tree.value = await api.get<TreeNode[]>('/locations/tree');
+/** 收集当前树里所有节点 id（清理失效的展开态） */
+function collectIds(nodes: TreeNode[], into = new Set<number>()): Set<number> {
+  for (const node of nodes) {
+    into.add(node.id);
+    collectIds(node.children ?? [], into);
+  }
+  return into;
+}
+
+async function loadTree(force = true) {
+  await fetchTree(force);
+  pruneExpansion(collectIds(tree.value));
   treeVersion.value += 1;
 }
 
@@ -178,14 +198,19 @@ async function move(payload: MovePayload) {
   const node = findNode(tree.value, payload.id);
   if (node && payload.parentId !== null && descendsFrom(node, payload.parentId)) {
     toast.add({ title: t('location.cycleBlocked'), color: 'error' });
-    treeVersion.value += 1;
+    treeVersion.value += 1; // 让 DOM 回到数据状态
     return;
   }
 
+  // 先把界面落定（同步、就地），让拖拽立刻生效
   const snapshot = cloneTree(tree.value);
-  tree.value = applyLocalMove(tree.value, payload);
-  treeVersion.value += 1;
+  if (!applyLocalMove(payload)) {
+    treeVersion.value += 1;
+    toast.add({ title: t('location.moveFailed'), color: 'error' });
+    return;
+  }
 
+  // 服务端裁决放到后台，不阻塞交互
   try {
     const result = await api.patch<{ tree: TreeNode[] }>(`/locations/${payload.id}/move`, {
       parentId: payload.parentId,
@@ -193,11 +218,12 @@ async function move(payload: MovePayload) {
       afterId: payload.afterId ?? undefined,
     });
     tree.value = result.tree;
-    treeVersion.value += 1;
+    invalidateAllContents();
     detailKey.value += 1;
+    pruneExpansion(collectIds(tree.value));
   } catch (error) {
     tree.value = snapshot;
-    treeVersion.value += 1;
+    treeVersion.value += 1; // 回滚时强制重绘，保证 DOM 与数据一致
     toast.add({
       title: t('location.moveFailed'),
       description: (error as { message?: string }).message,
@@ -211,6 +237,8 @@ async function remove(node: TreeNode) {
   try {
     await api.del(`/locations/${node.id}`);
     if (selectedId.value === node.id) select(null);
+    invalidateTree();
+    invalidateAllContents();
     await loadTree();
     toast.add({ title: t('common.deleted'), color: 'success' });
   } catch (error) {
@@ -219,12 +247,16 @@ async function remove(node: TreeNode) {
 }
 
 async function onSaved() {
+  invalidateTree();
+  invalidateAllContents();
   await loadTree();
   detailKey.value += 1;
 }
 
 async function onDeleted(id: number) {
   if (selectedId.value === id) select(null);
+  invalidateTree();
+  invalidateAllContents();
   await loadTree();
   detailKey.value += 1;
 }
@@ -253,13 +285,17 @@ onMounted(async () => {
   padding: 8px;
 }
 
+.pad {
+  padding: 4px;
+}
+
 .head-icon {
   width: 17px;
   height: 17px;
   color: var(--hb-brand);
 }
 
-/* 移动端：树占满可用高度（footer 仍由外层留白保证不被遮挡） */
+/* 移动端：整页滚动 + 无卡片外框，列表跟随页面滚动 */
 @media (max-width: 767px) {
   .layout {
     display: flex;
@@ -267,11 +303,30 @@ onMounted(async () => {
   }
 
   .tree-pane {
-    flex: 1 1 auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .tree-pane :deep(.hb-pane-head) {
+    padding: 4px 0 10px;
+    border-bottom: 0;
+  }
+
+  .tree-body {
+    padding: 0;
   }
 
   .hide-sm {
     display: none;
+  }
+}
+
+/* 小屏（≤420px）：能纵向就纵向，避免挤成一条 */
+@media (max-width: 420px) {
+  .tree-pane :deep(.hb-pane-head) {
+    flex-wrap: wrap;
   }
 }
 

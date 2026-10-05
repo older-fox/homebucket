@@ -83,16 +83,7 @@ const qrOpen = ref(false);
 const qrUrl = ref('');
 
 /** 移动端弹窗全屏 */
-const isMobile = ref(false);
-onMounted(() => {
-  const query = window.matchMedia('(max-width: 767px)');
-  const update = () => {
-    isMobile.value = query.matches;
-  };
-  update();
-  query.addEventListener('change', update);
-  onBeforeUnmount(() => query.removeEventListener('change', update));
-});
+const isMobile = useBreakpoint();
 
 function flatten(nodes: TreeNode[], depth = 0): { label: string; value: number }[] {
   return nodes.flatMap((node) => [

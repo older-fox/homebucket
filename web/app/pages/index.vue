@@ -20,18 +20,8 @@
       </div>
     </header>
 
-    <!-- ============ 搜索 ============ -->
-    <form class="search hb-card" @submit.prevent="submitSearch">
-      <UIcon name="i-lucide-search" class="search-icon" />
-      <input
-        v-model="keyword"
-        class="search-input"
-        type="search"
-        enterkeyhint="search"
-        :placeholder="t('common.searchPlaceholder')"
-      />
-      <UButton type="submit" size="sm" class="hb-tap search-btn">{{ t('common.search') }}</UButton>
-    </form>
+    <!-- ============ 搜索（与物品页共用 SearchBox） ============ -->
+    <SearchBox v-model="keyword" :placeholder="t('common.searchPlaceholder')" @submit="submitSearch" />
 
     <!-- ============ 统计卡片 ============ -->
     <section class="stats">
@@ -57,35 +47,33 @@
         <NuxtLink to="/items" class="link">{{ t('common.more') }}</NuxtLink>
       </div>
 
-      <div v-if="pending" class="hb-card list">
-        <div v-for="n in 3" :key="n" class="hb-skeleton row-skeleton" />
-      </div>
+      <ListSkeleton v-if="pending" :rows="3" card :line-height="52" />
 
       <EmptyState v-else-if="!data?.recentItems?.length" :text="t('dashboard.noRecent')" icon="i-lucide-package-open">
         <UButton size="sm" @click="navigateTo('/items/new')">{{ t('dashboard.quickAddItem') }}</UButton>
       </EmptyState>
 
-      <ul v-else class="hb-card list">
+      <ul v-else class="hb-list">
         <li
           v-for="item in data.recentItems"
           :key="item.id"
-          class="hb-row clickable"
+          class="hb-list-row"
           @click="navigateTo(`/items/${item.id}`)"
         >
           <span class="hb-icon-tile small">
             <UIcon name="i-lucide-package" />
           </span>
-          <div class="row-main">
-            <p class="row-title">{{ item.name }}</p>
-            <p class="row-sub">
+          <div class="hb-list-main">
+            <p class="hb-list-title">{{ item.name }}</p>
+            <p class="hb-list-sub">
               <UIcon name="i-lucide-map-pin" class="inline-icon" />
-              {{ item.location?.name || t('item.noLocation') }}
+              <span class="hb-truncate">{{ item.location?.name || t('item.noLocation') }}</span>
               <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
             </p>
           </div>
-          <div class="row-side">
-            <span class="qty hb-num">×{{ item.quantity }}</span>
-            <span class="price hb-num">{{ money(item.price * item.quantity) }}</span>
+          <div class="hb-list-side">
+            <span class="hb-list-note hb-num">×{{ item.quantity }}</span>
+            <span class="hb-num">{{ money(item.price * item.quantity) }}</span>
           </div>
         </li>
       </ul>
@@ -248,38 +236,6 @@ h1 {
 }
 
 /* ---------------- 搜索 ---------------- */
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 8px 8px 14px;
-  margin-bottom: 20px;
-}
-
-.search-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--hb-muted);
-  flex-shrink: 0;
-}
-
-.search-input {
-  flex: 1;
-  min-width: 0;
-  height: 38px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--hb-r-full);
-  background: var(--hb-surface-2);
-  color: var(--hb-text);
-  font-size: var(--hb-fs-body);
-  outline: none;
-}
-
-.search-input::placeholder {
-  color: var(--hb-muted);
-}
-
 /* ---------------- 统计卡片 ---------------- */
 .stats {
   display: grid;
@@ -352,90 +308,7 @@ h1 {
 }
 
 /* ---------------- 列表 ---------------- */
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-}
-
-.row-skeleton {
-  height: 52px;
-  margin: 10px 14px;
-}
-
-.clickable {
-  cursor: pointer;
-}
-
-.hb-icon-tile.small {
-  width: 36px;
-  height: 36px;
-}
-
-.hb-icon-tile :deep(svg) {
-  width: 20px;
-  height: 20px;
-}
-
-.hb-icon-tile.small :deep(svg) {
-  width: 18px;
-  height: 18px;
-}
-
-.row-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.row-title {
-  margin: 0;
-  font-size: var(--hb-fs-body);
-  font-weight: var(--hb-fw-semibold);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-sub {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 3px 0 0;
-  font-size: var(--hb-fs-xs);
-  color: var(--hb-muted);
-  min-width: 0;
-}
-
-.inline-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-}
-
-.hb-chip.tiny {
-  padding: 1px 7px;
-  font-size: 11px;
-}
-
-.row-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.qty {
-  font-size: var(--hb-fs-xs);
-  color: var(--hb-muted);
-}
-
-.price {
-  font-size: var(--hb-fs-body);
-  font-weight: var(--hb-fw-semibold);
-  font-variant-numeric: tabular-nums;
-}
+/* 列表行样式走全局 .hb-list / .hb-list-row / .hb-tag（见 assets/css/main.css） */
 
 /* ---------------- 位置网格 ---------------- */
 .loc-grid {
@@ -552,26 +425,6 @@ h1 {
 
 @media (max-width: 640px) {
   .hide-sm {
-    display: none;
-  }
-
-  /* 移动端：搜索框占满一行、高度足够、字号 16px 避免 iOS 聚焦缩放 */
-  .search {
-    padding: 5px;
-    gap: 0;
-  }
-
-  .search-icon {
-    margin: 0 4px 0 10px;
-  }
-
-  .search-input {
-    height: 46px;
-    font-size: 16px;
-    padding: 0 14px;
-  }
-
-  .search-btn {
     display: none;
   }
 }

@@ -35,9 +35,7 @@
     </div>
 
     <div class="detail-body">
-      <div v-if="pending" class="pad">
-        <div v-for="n in 5" :key="n" class="hb-skeleton row-skeleton" />
-      </div>
+      <ListSkeleton v-if="pending" :rows="5" />
 
       <template v-else-if="data">
         <img v-if="data.location.imageUrl" :src="data.location.imageUrl" class="cover" :alt="data.location.name" />
@@ -50,17 +48,17 @@
             {{ t('location.subLocations') }}
             <span class="hb-muted hb-num">{{ children.length }}</span>
           </h3>
-          <ul v-if="mobile" class="rows">
-            <li v-for="child in children" :key="child.id" class="row hb-tap" @click="openChild(child.id)">
+          <ul v-if="mobile" class="hb-list">
+            <li v-for="child in children" :key="child.id" class="hb-list-row hb-tap" @click="openChild(child.id)">
               <span class="hb-icon-tile small"><UIcon name="i-lucide-folder" /></span>
-              <span class="row-main">
-                <span class="row-title">{{ child.name }}</span>
-                <span class="row-sub">
+              <span class="hb-list-main">
+                <span class="hb-list-title">{{ child.name }}</span>
+                <span class="hb-list-sub">
                   {{ t('location.itemCount', { count: child.itemCount }) }}
                   <template v-if="child.childCount"> · {{ t('location.childCount', { count: child.childCount }) }}</template>
                 </span>
               </span>
-              <UIcon name="i-lucide-chevron-right" class="chev" />
+              <UIcon name="i-lucide-chevron-right" class="hb-list-chev" />
             </li>
           </ul>
           <div v-else class="grid">
@@ -83,21 +81,21 @@
           <EmptyState v-if="!data.items.length" :text="t('location.emptyContent')" icon="i-lucide-package" />
 
           <!-- 移动端：大行卡片 -->
-          <ul v-else-if="mobile" class="rows">
-            <li v-for="item in pagedItems" :key="item.id" class="row item-row" @click="navigateTo(`/items/${item.id}`)">
+          <ul v-else-if="mobile" class="hb-list">
+            <li v-for="item in pagedItems" :key="item.id" class="hb-list-row top" @click="navigateTo(`/items/${item.id}`)">
               <span class="hb-icon-tile small"><UIcon name="i-lucide-package" /></span>
-              <span class="row-main">
-                <span class="row-title">{{ item.name }}</span>
-                <span class="row-sub">
+              <span class="hb-list-main">
+                <span class="hb-list-title">{{ item.name }}</span>
+                <span class="hb-list-sub">
                   {{ item.location?.name || t('item.noLocation') }}
                   <template v-if="item.model"> · {{ item.model }}</template>
                 </span>
-                <span class="row-meta">
+                <span class="hb-list-meta">
                   <span class="hb-chip tiny hb-num">×{{ item.quantity }}</span>
                   <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
                 </span>
               </span>
-              <span class="row-side hb-num">{{ money(item.price * item.quantity) }}</span>
+              <span class="hb-list-side hb-num">{{ money(item.price * item.quantity) }}</span>
             </li>
           </ul>
 
@@ -127,19 +125,7 @@
           </div>
 
           <div v-if="data.items.length > pageSize" class="pager">
-            <UButton color="neutral" variant="soft" size="sm" :disabled="itemPage <= 1" @click="itemPage -= 1">
-              {{ t('common.prev') }}
-            </UButton>
-            <span class="hb-muted hb-num">{{ itemPage }} / {{ Math.ceil(data.items.length / pageSize) }}</span>
-            <UButton
-              color="neutral"
-              variant="soft"
-              size="sm"
-              :disabled="itemPage >= Math.ceil(data.items.length / pageSize)"
-              @click="itemPage += 1"
-            >
-              {{ t('common.next') }}
-            </UButton>
+            <ListPager v-model:page="itemPage" :total="data.items.length" :page-size="pageSize" />
           </div>
         </section>
 
@@ -151,13 +137,13 @@
             <span class="hb-muted hb-num">{{ data.itemUnits.length }}</span>
           </h3>
 
-          <ul v-if="mobile" class="rows">
-            <li v-for="unit in pagedUnits" :key="unit.id" class="row" @click="navigateTo(`/items/${unit.itemId}`)">
-              <span class="row-main">
-                <span class="row-title hb-mono">{{ unit.sn || '—' }}</span>
-                <span class="row-sub">{{ unit.itemName }} · {{ unit.locationName || t('item.noLocation') }}</span>
+          <ul v-if="mobile" class="hb-list">
+            <li v-for="unit in pagedUnits" :key="unit.id" class="hb-list-row" @click="navigateTo(`/items/${unit.itemId}`)">
+              <span class="hb-list-main">
+                <span class="hb-list-title hb-mono">{{ unit.sn || '—' }}</span>
+                <span class="hb-list-sub">{{ unit.itemName }} · {{ unit.locationName || t('item.noLocation') }}</span>
               </span>
-              <UIcon name="i-lucide-chevron-right" class="chev" />
+              <UIcon name="i-lucide-chevron-right" class="hb-list-chev" />
             </li>
           </ul>
 
@@ -181,19 +167,7 @@
           </div>
 
           <div v-if="data.itemUnits.length > pageSize" class="pager">
-            <UButton color="neutral" variant="soft" size="sm" :disabled="unitPage <= 1" @click="unitPage -= 1">
-              {{ t('common.prev') }}
-            </UButton>
-            <span class="hb-muted hb-num">{{ unitPage }} / {{ Math.ceil(data.itemUnits.length / pageSize) }}</span>
-            <UButton
-              color="neutral"
-              variant="soft"
-              size="sm"
-              :disabled="unitPage >= Math.ceil(data.itemUnits.length / pageSize)"
-              @click="unitPage += 1"
-            >
-              {{ t('common.next') }}
-            </UButton>
+            <ListPager v-model:page="unitPage" :total="data.itemUnits.length" :page-size="pageSize" />
           </div>
         </section>
       </template>
@@ -237,6 +211,8 @@ const { t } = useI18n();
 const api = useApi();
 const { money } = useFormat();
 
+const { loadContents, isContentsPending } = useLocations();
+
 const data = ref<Contents | null>(null);
 const pending = ref(true);
 const itemPage = ref(1);
@@ -256,12 +232,18 @@ const pagedUnits = computed(() => {
   return rows.slice((unitPage.value - 1) * pageSize.value, unitPage.value * pageSize.value);
 });
 
-async function load() {
-  pending.value = true;
+/** 有缓存先用缓存渲染（返回上一页立即出内容），再后台刷新 */
+async function load(force = false) {
+  const cached = data.value?.location.id === props.id ? data.value : null;
+  if (!cached) pending.value = true;
+
   try {
-    data.value = await api.get<Contents>(`/locations/${props.id}/contents`);
-    itemPage.value = 1;
-    unitPage.value = 1;
+    const result = await loadContents(props.id, force);
+    if (result) data.value = result as Contents;
+    if (!cached) {
+      itemPage.value = 1;
+      unitPage.value = 1;
+    }
   } finally {
     pending.value = false;
   }
@@ -272,8 +254,11 @@ function openChild(id: number) {
   emit('select', id);
 }
 
-watch(() => props.id, load);
-onMounted(load);
+watch(
+  () => props.id,
+  () => void load(),
+);
+onMounted(() => void load());
 
 defineExpose({ refresh: load });
 </script>
@@ -360,96 +345,7 @@ h3.hb-section-title {
   font-size: var(--hb-fs-sm);
 }
 
-.pad {
-  padding: 4px 0;
-}
-
-.row-skeleton {
-  height: 44px;
-  margin-bottom: 8px;
-}
-
-/* 移动端：大行卡片（触控 >= 56px），列表不挤 */
-.rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--hb-border);
-  border-radius: var(--hb-r-md);
-  overflow: hidden;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border-bottom: 1px solid var(--hb-border);
-  cursor: pointer;
-  min-height: 64px;
-}
-
-.row:last-child {
-  border-bottom: 0;
-}
-
-.row:active {
-  background: var(--hb-surface-2);
-}
-
-.item-row {
-  align-items: flex-start;
-}
-
-.hb-icon-tile.small {
-  width: 38px;
-  height: 38px;
-}
-
-.hb-icon-tile.small :deep(svg) {
-  width: 19px;
-  height: 19px;
-}
-
-.row-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.row-title {
-  font-size: var(--hb-fs-body);
-  font-weight: var(--hb-fw-semibold);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-sub {
-  font-size: var(--hb-fs-sm);
-  color: var(--hb-muted);
-}
-
-.row-meta {
-  display: flex;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.row-side {
-  flex-shrink: 0;
-  font-size: var(--hb-fs-body);
-  font-weight: var(--hb-fw-semibold);
-}
-
-.chev {
-  width: 18px;
-  height: 18px;
-  color: var(--hb-muted);
-  flex-shrink: 0;
-}
+/* 移动端列表用全局 .hb-list / .hb-list-row / .hb-tag（见 assets/css/main.css） */
 
 /* 桌面端子位置卡片 */
 .grid {
@@ -505,11 +401,20 @@ h3.hb-section-title {
   font-weight: var(--hb-fw-medium);
 }
 
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 10px 0 2px;
+/* 小屏（≤420px）：头部操作换行、行内信息纵向排开 */
+@media (max-width: 420px) {
+  .detail-head {
+    flex-wrap: wrap;
+  }
+
+  .head-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .hb-list-row {
+    padding: 12px;
+    gap: 10px;
+  }
 }
 </style>

@@ -187,6 +187,8 @@ model ItemUnit {
 
   @@unique([familyId, sn])
   @@index([familyId, itemId])
+  /// 位置详情要按位置聚合序列号（/locations/:id/contents），补上索引
+  @@index([familyId, locationId])
 }
 
 // ============ 标签 / 模板 ============
