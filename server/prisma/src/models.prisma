@@ -146,6 +146,8 @@ model Item {
   price        Decimal  @default(0) // 家庭主货币
   model        String?
   manufacturer String?
+  /// 商品条码（EAN-13 / UPC 等），家庭内唯一；扫码解析优先级最高
+  barcode      String?
   locationId   Int?
   templateId   Int?
   coverImageId Int?
@@ -161,6 +163,7 @@ model Item {
   units      ItemUnit[]
   tags       Tag[]        @relation("ItemTags")
 
+  @@unique([familyId, barcode])
   @@index([familyId, createdAt])
   @@index([familyId, locationId])
   @@index([familyId, name])

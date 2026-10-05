@@ -141,6 +141,38 @@ export const env = {
   get publicBaseUrl(): string {
     return (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
   },
+
+  // ---- 首次初始化 / 默认管理员 ----
+  /** 库中还没有任何用户时，是否按下面的配置自动创建管理员 */
+  get autoCreateAdmin(): boolean {
+    return (process.env.AUTO_CREATE_ADMIN ?? 'true').toLowerCase() !== 'false';
+  },
+  get defaultAdminUsername(): string {
+    return process.env.DEFAULT_ADMIN_USERNAME?.trim() || 'admin';
+  },
+  get defaultAdminPassword(): string {
+    return process.env.DEFAULT_ADMIN_PASSWORD?.trim() || 'admin';
+  },
+  get defaultAdminEmail(): string {
+    return process.env.DEFAULT_ADMIN_EMAIL?.trim() || 'admin@example.com';
+  },
+
+  // ---- 条码数据收集（默认开启，指向独立的收集服务）----
+  get dataCollectionEnabled(): boolean {
+    return (process.env.DATA_COLLECTION_ENABLED ?? 'true').toLowerCase() !== 'false';
+  },
+  /** 收集服务地址；为空视为未配置，跳过请求 */
+  get dataCollectionEndpoint(): string {
+    return (process.env.DATA_COLLECTION_ENDPOINT || '').trim().replace(/\/+$/, '');
+  },
+  /** 是否回传本实例填写的新条码信息 */
+  get dataCollectionSubmit(): boolean {
+    return (process.env.DATA_COLLECTION_SUBMIT ?? 'true').toLowerCase() !== 'false';
+  },
+  get dataCollectionTimeoutMs(): number {
+    const value = Number(process.env.DATA_COLLECTION_TIMEOUT_MS ?? 1500);
+    return Number.isFinite(value) && value > 0 ? value : 1500;
+  },
 };
 
 /** 供 multer FileInterceptor 复用的上传限制（后续做文件上传接口时直接用） */

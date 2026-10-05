@@ -1,5 +1,46 @@
 <template>
   <form class="item-form" @submit.prevent="submit">
+    <!-- 商品条码优先：有厂家条码的物品先扫/填条码，可自动从条码库补全信息 -->
+    <UFormField :label="t('item.barcode')" :hint="t('item.barcodeHint')">
+      <div class="barcode-row">
+        <UInput
+          v-model="form.barcode"
+          :placeholder="t('item.barcodePlaceholder')"
+          icon="i-lucide-barcode"
+          inputmode="numeric"
+          size="xl"
+          class="barcode-input hb-mono"
+          @blur="checkBarcode"
+          @keyup.enter.prevent="checkBarcode"
+        />
+        <UButton
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-scan-line"
+          size="xl"
+          class="hb-tap scan-btn"
+          @click="scanBarcode"
+        >
+          <span class="hide-sm">{{ t('item.barcodeScan') }}</span>
+        </UButton>
+      </div>
+    </UFormField>
+
+    <p v-if="checkingBarcode" class="barcode-note hb-muted">{{ t('common.loading') }}</p>
+    <p v-else-if="foundLocal" class="barcode-note warn">
+      <UIcon name="i-lucide-triangle-alert" />
+      {{ t('item.barcodeExists', { name: foundLocal.name }) }}
+      <NuxtLink :to="`/items/${foundLocal.id}`" class="hb-link">{{ t('common.more') }}</NuxtLink>
+    </p>
+    <p v-else-if="filledFromLibrary" class="barcode-note ok">
+      <UIcon name="i-lucide-sparkles" />
+      {{ t('item.barcodeFromLibrary') }}
+    </p>
+    <p v-else-if="barcodeChecked && form.barcode.trim()" class="barcode-note hb-muted">
+      <UIcon name="i-lucide-info" />
+      {{ t('item.barcodeUnknown') }}
+    </p>
+
     <!-- 新增时可套用模板：选中后自动预填各字段，物品会记录 templateId -->
     <div v-if="!itemId" class="template-bar">
       <UIcon name="i-lucide-layers" class="template-icon" />
@@ -135,7 +176,12 @@ const { currency } = useFormat();
 
 const saving = ref(false);
 const initialImages = ref<{ id: number; url: string }[]>([]);
+const route = useRoute();
 const templates = ref<Template[]>([]);
+const checkingBarcode = ref(false);
+const barcodeChecked = ref(false);
+const filledFromLibrary = ref(false);
+const foundLocal = ref<{ id: number; name: string } | null>(null);
 const selectedTemplateId = ref<number | undefined>(props.templateId ?? undefined);
 const templateName = ref<string | null>(null);
 
@@ -150,6 +196,7 @@ const form = reactive<{
   price: number;
   model: string;
   manufacturer: string;
+  barcode: string;
   locationId: number | null;
   tagIds: number[];
   imageIds: number[];
@@ -162,6 +209,7 @@ const form = reactive<{
   price: 0,
   model: '',
   manufacturer: '',
+  barcode: '',
   locationId: null,
   tagIds: [],
   imageIds: [],
@@ -197,8 +245,68 @@ onMounted(async () => {
     // 新增：加载模板列表供选择
     templates.value = await api.get<Template[]>('/templates');
     if (selectedTemplateId.value) await applyTemplate(selectedTemplateId.value);
+
+    // 扫码页带回来的商品条码
+    const fromScan = route.query.barcode as string | undefined;
+    if (fromScan) {
+      form.barcode = fromScan;
+      await checkBarcode();
+    }
   }
 });
+
+/** 去扫码页，扫到的条码会带回本表单（?barcode=） */
+function scanBarcode() {
+  navigateTo('/scan?new=1');
+}
+
+/**
+ * 条码查询：先看本家庭是否已有该条码的物品，再问条码库要一份商品信息。
+ * 远端补全只填「还空着」的字段，不覆盖用户输入。
+ */
+async function checkBarcode() {
+  const code = form.barcode.trim();
+  foundLocal.value = null;
+  filledFromLibrary.value = false;
+  barcodeChecked.value = false;
+
+  if (!code) return;
+
+  checkingBarcode.value = true;
+  try {
+    const result = await api.get<{
+      local: { id: number; name: string } | null;
+      remote: { name?: string | null; manufacturer?: string | null; model?: string | null } | null;
+    }>(`/barcodes/${encodeURIComponent(code)}/lookup`);
+
+    foundLocal.value = result.local;
+
+    if (result.remote) {
+      const remote = result.remote;
+      let filled = false;
+      if (remote.name && !form.name) {
+        form.name = remote.name;
+        filled = true;
+      }
+      if (remote.manufacturer && !form.manufacturer) {
+        form.manufacturer = remote.manufacturer;
+        filled = true;
+      }
+      if (remote.model && !form.model) {
+        form.model = remote.model;
+        filled = true;
+      }
+      filledFromLibrary.value = filled;
+    }
+
+    barcodeChecked.value = true;
+  } catch {
+    // 条码库不可用不影响本地填写
+    barcodeChecked.value = true;
+  } finally {
+    checkingBarcode.value = false;
+  }
+}
 
 /** 套用模板：把模板字段填进表单（不覆盖用户已填的名称） */
 async function applyTemplate(templateId: number) {
@@ -248,6 +356,7 @@ async function submit() {
       price: form.price,
       model: form.model || undefined,
       manufacturer: form.manufacturer || undefined,
+      barcode: form.barcode.trim() || undefined,
       locationId: form.locationId ?? undefined,
       tagIds: form.tagIds,
       imageIds: form.imageIds,
@@ -303,12 +412,54 @@ async function submit() {
   align-items: center;
 }
 
+@media (max-width: 640px) {
+  .hide-sm {
+    display: none;
+  }
+}
+
 .unit-sn {
   flex: 1 1 40%;
 }
 
 .unit-location {
   flex: 1 1 60%;
+}
+
+.barcode-row {
+  display: flex;
+  gap: 8px;
+}
+
+.barcode-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.scan-btn {
+  flex-shrink: 0;
+}
+
+.barcode-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 0;
+  font-size: var(--hb-fs-sm);
+}
+
+.barcode-note :deep(svg) {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.barcode-note.warn {
+  color: var(--hb-warning);
+}
+
+.barcode-note.ok {
+  color: var(--hb-brand);
 }
 
 .template-bar {

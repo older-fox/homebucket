@@ -14,6 +14,9 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AppLogger } from './logger/app.logger';
 import { env } from './config/env';
+import { bootstrapAdmin } from './config/bootstrap-admin';
+import { FamiliesService } from './families/families.service';
+import { PrismaService } from './prisma/prisma.service';
 import { autoMigrate } from './prisma/auto-migrate';
 
 async function bootstrap() {
@@ -62,6 +65,13 @@ async function bootstrap() {
     }),
   );
   app.setGlobalPrefix(env.apiPrefix);
+
+  // 空库首次启动：按配置创建默认管理员（AUTO_CREATE_ADMIN / DEFAULT_ADMIN_*）
+  try {
+    await bootstrapAdmin(app.get(PrismaService), app.get(FamiliesService), logger);
+  } catch (error) {
+    logger.error(`默认管理员初始化失败：${(error as Error).message}`, undefined, 'Bootstrap');
+  }
 
   await app.listen(env.port, '0.0.0.0');
   logger.log(`server listening on http://0.0.0.0:${env.port}/${env.apiPrefix}`, 'Bootstrap');

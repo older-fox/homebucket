@@ -33,6 +33,10 @@
         <span class="label">{{ t('common.created') }}</span>
         <span class="value">{{ date(item.createdAt) }}</span>
       </div>
+      <div v-if="item.barcode" class="meta-item">
+        <span class="label">{{ t('item.barcode') }}</span>
+        <span class="value hb-mono hb-break">{{ item.barcode }}</span>
+      </div>
       <div class="meta-item">
         <span class="label">{{ t('item.tags') }}</span>
         <span class="value">
@@ -79,6 +83,7 @@ interface ItemDetail {
   tags: { id: number; name: string; color: string }[];
   images: { id: number; url: string }[];
   qrToken: string;
+  barcode: string | null;
   units: { id: number; sn: string | null; locationId: number | null; location: { id: number; name: string } | null }[];
 }
 

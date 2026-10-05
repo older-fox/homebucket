@@ -74,6 +74,12 @@
 | `STORAGE_DRIVER` | `local` | `local` 落本地磁盘并由 `/api/media/` 提供；`s3` 走对象存储 |
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_FORCE_PATH_STYLE` | — | S3 兼容存储配置（`STORAGE_DRIVER=s3` 时生效） |
 | `DEFAULT_CURRENCY` / `DEFAULT_LOCALE` | `CNY` / `zh-CN` | 新家庭的默认主货币与语言 |
+| `AUTO_CREATE_ADMIN` | `true` | 空库首次启动时是否自动创建管理员 |
+| `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` / `DEFAULT_ADMIN_EMAIL` | `admin` / `admin` / `admin@example.com` | 首次初始化（空库启动或 npm run seed）使用的管理员账号 |
+| `DATA_COLLECTION_ENABLED` | `true` | 条码数据收集总开关；关闭后本实例不向外部发送任何请求 |
+| `DATA_COLLECTION_ENDPOINT` | 占位地址 | 条码收集服务地址（**独立项目**，需替换成你自己的） |
+| `DATA_COLLECTION_SUBMIT` | `true` | 是否把本实例填写的条码信息回传 |
+| `DATA_COLLECTION_TIMEOUT_MS` | `1500` | 收集服务请求超时，超时静默降级 |
 | `PUBLIC_BASE_URL` | 空 | 二维码里写入的站点根地址（如 `http://192.168.1.10:3000`）；留空则二维码只含 token |
 | `SERVER_PORT` / `API_PREFIX` | `3001` / `api` | 后端监听端口与路由前缀 |
 | `CORS_ORIGIN` | `*` | 允许跨域的来源，多个用逗号分隔 |
@@ -187,9 +193,12 @@ cd server && npm run seed
 
 会清空并重建演示账号自己的数据（不影响其它用户），生成一个适合看效果的样板：
 
-- 演示账号：`demo@homebucket.local` / `homebucket123`（默认家庭「样板间」，owner）
+- 主账号取自 `.env` 的 `DEFAULT_ADMIN_*`（默认 `admin` / `admin` / `admin@example.com`），是「样板间」的 owner
 - 共享成员：`family@homebucket.local` / `homebucket123`（「样板间」的普通成员，用来验证多家庭与权限）
-- 内容：16 个位置（五层树）、8 个标签、36 件物品、10 个序列号（含同一物品的 SN 分散在不同位置）、4 个模板、1 个未启用的通知器、1 条邀请链接
+- 内容：41 个位置（三层树，含玄关/客厅/厨房/主卧/儿童房/书房/卫生间/储藏室/车库/阁楼等）、17 个标签、147 件物品（总价值约 ¥5.99 万）、20 个序列号（12 件物品，含同一物品的 SN 分散在不同位置）、14 个模板、4 个未启用的通知器（Bark/Telegram/钉钉/SMTP）、3 条邀请链接
+- 图片：脚本会**本地生成** 43 张 SVG 占位图（37 件物品封面 + 6 个位置照片）写入 `UPLOAD_DIR`，不请求任何外部图片
+- 角色演示：admin 是「样板间」owner，另有两个成员账号（family=admin 角色、kid=member 角色）可用来验证权限与多家庭
+- 物品创建时间分散在约 180 天内，主页「最近新增」看起来更自然
 - 可重复执行；脚本在 `server/scripts/seed.mjs`
 
 ## 启动即迁移
@@ -201,6 +210,8 @@ cd server && npm run seed
 - 迁移失败只打 `[migrate]` 错误日志、不阻断进程，`/health` 会显示 `degraded`；数据库连接失败同样不再中断启动。
 
 想自己控制迁移节奏：`AUTO_MIGRATE=false`，然后手动 `cd server && npm run prisma:deploy`。
+
+**空库首次启动**还会按 `DEFAULT_ADMIN_*` 自动创建一个管理员（可用 `AUTO_CREATE_ADMIN=false` 关闭），日志里会打印账号，登录后请尽快改密码。
 
 ## 功能与页面
 
@@ -218,6 +229,52 @@ cd server && npm run seed
 - **家庭即数据边界**：注册自动创建个人家庭；接受邀请后拥有多个家庭，通过 `X-Family-Id` 切换；所有查询强制按 `familyId` 过滤。仅家庭所有者可管理成员与邀请。
 - **通知器**：SMTP、Google Chat、Telegram、Discord、钉钉、飞书、企业微信、Bark、Server 酱，支持按事件订阅与测试发送。
 - **移动端**：底部 Tab、抽屉菜单、安全区适配、触控目标 ≥44px、表单原生键盘类型，不是简单重排版。
+
+## 商品条码与扫码优先级
+
+- 物品可填「商品条码」（EAN/UPC 等），在**同一家庭内唯一**；重复会被拒绝（`item.barcodeTaken`）。
+- 创建物品时**条码优先**：条码字段放在表单最前，可点「扫码填入」跳到扫码页，扫到的码会带回表单（`/items/new?barcode=...`）。
+- 扫码解析优先级：**商品条码 → 物品/位置二维码 → SN 序列号**；响应里带 `matchedBy` 便于前端提示。
+- 扫到未收录的码时，扫码页会给出「用这个条码新建物品」的入口，扫码页可切换「扫到即新建」模式。
+- 库存列表的统一搜索（`q`）与 CSV 导出都包含条码列。
+
+## 条码数据收集
+
+由开发者提供的**独立服务**收集「条码 → 商品信息」，综合判定后同步给各实例，创建物品时可自动补全名称/厂商/型号。开关与地址都在 `.env`，**默认开启**；`DATA_COLLECTION_ENDPOINT` 是占位地址，请替换成你自己的服务。
+
+本实例对外的接口（前端用）：
+
+```
+GET /api/barcodes/:code/lookup
+→ { barcode, local: {id,name,quantity,location}|null, remote: <收集服务返回>|null,
+    collectionEnabled: boolean, collectionAvailable: boolean }
+```
+
+收集服务需要实现的契约（另一个项目）：
+
+```
+GET  {DATA_COLLECTION_ENDPOINT}/barcodes/{code}
+  200 → { "barcode": "6901234567890", "name": "5 号电池", "manufacturer": "南孚",
+          "model": "碱性", "category": "电池", "imageUrl": null,
+          "confidence": 0.86, "sources": 12 }
+  404 → 未收录
+
+POST {DATA_COLLECTION_ENDPOINT}/observations
+  body → { "barcode": "...", "name": "...", "manufacturer": "...", "model": "...",
+           "category": "...", "clientVersion": "homebucket/1" }
+  2xx  → 已接收
+```
+
+降级策略：未配置地址、超时、网络不可达、非 2xx **都只记日志**，条码填写与物品创建不受影响；前端只在远端有数据时才提示「已用条码库的信息补全」。
+
+## 静态资源自托管
+
+不请求任何外部 CDN：
+
+- 字体：拉丁/数字用本地 `@fontsource-variable/inter` 的 woff2（按 `unicode-range` 分发，浏览器只加载 latin 子集约 48KB）；中文用系统原生字体；已关闭 `@nuxt/fonts`
+- 图标：本地 `@iconify-json/lucide` 集合 + 自建 `/_nuxt_icon` 接口，并设置 `fallbackToApi: false`，不会回退到 Iconify 公共 API
+- 图片/Logo：`web/public/` 本地文件；用户上传的照片存在 `UPLOAD_DIR`（本地磁盘或自建 S3）
+- 校验方式：`nuxt build` 后审计产物中的外部域名（只剩注释/文档链接常量）
 
 ## 多语言
 

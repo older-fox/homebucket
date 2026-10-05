@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
+import { CollectionModule } from './collection/collection.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { FamiliesModule } from './families/families.module';
 import { ItemsModule } from './items/items.module';
@@ -19,6 +20,7 @@ import { env } from './config/env';
 @Module({
   imports: [
     PrismaModule,
+    CollectionModule,
     AuthModule,
     FamiliesModule,
     UploadsModule,

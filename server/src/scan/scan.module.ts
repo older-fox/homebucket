@@ -9,26 +9,56 @@ import { env } from '../config/env';
 export class ScanService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 扫码落地：先按位置二维码、再按物品二维码、最后按 SN 反查 */
+  /**
+   * 扫码解析优先级：
+   *   1. 商品条码（EAN/UPC）—— 优先级最高，直接命中物品
+   *   2. 物品二维码 / 位置二维码
+   *   3. SN 序列号
+   */
   async resolve(familyId: number, code: string) {
+    const byBarcode = await this.prisma.item.findFirst({
+      where: { familyId, barcode: code },
+      select: { id: true, name: true, barcode: true },
+    });
+    if (byBarcode) {
+      return {
+        type: 'item' as const,
+        id: byBarcode.id,
+        name: byBarcode.name,
+        barcode: byBarcode.barcode,
+        matchedBy: 'barcode' as const,
+      };
+    }
+
     const location = await this.prisma.location.findFirst({
       where: { familyId, qrToken: code },
       select: { id: true, name: true },
     });
-    if (location) return { type: 'location' as const, id: location.id, name: location.name };
+    if (location) {
+      return { type: 'location' as const, id: location.id, name: location.name, matchedBy: 'qrcode' as const };
+    }
 
     const item = await this.prisma.item.findFirst({
       where: { familyId, qrToken: code },
       select: { id: true, name: true },
     });
-    if (item) return { type: 'item' as const, id: item.id, name: item.name };
+    if (item) {
+      return { type: 'item' as const, id: item.id, name: item.name, matchedBy: 'qrcode' as const };
+    }
 
     const unit = await this.prisma.itemUnit.findFirst({
       where: { familyId, sn: code },
       select: { id: true, sn: true, itemId: true, item: { select: { name: true } } },
     });
     if (unit) {
-      return { type: 'unit' as const, id: unit.id, itemId: unit.itemId, name: unit.item.name, sn: unit.sn };
+      return {
+        type: 'unit' as const,
+        id: unit.id,
+        itemId: unit.itemId,
+        name: unit.item.name,
+        sn: unit.sn,
+        matchedBy: 'sn' as const,
+      };
     }
 
     throw new NotFoundException({ code: 'scan.notFound', message: '没有找到对应的物品或位置' });

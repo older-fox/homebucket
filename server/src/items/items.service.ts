@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CollectionService } from '../collection/collection.module';
 import { shortToken } from '../common/id';
 import type { CreateItemDto, ItemUnitDto, QueryItemsDto, UpdateItemDto } from './dto';
 
@@ -13,7 +14,10 @@ const priceNumber = (value: unknown) => Number(value ?? 0);
 
 @Injectable()
 export class ItemsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly collection: CollectionService,
+  ) {}
 
   async list(familyId: number, query: QueryItemsDto) {
     const page = query.page ?? 1;
@@ -33,6 +37,7 @@ export class ItemsService {
           price: true,
           model: true,
           manufacturer: true,
+          barcode: true,
           qrToken: true,
           createdAt: true,
           location: { select: { id: true, name: true } },
@@ -89,6 +94,7 @@ export class ItemsService {
 
   async create(familyId: number, dto: CreateItemDto) {
     await this.assertRelations(familyId, dto);
+    await this.assertBarcodeAvailable(familyId, dto.barcode);
     const item = await this.prisma.item.create({
       data: {
         familyId,
@@ -98,6 +104,7 @@ export class ItemsService {
         price: dto.price ?? 0,
         model: dto.model,
         manufacturer: dto.manufacturer,
+        barcode: dto.barcode?.trim() || null,
         locationId: dto.locationId,
         templateId: dto.templateId,
         coverImageId: dto.coverImageId,
@@ -117,12 +124,24 @@ export class ItemsService {
       },
       select: { id: true, name: true, qrToken: true },
     });
+
+    // 把新条码信息回传给收集服务（开关控制，失败不影响主流程）
+    if (dto.barcode) {
+      void this.collection.submit({
+        barcode: dto.barcode.trim(),
+        name: dto.name,
+        manufacturer: dto.manufacturer,
+        model: dto.model,
+      });
+    }
+
     return item;
   }
 
   async update(familyId: number, id: number, dto: UpdateItemDto) {
     await this.mustExist(familyId, id);
     await this.assertRelations(familyId, dto);
+    await this.assertBarcodeAvailable(familyId, dto.barcode, id);
 
     await this.prisma.item.update({
       where: { id },
@@ -133,12 +152,22 @@ export class ItemsService {
         price: dto.price,
         model: dto.model,
         manufacturer: dto.manufacturer,
+        barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,
         locationId: dto.locationId,
         coverImageId: dto.coverImageId,
         tags: dto.tagIds ? { set: dto.tagIds.map((tagId) => ({ id: tagId })) } : undefined,
         images: dto.imageIds ? { set: dto.imageIds.map((imageId) => ({ id: imageId })) } : undefined,
       },
     });
+
+    if (dto.barcode) {
+      void this.collection.submit({
+        barcode: dto.barcode.trim(),
+        name: dto.name,
+        manufacturer: dto.manufacturer,
+        model: dto.model,
+      });
+    }
 
     return this.detail(familyId, id);
   }
@@ -206,6 +235,7 @@ export class ItemsService {
       '总价',
       '型号',
       '制造商',
+      '商品条码',
       '位置',
       '标签',
       '序列号/条码',
@@ -221,6 +251,7 @@ export class ItemsService {
         (priceNumber(row.price) * row.quantity).toFixed(2),
         row.model ?? '',
         row.manufacturer ?? '',
+        row.barcode ?? '',
         row.location?.name ?? '',
         row.tags.map((tag) => tag.name).join(' / '),
         row.units
@@ -251,6 +282,7 @@ export class ItemsService {
       const q = query.q;
       where.OR = [
         { name: { contains: q } },
+        { barcode: { contains: q } },
         { model: { contains: q } },
         { manufacturer: { contains: q } },
         { description: { contains: q } },
@@ -270,6 +302,23 @@ export class ItemsService {
     });
     if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });
     return item;
+  }
+
+  /** 商品条码在同一个家庭内唯一 */
+  private async assertBarcodeAvailable(familyId: number, barcode?: string, exceptItemId?: number) {
+    const code = barcode?.trim();
+    if (!code) return;
+
+    const exists = await this.prisma.item.findFirst({
+      where: { familyId, barcode: code, id: exceptItemId ? { not: exceptItemId } : undefined },
+      select: { id: true },
+    });
+    if (exists) {
+      throw new ConflictException({
+        code: 'item.barcodeTaken',
+        message: '该商品条码已被本家庭的其他物品使用',
+      });
+    }
   }
 
   private async mustLocation(familyId: number, locationId: number) {

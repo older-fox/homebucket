@@ -52,8 +52,10 @@
           <input
             v-model="keyword"
             class="search-input"
-            type="search"
+            type="text"
+            inputmode="search"
             enterkeyhint="search"
+            autocomplete="off"
             :placeholder="t('common.searchPlaceholder')"
           />
           <kbd class="search-kbd">/</kbd>
@@ -379,8 +381,8 @@ function goSettings() {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--hb-bg) 78%, transparent);
-  backdrop-filter: blur(12px);
+  /* 不透明：半透明 + 模糊在某些移动浏览器上会让白色输入框看起来被"盖一半" */
+  background: var(--hb-surface);
   border-bottom: 1px solid var(--hb-border);
 }
 
@@ -411,10 +413,13 @@ function goSettings() {
   padding: 0 44px 0 36px;
   border-radius: var(--hb-r-full);
   border: 1px solid var(--hb-border);
-  background: var(--hb-surface);
+  background: var(--hb-surface-2);
   color: var(--hb-text);
   font-size: var(--hb-fs-body);
+  line-height: normal;
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
   transition:
     border-color var(--hb-dur) var(--hb-ease),
     box-shadow var(--hb-dur) var(--hb-ease);
@@ -622,6 +627,12 @@ function goSettings() {
 @media (max-width: 767px) {
   .search-kbd {
     display: none;
+  }
+
+  /* 移动端没有 kbd 占位，收回右侧留白并略增高，避免文字显示不全 */
+  .search-input {
+    padding-right: 14px;
+    height: 42px;
   }
 }
 

@@ -21,6 +21,12 @@ export default defineNuxtConfig({
     serverBundle: 'local',
     // 默认的 /api/_nuxt_icon 会被下面的 /api/** 代理转发到 Nest，换成独立路径
     localApiEndpoint: '/_nuxt_icon',
+    // 全部图标本地托管：禁用公共 Iconify API 回退，避免任何外部 CDN 请求
+    fallbackToApi: false,
+    clientBundle: {
+      scan: true,
+      includeCustomCollections: true,
+    },
   },
   devtools: { enabled: true },
   ssr: true,

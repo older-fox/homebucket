@@ -55,6 +55,11 @@ export class CreateItemDto {
   manufacturer?: string;
 
   @IsOptional()
+  @IsString()
+  @Length(4, 64)
+  barcode?: string;
+
+  @IsOptional()
   @IsInt()
   locationId?: number;
 
@@ -110,6 +115,11 @@ export class UpdateItemDto {
   @IsOptional()
   @IsString()
   manufacturer?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(4, 64)
+  barcode?: string;
 
   @IsOptional()
   @IsInt()
