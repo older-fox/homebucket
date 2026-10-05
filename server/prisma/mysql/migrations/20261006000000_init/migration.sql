@@ -1,6 +1,18 @@
--- AlterTable
-ALTER TABLE `User` ADD COLUMN `defaultFamilyId` INTEGER NULL,
-    ADD COLUMN `locale` VARCHAR(191) NOT NULL DEFAULT 'zh-CN';
+-- CreateTable
+CREATE TABLE `User` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `email` VARCHAR(191) NULL,
+    `username` VARCHAR(191) NOT NULL,
+    `passwordHash` VARCHAR(191) NOT NULL,
+    `locale` VARCHAR(191) NOT NULL DEFAULT 'zh-CN',
+    `defaultFamilyId` INTEGER NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `User_email_key`(`email`),
+    UNIQUE INDEX `User_username_key`(`username`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `Family` (
@@ -90,6 +102,7 @@ CREATE TABLE `Item` (
     `price` DECIMAL(65, 30) NOT NULL DEFAULT 0,
     `model` VARCHAR(191) NULL,
     `manufacturer` VARCHAR(191) NULL,
+    `barcode` VARCHAR(191) NULL,
     `locationId` INTEGER NULL,
     `templateId` INTEGER NULL,
     `coverImageId` INTEGER NULL,
@@ -101,6 +114,7 @@ CREATE TABLE `Item` (
     INDEX `Item_familyId_createdAt_idx`(`familyId`, `createdAt`),
     INDEX `Item_familyId_locationId_idx`(`familyId`, `locationId`),
     INDEX `Item_familyId_name_idx`(`familyId`, `name`),
+    UNIQUE INDEX `Item_familyId_barcode_key`(`familyId`, `barcode`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -116,6 +130,7 @@ CREATE TABLE `ItemUnit` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `ItemUnit_familyId_itemId_idx`(`familyId`, `itemId`),
+    INDEX `ItemUnit_familyId_locationId_idx`(`familyId`, `locationId`),
     UNIQUE INDEX `ItemUnit_familyId_sn_key`(`familyId`, `sn`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -138,6 +153,7 @@ CREATE TABLE `Template` (
     `familyId` INTEGER NOT NULL,
     `name` VARCHAR(191) NOT NULL,
     `description` VARCHAR(191) NULL,
+    `barcode` VARCHAR(191) NULL,
     `imageId` INTEGER NULL,
     `quantity` INTEGER NOT NULL DEFAULT 1,
     `price` DECIMAL(65, 30) NOT NULL DEFAULT 0,
@@ -148,6 +164,7 @@ CREATE TABLE `Template` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `Template_familyId_name_idx`(`familyId`, `name`),
+    UNIQUE INDEX `Template_familyId_barcode_key`(`familyId`, `barcode`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

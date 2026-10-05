@@ -1,4 +1,17 @@
 -- CreateTable
+CREATE TABLE "User" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "email" TEXT,
+    "username" TEXT NOT NULL,
+    "passwordHash" TEXT NOT NULL,
+    "locale" TEXT NOT NULL DEFAULT 'zh-CN',
+    "defaultFamilyId" INTEGER,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "User_defaultFamilyId_fkey" FOREIGN KEY ("defaultFamilyId") REFERENCES "Family" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "Family" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "name" TEXT NOT NULL,
@@ -79,6 +92,7 @@ CREATE TABLE "Item" (
     "price" DECIMAL NOT NULL DEFAULT 0,
     "model" TEXT,
     "manufacturer" TEXT,
+    "barcode" TEXT,
     "locationId" INTEGER,
     "templateId" INTEGER,
     "coverImageId" INTEGER,
@@ -122,6 +136,7 @@ CREATE TABLE "Template" (
     "familyId" INTEGER NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
+    "barcode" TEXT,
     "imageId" INTEGER,
     "quantity" INTEGER NOT NULL DEFAULT 1,
     "price" DECIMAL NOT NULL DEFAULT 0,
@@ -173,27 +188,11 @@ CREATE TABLE "_TemplateTags" (
     CONSTRAINT "_TemplateTags_B_fkey" FOREIGN KEY ("B") REFERENCES "Template" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- RedefineTables
-PRAGMA defer_foreign_keys=ON;
-PRAGMA foreign_keys=OFF;
-CREATE TABLE "new_User" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "email" TEXT NOT NULL,
-    "username" TEXT NOT NULL,
-    "passwordHash" TEXT NOT NULL,
-    "locale" TEXT NOT NULL DEFAULT 'zh-CN',
-    "defaultFamilyId" INTEGER,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "User_defaultFamilyId_fkey" FOREIGN KEY ("defaultFamilyId") REFERENCES "Family" ("id") ON DELETE SET NULL ON UPDATE CASCADE
-);
-INSERT INTO "new_User" ("createdAt", "email", "id", "passwordHash", "updatedAt", "username") SELECT "createdAt", "email", "id", "passwordHash", "updatedAt", "username" FROM "User";
-DROP TABLE "User";
-ALTER TABLE "new_User" RENAME TO "User";
+-- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
-PRAGMA foreign_keys=ON;
-PRAGMA defer_foreign_keys=OFF;
 
 -- CreateIndex
 CREATE INDEX "FamilyMember_userId_idx" ON "FamilyMember"("userId");
@@ -229,7 +228,13 @@ CREATE INDEX "Item_familyId_locationId_idx" ON "Item"("familyId", "locationId");
 CREATE INDEX "Item_familyId_name_idx" ON "Item"("familyId", "name");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Item_familyId_barcode_key" ON "Item"("familyId", "barcode");
+
+-- CreateIndex
 CREATE INDEX "ItemUnit_familyId_itemId_idx" ON "ItemUnit"("familyId", "itemId");
+
+-- CreateIndex
+CREATE INDEX "ItemUnit_familyId_locationId_idx" ON "ItemUnit"("familyId", "locationId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ItemUnit_familyId_sn_key" ON "ItemUnit"("familyId", "sn");
@@ -239,6 +244,9 @@ CREATE UNIQUE INDEX "Tag_familyId_name_key" ON "Tag"("familyId", "name");
 
 -- CreateIndex
 CREATE INDEX "Template_familyId_name_idx" ON "Template"("familyId", "name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Template_familyId_barcode_key" ON "Template"("familyId", "barcode");
 
 -- CreateIndex
 CREATE INDEX "NotificationChannel_familyId_idx" ON "NotificationChannel"("familyId");
