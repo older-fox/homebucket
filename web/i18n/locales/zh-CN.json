@@ -272,6 +272,8 @@
   "cameraDenied": "没有摄像头权限：请在浏览器设置里允许访问摄像头，然后点「开始扫描」重试；也可以改用图片识别或手动输入",
   "cameraNotFound": "没有找到可用的摄像头，已切换到手动输入",
   "cameraFailed": "摄像头启动失败",
+  "aimBarcode": "把商品条码对准取景框内的扫描线",
+  "aimCode": "把二维码或条码对准取景框内的扫描线",
     "upload": "上传图片识别",
     "manual": "手动输入",
     "manualPlaceholder": "输入二维码内容或 SN",

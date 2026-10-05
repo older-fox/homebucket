@@ -1,6 +1,7 @@
 <template>
   <div>
-    <PageHeader :title="t('scan.title')" :description="t('scan.hint')" />
+    <!-- 三个入口（创建/查找/编辑）标题与说明各不相同，避免看起来是同一个页面 -->
+    <PageHeader :title="headerTitle" :description="headerDesc" />
 
     <div v-if="ready" class="modes">
       <UButton
@@ -26,7 +27,20 @@
     <section v-if="ready && activeMode === 'camera'" class="panel hb-card">
       <p v-if="!secure" class="notice">{{ t('scan.insecureContext') }}</p>
       <template v-else>
-        <video ref="video" class="video" muted playsinline />
+        <div class="viewfinder">
+          <video ref="video" class="video" muted playsinline />
+          <!-- 取景框：只识别框内画面（与下方 decodeFrame 的裁剪比例一致），中间是扫描线 -->
+          <div v-if="scanning" class="overlay">
+            <div class="scan-window">
+              <span class="corner tl" />
+              <span class="corner tr" />
+              <span class="corner bl" />
+              <span class="corner br" />
+              <span class="laser" />
+            </div>
+          </div>
+        </div>
+        <p class="aim">{{ aimHint }}</p>
         <div class="row">
           <UButton v-if="!scanning" icon="i-lucide-camera" size="lg" class="hb-tap" @click="startCamera">
             {{ t('scan.start') }}
@@ -87,8 +101,8 @@
       </UButton>
     </div>
 
-    <!-- 开启后，扫到的条码直接带进「新建物品」表单（放在底部，避免挡住取景框） -->
-    <label class="create-mode hb-card hb-tap">
+    <!-- 通用入口（没带 ?mode=）才显示这个开关；从底部选了具体动作时它只会造成困惑 -->
+    <label v-if="!actionSuffix && !templateMode" class="create-mode hb-card hb-tap">
       <USwitch :model-value="createMode" @update:model-value="toggleCreateMode" />
       <span class="create-mode-text">
         <strong>{{ t('scan.useBarcodeToCreate') }}</strong>
@@ -135,6 +149,31 @@ const fillMode = computed(() => route.query.fill === '1');
 /** 底部扫码入口选择的动作：create 新建物品 / find 查找 / edit 编辑（缺省为 find） */
 const editMode = computed(() => route.query.mode === 'edit');
 const createByMode = computed(() => route.query.mode === 'create');
+
+/**
+ * 当前扫码动作（来自底部入口的 ?mode=）：
+ * 三个入口共用同一个页面，但标题/说明/取景提示各不相同，
+ * 扫到之后的去向也不同（create → 新建并填条码；find → 打开物品/位置；edit → 直接进编辑）。
+ */
+const action = computed<'create' | 'find' | 'edit' | null>(() => {
+  const value = route.query.mode;
+  return value === 'create' || value === 'find' || value === 'edit' ? value : null;
+});
+const actionSuffix = computed(() => {
+  if (action.value === 'create') return 'Create';
+  if (action.value === 'edit') return 'Edit';
+  if (action.value === 'find') return 'Find';
+  return null;
+});
+const headerTitle = computed(() =>
+  actionSuffix.value ? t(`scan.action${actionSuffix.value}`) : t('scan.title'),
+);
+const headerDesc = computed(() =>
+  actionSuffix.value ? t(`scan.action${actionSuffix.value}Desc`) : t('scan.hint'),
+);
+/** 取景框提示：创建物品强调商品条码，查找/编辑强调二维码 */
+const aimHint = computed(() => (action.value === 'create' ? t('scan.aimBarcode') : t('scan.aimCode')));
+
 const secure = ref(false);
 const scanning = ref(false);
 const loading = ref(false);
@@ -146,9 +185,21 @@ const deviceIndex = ref(0);
 
 const video = ref<HTMLVideoElement>();
 let reader: BrowserMultiFormatReader | null = null;
-let controls: { stop: () => void } | null = null;
+let stream: MediaStream | null = null;
+/** 定时对「取景框」区域做裁剪识别的定时器 */
+let timer: number | null = null;
+let canvas: HTMLCanvasElement | null = null;
 /** 一次会话只处理第一个识别结果，避免同一码连续触发多次跳转 */
 let handled = false;
+
+/**
+ * 取景框在预览里的位置（相对视频显示区域，与 CSS 的 .scan-window 一致）：
+ * left 10% + width 80% → x 0.1~0.9；top 25% + height 50% → y 0.25~0.75。
+ * 只识别这一块，避免画面里同时出现多个码时扫到"别的"码。
+ */
+const ROI = { x: 0.1, y: 0.25, w: 0.8, h: 0.5 };
+/** 裁剪后每隔多久识别一次（毫秒）：够跟手，又不至于把手机 CPU 占满 */
+const DECODE_INTERVAL = 160;
 
 const modes = computed(() => [
   ...(secure.value ? [{ value: 'camera' as Mode, label: t('scan.camera'), icon: 'i-lucide-camera' }] : []),
@@ -207,18 +258,21 @@ async function startCamera() {
 
   try {
     const deviceId = devices.value[deviceIndex.value]?.deviceId;
-    controls = deviceId
-      ? await reader.decodeFromVideoDevice(deviceId, video.value, onScanResult)
-      : // 没指定设备时优先后置摄像头（手机扫码习惯）
-        await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' } } },
-          video.value,
-          onScanResult,
-        );
+    stream = await navigator.mediaDevices.getUserMedia({
+      // 有指定设备就用它，否则优先后置摄像头（手机扫码习惯）
+      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } },
+      audio: false,
+    });
+    video.value.srcObject = stream;
+    await video.value.play();
+    canvas = canvas ?? document.createElement('canvas');
     scanning.value = true;
+    if (timer !== null) clearInterval(timer);
+    timer = window.setInterval(decodeFrame, DECODE_INTERVAL);
     // 授权后才能拿到设备名，用于「切换摄像头」
     void refreshDevices();
   } catch (e) {
+    stopCamera();
     const err = e as { name?: string; message?: string };
     if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
       error.value = t('scan.cameraNotFound');
@@ -232,9 +286,48 @@ async function startCamera() {
   }
 }
 
+/**
+ * 只把「取景框」那一块画面画到 canvas 上再识别。
+ * 视频用了 object-fit: cover（显示区域是视频帧居中裁剪后的结果），
+ * 所以先把取景框的显示尺寸按缩放比换算回视频帧像素，再按中心对齐裁剪。
+ */
+function decodeFrame() {
+  const el = video.value;
+  if (!el || !canvas || !reader || handled) return;
+
+  const vw = el.videoWidth;
+  const vh = el.videoHeight;
+  const box = el.getBoundingClientRect();
+  if (!vw || !vh || !box.width || !box.height) return;
+
+  const scale = Math.max(box.width / vw, box.height / vh); // object-fit: cover 的缩放比
+  const cropW = Math.min(vw, Math.round((box.width * ROI.w) / scale));
+  const cropH = Math.min(vh, Math.round((box.height * ROI.h) / scale));
+  const sx = Math.round((vw - cropW) / 2);
+  const sy = Math.round((vh - cropH) / 2);
+
+  canvas.width = cropW;
+  canvas.height = cropH;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+  ctx.drawImage(el, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
+
+  try {
+    const result = reader.decodeFromCanvas(canvas);
+    if (result) onScanResult(result);
+  } catch {
+    // 这一帧没识别到（NotFoundException / ChecksumException 等）属正常，继续下一帧
+  }
+}
+
 function stopCamera() {
-  controls?.stop();
-  controls = null;
+  if (timer !== null) {
+    clearInterval(timer);
+    timer = null;
+  }
+  stream?.getTracks().forEach((track) => track.stop());
+  stream = null;
+  if (video.value) video.value.srcObject = null;
   scanning.value = false;
 }
 
@@ -364,11 +457,110 @@ async function lookup(code: string) {
   height: 220px;
 }
 
-.video {
-  width: 100%;
-  max-height: 60vh;
+/* 取景框容器：视频铺满，覆盖层按百分比对齐（与脚本里的 ROI 一致） */
+.viewfinder {
+  position: relative;
   border-radius: 10px;
+  overflow: hidden;
   background: #000;
+}
+
+.video {
+  display: block;
+  width: 100%;
+  height: 56vh;
+  max-height: 460px;
+  object-fit: cover;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 取景框：left 10% + width 80%、top 25% + height 50% —— 只识别这块区域 */
+.scan-window {
+  position: absolute;
+  left: 10%;
+  top: 25%;
+  width: 80%;
+  height: 50%;
+  border-radius: 12px;
+  /* 框外压暗，突出取景区 */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.38);
+}
+
+.corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--hb-brand);
+}
+
+.corner.tl {
+  top: -2px;
+  left: -2px;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: 12px;
+}
+
+.corner.tr {
+  top: -2px;
+  right: -2px;
+  border-left: 0;
+  border-bottom: 0;
+  border-top-right-radius: 12px;
+}
+
+.corner.bl {
+  bottom: -2px;
+  left: -2px;
+  border-right: 0;
+  border-top: 0;
+  border-bottom-left-radius: 12px;
+}
+
+.corner.br {
+  bottom: -2px;
+  right: -2px;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: 12px;
+}
+
+/* 模拟扫码枪的激光线：在取景框内上下往复 */
+.laser {
+  position: absolute;
+  left: 3%;
+  right: 3%;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, #ff4d4f 15%, #ff4d4f 85%, transparent);
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.9);
+  animation: hb-laser 2.2s ease-in-out infinite;
+}
+
+@keyframes hb-laser {
+  0% {
+    top: 5%;
+  }
+
+  50% {
+    top: 92%;
+  }
+
+  100% {
+    top: 5%;
+  }
+}
+
+.aim {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: var(--hb-fs-sm);
+  color: var(--hb-muted);
 }
 
 .row {

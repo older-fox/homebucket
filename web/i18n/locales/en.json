@@ -272,6 +272,8 @@
   "cameraDenied": "Camera permission denied: allow camera access in your browser settings, then tap \"Start scanning\" to retry — or use image upload / manual input.",
   "cameraNotFound": "No camera available — switched to manual input",
   "cameraFailed": "Could not start the camera",
+  "aimBarcode": "Line the product barcode up with the scan line",
+  "aimCode": "Line the QR code or barcode up with the scan line",
     "upload": "Upload image",
     "manual": "Manual input",
     "manualPlaceholder": "QR content or SN",
