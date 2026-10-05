@@ -2,16 +2,7 @@
   <div>
     <PageHeader :title="t('scan.title')" :description="t('scan.hint')" />
 
-    <!-- 开启后，扫到的条码直接带进「新建物品」表单 -->
-    <label class="create-mode hb-card hb-tap">
-      <USwitch :model-value="createMode" @update:model-value="toggleCreateMode" />
-      <span class="create-mode-text">
-        <strong>{{ t('scan.useBarcodeToCreate') }}</strong>
-        <small class="hb-muted">{{ t('item.barcodeHint') }}</small>
-      </span>
-    </label>
-
-    <div class="modes">
+    <div v-if="ready" class="modes">
       <UButton
         v-for="mode in modes"
         :key="mode.value"
@@ -26,8 +17,13 @@
       </UButton>
     </div>
 
-    <!-- 摄像头 -->
-    <section v-if="activeMode === 'camera'" class="panel hb-card">
+    <!-- 挂载后立即定模式：安全上下文直接开摄像头，否则退回手动输入 -->
+    <div v-if="!ready" class="panel hb-card">
+      <div class="hb-skeleton camera-skeleton" />
+    </div>
+
+    <!-- 摄像头（默认入口，进入即开始识别二维码 / 条形码） -->
+    <section v-if="ready && activeMode === 'camera'" class="panel hb-card">
       <p v-if="!secure" class="notice">{{ t('scan.insecureContext') }}</p>
       <template v-else>
         <video ref="video" class="video" muted playsinline />
@@ -54,7 +50,7 @@
     </section>
 
     <!-- 图片识别 -->
-    <section v-if="activeMode === 'upload'" class="panel hb-card">
+    <section v-if="ready && activeMode === 'upload'" class="panel hb-card">
       <label class="upload hb-tap">
         <UIcon name="i-lucide-image-plus" />
         <span>{{ t('scan.upload') }}</span>
@@ -64,10 +60,9 @@
     </section>
 
     <!-- 手动输入（兼容扫码枪：聚焦后直接扫） -->
-    <section v-if="activeMode === 'manual'" class="panel hb-card">
-      <form class="row" @submit.prevent="lookup(manual)">
+    <section v-if="ready && activeMode === 'manual'" class="panel hb-card">
+      <form class="row manual-row" @submit.prevent="lookup(manual)">
         <UInput
-          ref="manualInput"
           v-model="manual"
           :placeholder="t('scan.manualPlaceholder')"
           size="xl"
@@ -91,6 +86,15 @@
         {{ t('scan.useBarcodeToCreate') }}
       </UButton>
     </div>
+
+    <!-- 开启后，扫到的条码直接带进「新建物品」表单（放在底部，避免挡住取景框） -->
+    <label class="create-mode hb-card hb-tap">
+      <USwitch :model-value="createMode" @update:model-value="toggleCreateMode" />
+      <span class="create-mode-text">
+        <strong>{{ t('scan.useBarcodeToCreate') }}</strong>
+        <small class="hb-muted">{{ t('item.barcodeHint') }}</small>
+      </span>
+    </label>
   </div>
 </template>
 
@@ -99,12 +103,27 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 
 type Mode = 'camera' | 'upload' | 'manual';
 
+/**
+ * 扫码识别器：不带 hints 的 MultiFormatReader 会同时挂上
+ * 一维码（EAN/UPC/Code128…）与二维码（QR/DataMatrix/Aztec/PDF417）的 reader，
+ * 所以二维码和商品条形码都会被尝试识别。
+ * 注意：别再 `import ... from '@zxing/library'` —— 它的 CJS 入口在 Nitro 的
+ * ESM 运行时里解析不了（ERR_UNSUPPORTED_DIR_IMPORT），会让 /scan 直接 500。
+ */
+function createReader() {
+  // 每帧之间留一点间隔，降低手机端 CPU 占用
+  return new BrowserMultiFormatReader(undefined, { delayBetweenScanAttempts: 120 });
+}
+
 const { t } = useI18n();
 const api = useApi();
 const toast = useToast();
 const route = useRoute();
 
-const activeMode = ref<Mode>('manual');
+// 默认摄像头：挂载后若在安全上下文里会自动开启
+const activeMode = ref<Mode>('camera');
+/** 模式判定完成前先不渲染面板，避免先闪一下手动输入 */
+const ready = ref(false);
 /** 识别到的码：解析不到对应物品时用它来新建 */
 const pendingCode = ref('');
 /** ?new=1 时，扫到的条码直接带进新建表单 */
@@ -128,6 +147,8 @@ const deviceIndex = ref(0);
 const video = ref<HTMLVideoElement>();
 let reader: BrowserMultiFormatReader | null = null;
 let controls: { stop: () => void } | null = null;
+/** 一次会话只处理第一个识别结果，避免同一码连续触发多次跳转 */
+let handled = false;
 
 const modes = computed(() => [
   ...(secure.value ? [{ value: 'camera' as Mode, label: t('scan.camera'), icon: 'i-lucide-camera' }] : []),
@@ -148,30 +169,66 @@ function useBarcode() {
 
 onMounted(async () => {
   secure.value = window.isSecureContext;
-  if (secure.value && navigator.mediaDevices?.enumerateDevices) {
-    devices.value = (await navigator.mediaDevices.enumerateDevices()).filter((item) => item.kind === 'videoinput');
+  if (!secure.value) {
+    activeMode.value = 'manual';
+    ready.value = true;
+    return;
   }
+  activeMode.value = 'camera';
+  ready.value = true;
+  await nextTick();
+  // 进入扫码即自动开摄像头，不再停在输入页
+  await startCamera();
 });
 
 onBeforeUnmount(stopCamera);
 
-function switchMode(mode: Mode) {
-  if (activeMode.value === 'camera') stopCamera();
+async function switchMode(mode: Mode) {
+  if (activeMode.value === 'camera' && mode !== 'camera') stopCamera();
   activeMode.value = mode;
+  // 回到摄像头时自动续扫
+  if (mode === 'camera' && !scanning.value) {
+    await nextTick();
+    await startCamera();
+  }
+}
+
+function onScanResult(result?: { getText(): string }) {
+  if (!result || handled) return;
+  handled = true;
+  void onDetected(result.getText());
 }
 
 async function startCamera() {
-  if (!video.value) return;
+  if (!video.value || scanning.value) return;
   error.value = '';
-  reader = reader ?? new BrowserMultiFormatReader();
+  handled = false;
+  reader = reader ?? createReader();
+
   try {
     const deviceId = devices.value[deviceIndex.value]?.deviceId;
-    controls = await reader.decodeFromVideoDevice(deviceId, video.value, (result) => {
-      if (result) void onDetected(result.getText());
-    });
+    controls = deviceId
+      ? await reader.decodeFromVideoDevice(deviceId, video.value, onScanResult)
+      : // 没指定设备时优先后置摄像头（手机扫码习惯）
+        await reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: 'environment' } } },
+          video.value,
+          onScanResult,
+        );
     scanning.value = true;
+    // 授权后才能拿到设备名，用于「切换摄像头」
+    void refreshDevices();
   } catch (e) {
-    error.value = (e as Error).message;
+    const err = e as { name?: string; message?: string };
+    if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
+      error.value = t('scan.cameraNotFound');
+      activeMode.value = 'manual';
+      return;
+    }
+    // 权限被拒 / 被浏览器策略拦下：留在摄像头页，给出说明和「开始扫描」按钮供重试
+    error.value = err.name === 'NotAllowedError' || err.name === 'SecurityError'
+      ? t('scan.cameraDenied')
+      : `${t('scan.cameraFailed')}：${err.message ?? ''}`;
   }
 }
 
@@ -179,6 +236,12 @@ function stopCamera() {
   controls?.stop();
   controls = null;
   scanning.value = false;
+}
+
+async function refreshDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  const all = await navigator.mediaDevices.enumerateDevices();
+  devices.value = all.filter((item) => item.kind === 'videoinput');
 }
 
 async function switchCamera() {
@@ -202,8 +265,9 @@ async function decodeImage(event: Event) {
 
   preview.value = URL.createObjectURL(file);
   try {
-    const decodeReader = new BrowserMultiFormatReader();
+    const decodeReader = createReader();
     const result = await decodeReader.decodeFromImageUrl(preview.value);
+    handled = false;
     await onDetected(result.getText());
   } catch (e) {
     // ZXing 在"图里没有码 / 码不完整 / 校验失败"时都会抛错，这里统一给出明确说明
@@ -296,6 +360,10 @@ async function lookup(code: string) {
   padding: 16px;
 }
 
+.camera-skeleton {
+  height: 220px;
+}
+
 .video {
   width: 100%;
   max-height: 60vh;
@@ -307,10 +375,16 @@ async function lookup(code: string) {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.manual-row {
+  margin-top: 0;
 }
 
 .grow-input {
   flex: 1;
+  min-width: 0;
 }
 
 .upload {
@@ -344,7 +418,7 @@ async function lookup(code: string) {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  margin-bottom: 14px;
+  margin-top: 14px;
   cursor: pointer;
 }
 
