@@ -1,88 +1,102 @@
 # Homebucket
 
-> 类 HomeBox 的家庭收纳归档工具：把「每样东西放在哪里」记清楚。
+**English** | [简体中文](./README.zh-CN.md)
 
-## 项目介绍
+> **A modern replacement for [HomeBox](https://github.com/hay-kot/homebox):** keep track of where everything is stored.
 
-家里东西一多，就会反复出现「这东西到底收哪了」。Homebucket 用**位置树 + 物品台账**回答这个问题：每件物品记录它所在的位置、数量、价值，还可以为同一件物品的多个序列号（SN / 条码）分别指定位置——同型号的两台落地风扇，一台在储藏室、一台在卧室，也能各归各位。
+## Introduction
 
-### 核心概念
+**Homebucket is a modern, self-hosted alternative to [HomeBox](https://github.com/hay-kot/homebox)** — an independent project, not affiliated with or endorsed by the HomeBox project. It keeps the same core idea (a location tree plus an inventory ledger) but is rebuilt on today's stack, with extra work put into multi-member households, serial-number tracking, barcodes and mobile use.
 
-| 概念 | 说明 |
+If you're coming from HomeBox, these are the differences worth knowing first:
+
+- **Multi-member households**: registering creates your personal household; an invite link lets you join someone else's. One account can belong to several households and switch between them at any time. Every query is hard-scoped by `familyId`, with `owner` / `admin` / `member` roles.
+- **Several serial numbers of the same item can live in different places**: two identical floor fans, one in the storeroom and one in the bedroom, each with its own SN and location.
+- **Templates that close the loop with barcodes**: a template can be bound to a product barcode — scan it and the template is applied. The barcode field comes first when creating an item.
+- **Optional barcode data collection**: a built-in client for a "barcode → product info" service, so scanning a new barcode can auto-fill name / manufacturer / model.
+- **i18n out of the box**: Chinese (primary) and English (secondary); translations are plain JSON files that the community can submit new languages to.
+- **Single-container deployment**: one image runs both frontend and backend, with the frontend reaching the API through a built-in proxy — same origin, so there is no CORS to configure.
+- **Two databases, one model**: MySQL and SQLite ("MySQL light") are generated as two schemas from a single `models.prisma`.
+
+Once you own enough things, "where did I put this?" becomes a recurring question. Homebucket answers it with a **location tree + item ledger**: every item records where it is, how many there are and what it's worth — and each serial number (SN / barcode) of an item can point at its own location.
+
+### Core concepts
+
+| Concept | Description |
 | --- | --- |
-| **家庭（Family）** | 数据边界。注册即自动创建个人家庭；接受邀请后可拥有多个家庭并随时切换。所有查询强制按 `familyId` 隔离，只有家庭所有者能管理成员与邀请链接。 |
-| **位置（Location）** | 可任意层级的树（玄关/客厅/主卧/储藏室/车库…），支持拖拽排序与跨层移动，可上传照片、生成二维码。 |
-| **物品（Item）** | 收纳台账的基本单位：名称、描述、数量、单价、型号、制造商、位置、标签、照片、商品条码。 |
-| **序列号（ItemUnit）** | 需要逐件追踪的物品可登记多个 SN，**每个 SN 可以位于不同位置**。 |
-| **标签（Tag）** | 跨位置的横向分类，书签式展示。 |
-| **模板（Template）** | 常用物品的预置信息，新增物品时一键套用；模板也可绑定商品条码，扫码即套用。 |
-| **通知器（Notifier）** | SMTP / Google Chat / Telegram / Discord / 钉钉 / 飞书 / 企业微信 / Bark / Server 酱，按事件订阅并可测试发送。 |
-| **扫码** | 二维码生成 + 摄像头扫码 + 图片识别 + 手动/扫码枪；解析优先级：**商品条码 → 物品/位置二维码 → SN**。 |
+| **Family** | The data boundary. Registering creates a personal household; accepting an invite adds more. Every query is hard-scoped by `familyId`; only the household owner can manage members and invite links. |
+| **Location** | An arbitrarily deep tree (entrance / living room / bedroom / storeroom / garage …). Supports drag-and-drop ordering and cross-level moves, plus photos and QR codes. |
+| **Item** | The basic ledger entry: name, description, quantity, unit price, model, manufacturer, location, tags, photos, product barcode. |
+| **Item unit (SN)** | Items that need per-piece tracking can register multiple SNs — **each SN can sit in a different location**. |
+| **Tag** | A cross-location classification, shown as bookmark-style pills. |
+| **Template** | Preset data for frequently added items, applied in one tap. A template can also be bound to a product barcode so scanning it applies the template. |
+| **Notifier** | SMTP / Google Chat / Telegram / Discord / DingTalk / Feishu / WeCom / Bark / ServerChan, subscribed per event, with a test-send button. |
+| **Scanning** | QR generation + camera scanning + image recognition + manual input / barcode gun. Resolution priority: **product barcode → item/location QR → SN**. |
 
-### 功能亮点
+### Highlights
 
-- **单容器部署**：一个 Docker 容器同时跑 Nest 后端与 Nuxt 前端，前端通过内置代理访问后端，天然同源、无跨域。
-- **零外部依赖运行**：字体、图标、Logo 全部自托管（本地 woff2 + 本地 lucide 图标集），内网/离线可用。
-- **启动即迁移**：空库首次启动自动建表，并按 `DEFAULT_ADMIN_*` 创建管理员。
-- **多语言**：主中文、次英文，翻译文件独立可社区提交；后端只回机器可读 `code`。
-- **真移动端适配**：底部 Tab + 扫码中枢、位置钻取式导航、左滑快捷操作、页面内滚动布局，不是简单重排版。
-- **两种数据库**：MySQL（默认）与 SQLite（“MySQL light”），同一份模型生成两套 schema。
+- **Single-container deployment**: one Docker container runs the Nest backend and the Nuxt frontend together; the frontend reaches the backend through a built-in proxy, so it is same-origin with no CORS.
+- **No external dependencies at runtime**: fonts, icons and the logo are all self-hosted (local woff2 + local lucide icon set) — works on a LAN or fully offline.
+- **Migrate on boot**: an empty database creates its tables on first start and seeds an admin from `DEFAULT_ADMIN_*`.
+- **i18n**: Chinese primary, English secondary; translation files are standalone and community-submittable. The backend only returns machine-readable `code`s.
+- **Real mobile support**: bottom tab bar with a scan hub, drill-down navigation for locations, swipe actions, in-page scrolling layouts — not just a re-flowed desktop page.
+- **Two database backends**: MySQL (default) and SQLite ("MySQL light"), from one shared model.
 
-## 技术栈
+## Tech stack
 
-| 层 | 选型 |
+| Layer | Choice |
 | --- | --- |
-| 后端 | NestJS 11 + Prisma 6.19（Express 5） |
-| 前端 | Nuxt 4（Vue 3.5）+ Nuxt UI v4 + Tailwind v4，SSR |
-| 数据库 | MySQL（默认）/ SQLite（“MySQL light”，文件型） |
-| 部署 | 单 Docker 容器（多阶段构建）；GitLab CI 用 kaniko 在容器内构建并推送镜像 |
+| Backend | NestJS 11 + Prisma 6.19 (Express 5) |
+| Frontend | Nuxt 4 (Vue 3.5) + Nuxt UI v4 + Tailwind v4, SSR |
+| Database | MySQL (default) / SQLite ("MySQL light", file-based) |
+| Deployment | Single Docker container (multi-stage build); GitLab CI builds and pushes the image with kaniko inside the container |
 
-**非 monorepo**：`server/` 与 `web/` 是两个完全独立的 npm 包，各有自己的 `package.json` 和 `node_modules`。仓库根目录只放环境变量、Dockerfile、CI 与文档。
+**Not a monorepo**: `server/` and `web/` are two fully independent npm packages, each with its own `package.json` and `node_modules`. The repository root only holds environment files, the Dockerfile, CI and docs.
 
-## 目录结构
+## Directory structure
 
 ```
 .
-├── .env / .env.example      # 环境变量（.env 已 gitignore，前后端共用）
-├── Dockerfile               # 多阶段构建，运行期单容器同时跑前后端
+├── .env / .env.example      # environment variables (.env is gitignored, shared by both apps)
+├── Dockerfile               # multi-stage build; one container runs both apps at runtime
 ├── docker-entrypoint.sh
 ├── .dockerignore
-├── .gitlab-ci.yml           # kaniko 镜像流水线（容器内构建 → 推项目容器注册表）
+├── .gitlab-ci.yml           # kaniko image pipeline (build in-container → push to the project registry)
 ├── server/                  # NestJS + Prisma
 │   ├── prisma/
-│   │   ├── src/models.prisma        # 模型唯一来源（双 provider 共用）
-│   │   ├── mysql/{schema.prisma,migrations/}   # 生成物；migrations 只有一个 init
-│   │   └── sqlite/{schema.prisma,migrations/}  # 生成物；migrations 只有一个 init
+│   │   ├── src/models.prisma        # single source of truth for models (shared by both providers)
+│   │   ├── mysql/{schema.prisma,migrations/}   # generated; migrations contain a single init
+│   │   └── sqlite/{schema.prisma,migrations/}  # generated; migrations contain a single init
 │   ├── scripts/
-│   │   ├── build-schemas.mjs        # 由唯一来源生成两份 schema
-│   │   ├── prisma.mjs               # Prisma CLI 包装（选 provider + 先重建 schema）
-│   │   └── seed.mjs                 # 演示数据
+│   │   ├── build-schemas.mjs        # generates both schemas from the single source
+│   │   ├── prisma.mjs               # Prisma CLI wrapper (picks provider + rebuilds schemas)
+│   │   └── seed.mjs                 # demo data
 │   └── src/
 │       ├── main.ts  app.module.ts
-│       ├── config/env.ts            # 所有配置项（惰性读取 process.env）
-│       ├── config/bootstrap-admin.ts# 空库首次启动创建管理员
-│       ├── common/                  # 家庭上下文守卫、参数装饰器、校验归一化
-│       ├── logger/                  # 应用日志 + nginx 风格访问日志
+│       ├── config/env.ts            # all config (lazily reads process.env)
+│       ├── config/bootstrap-admin.ts# creates the admin on first boot of an empty DB
+│       ├── common/                  # family-context guard, param decorators, validation normalization
+│       ├── logger/                  # app logger + nginx-style access log
 │       ├── prisma/                  # PrismaService + auto-migrate
-│       ├── auth/                    # 注册 / 登录 / me（用户名 + 密码，JWT）
-│       ├── families/                # 家庭、成员、邀请链接
-│       ├── locations/               # 位置树（拖拽由服务端裁决）
-│       ├── items/                   # 物品 + SN 单元 + CSV 导出
-│       ├── tags/                    # 标签
-│       ├── templates/               # 模板与「用模板建物品」
-│       ├── uploads/                 # 上传（local / S3 抽象）
-│       ├── collection/              # 条码数据收集客户端
-│       ├── notifiers/               # 通知器（SMTP / Telegram / 钉钉 …）
+│       ├── auth/                    # register / login / me (username + password, JWT)
+│       ├── families/                # families, members, invite links
+│       ├── locations/               # location tree (moves decided server-side)
+│       ├── items/                   # items + SN units + CSV export
+│       ├── tags/                    # tags
+│       ├── templates/               # templates and "create item from template"
+│       ├── uploads/                 # uploads (local / S3 abstraction)
+│       ├── collection/              # barcode data-collection client
+│       ├── notifiers/               # notifiers (SMTP / Telegram / DingTalk …)
 │       ├── dashboard/  search/  scan/
 │       └── ...
 └── web/                     # Nuxt 4 + Nuxt UI v4 + Tailwind v4
-    ├── nuxt.config.ts               # 监听地址、/api 代理、i18n、图标
-    ├── i18n/locales/{zh-CN,en}.json # 翻译文件（唯一翻译源，社区可提交）
-    ├── i18n/README.md               # 新增语言指引
+    ├── nuxt.config.ts               # listen address, /api proxy, i18n, icons
+    ├── i18n/locales/{zh-CN,en}.json # translation files (single source, community-submittable)
+    ├── i18n/README.md               # guide for adding a language
     ├── public/logo.svg
-    └── app/                         # Nuxt 4 应用目录
+    └── app/                         # the Nuxt 4 app directory
         ├── app.vue  app.config.ts
-        ├── assets/css/main.css      # Tailwind + 设计令牌
+        ├── assets/css/main.css      # Tailwind + design tokens
         ├── layouts/{default,auth}.vue
         ├── middleware/auth.global.ts
         ├── composables/             # useApi useAuth useFamily useFormat useNav
@@ -90,164 +104,164 @@
         ├── components/              # SearchBox SwipeRow ListPager ListSkeleton
         │                            # LocationTree LocationDetail LocationDialogs
         │                            # ItemForm UnitEditor TagPicker LocationPicker
-        │                            # PhotoUploader PageHeader EmptyState 等
+        │                            # PhotoUploader PageHeader EmptyState …
         ├── types/location.ts
         └── pages/                   # index / login / register / locations[index,[id]]
                                      # items[index,new,[id]] / templates / settings
                                      # search / scan / invite/[token] / r/[code]
 ```
 
-## 快速开始
+## Quick start
 
 ```bash
-# 1) 准备环境变量
-cp .env.example .env      # 至少填 DATABASE_URL（或改用 sqlite）
+# 1) environment
+cp .env.example .env      # at minimum set DATABASE_URL (or switch to sqlite)
 
-# 2) 后端
+# 2) backend
 cd server
 npm install
-npm run prisma:generate   # 按 DB_PROVIDER 生成 Prisma Client
-npm run prisma:deploy     # 应用迁移建表（空库会跑单一 init 迁移）
+npm run prisma:generate   # generate the Prisma Client for DB_PROVIDER
+npm run prisma:deploy     # apply migrations (an empty DB runs the single init migration)
 npm run start:dev         # http://localhost:3001/api
 
-# 3) 前端（另开一个终端）
+# 3) frontend (in another terminal)
 cd web
 npm install
-npm run dev               # http://<本机IP>:3000
+npm run dev               # http://<your-lan-ip>:3000
 ```
 
-接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`（用户名 + 密码，邮箱选填）、`POST /api/auth/login`（**用户名** + 密码）、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）。
+Endpoints: `GET /api` (info), `GET /api/health` (health check), `POST /api/auth/register` (username + password, email optional), `POST /api/auth/login` (**username** + password), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
 
-想直接看效果：`cd server && npm run seed`（见下方「演示数据」）。
+Want to see it populated right away? `cd server && npm run seed` (see "Demo data" below).
 
-## 配置
+## Configuration
 
-全部配置集中在根目录 `.env`，前端构建/运行与后端进程共用。
+Everything lives in the root `.env`, shared by the frontend build/runtime and the backend process.
 
-### 通用 / 数据库
+### General / database
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `NODE_ENV` | `development` | 运行环境 |
-| `DB_PROVIDER` | `mysql` | `mysql` 或 `sqlite`（“MySQL light”，无需数据库服务） |
-| `DATABASE_URL` | — | `mysql://user:pass@host:3306/db`；**不要加引号**（见下方注意） |
-| `SHADOW_DATABASE_URL` | 注释掉 | 仅开发用：`prisma migrate dev` 在 MySQL 上的影子库 |
-| `AUTO_MIGRATE` | `true` | 进程启动时自动 `prisma migrate deploy`（空库首次启动自动建表） |
-| `DB_FILE_PATH` | `file:./data/homebucket.db` | sqlite 库文件路径（Docker 内用 `file:/data/homebucket.db`） |
+| `NODE_ENV` | `development` | Runtime environment |
+| `DB_PROVIDER` | `mysql` | `mysql` or `sqlite` ("MySQL light", no database server needed) |
+| `DATABASE_URL` | — | `mysql://user:pass@host:3306/db`; **do not quote it** (see the note below) |
+| `SHADOW_DATABASE_URL` | commented out | Dev only: shadow database for `prisma migrate dev` on MySQL |
+| `AUTO_MIGRATE` | `true` | Run `prisma migrate deploy` on process start (an empty DB gets its tables created) |
+| `DB_FILE_PATH` | `file:./data/homebucket.db` | SQLite file path (in Docker use `file:/data/homebucket.db`) |
 
-### 后端 Nest
+### Backend (Nest)
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `SERVER_PORT` | `3001` | 后端监听端口 |
-| `API_PREFIX` | `api` | 路由前缀 |
-| `CORS_ORIGIN` | `*` | 允许跨域的来源，多个用逗号分隔 |
-| `MAX_UPLOAD_SIZE` | `1gb` | 请求体 / 上传上限，支持 `1024` / `10mb` / `1gb` |
+| `SERVER_PORT` | `3001` | Backend listen port |
+| `API_PREFIX` | `api` | Route prefix |
+| `CORS_ORIGIN` | `*` | Allowed origins, comma-separated |
+| `MAX_UPLOAD_SIZE` | `1gb` | Request body / upload limit; accepts `1024`, `10mb`, `1gb` |
 
-### 日志
+### Logging
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
 | `LOG_LEVEL` | `info` | `error` / `warn` / `info` / `debug` / `verbose` |
-| `LOG_FORMAT` | `pretty` | `pretty`（彩色）/ `json`（单行 JSON）/ `nginx`（nginx 风格） |
-| `LOG_ACCESS` | `true` | 是否输出 nginx combined 风格访问日志 |
+| `LOG_FORMAT` | `pretty` | `pretty` (colored) / `json` (single-line JSON) / `nginx` (nginx style) |
+| `LOG_ACCESS` | `true` | Emit nginx combined-style access logs |
 
-### 数据目录与文件存储
+### Data directory & file storage
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `DATA_DIR` | `./data` | 数据根目录（Docker 内为 `/data`，挂卷持久化） |
-| `UPLOAD_DIR` | `${DATA_DIR}/uploads` | 上传目录，留空自动推导；local 模式由 `/api/media/<key>` 提供 |
-| `STORAGE_DRIVER` | `local` | `local` 落本地磁盘；`s3` 走 S3 兼容对象存储 |
-| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_FORCE_PATH_STYLE` | — | S3 配置（`STORAGE_DRIVER=s3` 时生效） |
-| `DEFAULT_CURRENCY` | `CNY` | 新家庭默认主货币（金额只使用家庭主货币） |
-| `DEFAULT_LOCALE` | `zh-CN` | 默认语言（家庭设置里可覆盖） |
-| `PUBLIC_BASE_URL` | 空 | 二维码写入的站点根地址，如 `http://192.168.1.10:3000`；留空则二维码只含 token |
+| `DATA_DIR` | `./data` | Data root (in Docker it is `/data`, mount a volume to persist) |
+| `UPLOAD_DIR` | `${DATA_DIR}/uploads` | Upload directory; empty means auto-derived. In `local` mode files are served at `/api/media/<key>` |
+| `STORAGE_DRIVER` | `local` | `local` writes to disk; `s3` uses an S3-compatible object store |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_FORCE_PATH_STYLE` | — | S3 settings (used when `STORAGE_DRIVER=s3`) |
+| `DEFAULT_CURRENCY` | `CNY` | Default base currency for new households (amounts use the household base currency only) |
+| `DEFAULT_LOCALE` | `zh-CN` | Default language (overridable per household in settings) |
+| `PUBLIC_BASE_URL` | empty | Site root written into QR codes, e.g. `http://192.168.1.10:3000`; empty means QR codes contain only the token |
 
-### 首次初始化 / 默认管理员
+### First-run / default admin
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `AUTO_CREATE_ADMIN` | `true` | 空库首次启动是否自动创建管理员 |
-| `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` / `DEFAULT_ADMIN_EMAIL` | `admin` / `admin` / `admin@example.com` | 首次初始化（空库启动或 `npm run seed`）使用的管理员；**登录用用户名**，邮箱仅作记录。正式环境务必修改 |
+| `AUTO_CREATE_ADMIN` | `true` | Create the admin automatically on first boot of an empty DB |
+| `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` / `DEFAULT_ADMIN_EMAIL` | `admin` / `admin` / `admin@example.com` | Account used on first init (empty DB boot or `npm run seed`); **login uses the username**, the email is only a record. Change these in production |
 
-### 条码数据收集
+### Barcode data collection
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `DATA_COLLECTION_ENABLED` | `true` | 总开关；关闭后本实例不向外部发送任何请求 |
-| `DATA_COLLECTION_ENDPOINT` | 占位地址 | 收集服务地址（**独立项目**，需替换成你自己的） |
-| `DATA_COLLECTION_SUBMIT` | `true` | 是否把本实例填写的条码信息回传 |
-| `DATA_COLLECTION_TIMEOUT_MS` | `1500` | 请求超时，超时静默降级 |
+| `DATA_COLLECTION_ENABLED` | `true` | Master switch; when off this instance never calls out |
+| `DATA_COLLECTION_ENDPOINT` | placeholder | Collection service URL (**separate project**; replace with your own) |
+| `DATA_COLLECTION_SUBMIT` | `true` | Whether to send back barcodes filled in on this instance |
+| `DATA_COLLECTION_TIMEOUT_MS` | `1500` | Request timeout; failures degrade silently |
 
-### 认证
+### Auth
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `JWT_SECRET` | — | 登录凭证签名密钥（正式环境务必改） |
-| `JWT_EXPIRES_IN` | `7d` | 凭证有效期 |
+| `JWT_SECRET` | — | Signing key for login tokens (change in production) |
+| `JWT_EXPIRES_IN` | `7d` | Token lifetime |
 
-### 前端 Nuxt
+### Frontend (Nuxt)
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `WEB_HOST` | `0.0.0.0` | 监听 IP，`0.0.0.0` 表示局域网/容器外可访问 |
-| `WEB_PORT` | `3000` | 监听端口 |
-| `NUXT_PUBLIC_API_BASE` | `/api` | 浏览器访问后端地址（默认同源代理） |
-| `NUXT_API_BASE` | `http://127.0.0.1:3001/api` | SSR 时访问后端地址 |
-| `API_PROXY_TARGET` | `http://127.0.0.1:3001` | Nuxt 代理 `/api` 的目标 |
+| `WEB_HOST` | `0.0.0.0` | Listen IP; `0.0.0.0` means reachable from the LAN / outside the container |
+| `WEB_PORT` | `3000` | Listen port |
+| `NUXT_PUBLIC_API_BASE` | `/api` | API base used by the browser (defaults to the same-origin proxy) |
+| `NUXT_API_BASE` | `http://127.0.0.1:3001/api` | API base used during SSR |
+| `API_PROXY_TARGET` | `http://127.0.0.1:3001` | Target of the Nuxt `/api` proxy |
 
-> 改 `.env` 后需重启进程；`LOG_*` 与端口类配置在启动时读取。
+> Changing `.env` requires a restart; `LOG_*` and port settings are read at startup.
 >
-> **注意**：`docker run --env-file .env` **不会**去掉值两侧的引号，所以 `DATABASE_URL`、`DB_FILE_PATH` 等不要加引号。
+> **Note**: `docker run --env-file .env` does **not** strip quotes, so do not quote values such as `DATABASE_URL` or `DB_FILE_PATH`.
 
-## 数据库与迁移
+## Database & migrations
 
-### 单一模型来源，两份 schema
+### One model source, two schemas
 
-Prisma 的 `provider` 不能写成环境变量，所以模型只在 `server/prisma/src/models.prisma` 维护，`scripts/build-schemas.mjs` 给它拼上不同 provider 的头，生成：
+Prisma's `provider` cannot come from an environment variable, so models are maintained only in `server/prisma/src/models.prisma`; `scripts/build-schemas.mjs` prepends a different provider header to generate:
 
-- `server/prisma/mysql/schema.prisma`（`DATABASE_URL`）
-- `server/prisma/sqlite/schema.prisma`（`DB_FILE_PATH`）
+- `server/prisma/mysql/schema.prisma` (`DATABASE_URL`)
+- `server/prisma/sqlite/schema.prisma` (`DB_FILE_PATH`)
 
-`npm run prisma:generate` / `prisma:migrate` / `prisma:deploy` 都会先重建这两份 schema，无需手动同步。
+`npm run prisma:generate` / `prisma:migrate` / `prisma:deploy` all rebuild both schemas first, so there is nothing to sync by hand.
 
-### 迁移已压缩为单个 init
+### Migrations squashed into a single init
 
-两边的 `migrations/` 目录各只有**一个** `20261006000000_init`（含 `migration_lock.toml`），它是当前 schema 的完整快照。因为生产库此前为空，没有历史需要保留。
+Each provider's `migrations/` directory now holds **one** migration, `20261006000000_init` (plus `migration_lock.toml`) — a full snapshot of the current schema. The production database was empty, so there was no history worth keeping.
 
-- **全新库 / 生产库**：直接 `npm run prisma:deploy`（或启动后端）即可，一次建好全部表。
-- **跑过旧迁移的开发库**：表还在但 `_prisma_migrations` 里记着旧的 6 条记录，`deploy` 会因“表已存在”报错。二选一对齐：
-  1. 重建（会清空数据，之后 `npm run seed` 重新灌）：
+- **Fresh / production database**: just `npm run prisma:deploy` (or start the backend) — all tables are created at once.
+- **A dev database that ran the old migrations**: the tables exist, but `_prisma_migrations` still lists the 6 old entries, so `deploy` fails with "table already exists". Pick one:
+  1. Reset (wipes data, then re-seed with `npm run seed`):
      `npx prisma migrate reset --schema prisma/mysql/schema.prisma --skip-seed`
-  2. 只对齐记录、不丢数据：在库中 `DELETE FROM _prisma_migrations;`，再
+  2. Reconcile the records only, keeping data: run `DELETE FROM _prisma_migrations;` on the database, then
      `npx prisma migrate resolve --applied 20261006000000_init --schema prisma/mysql/schema.prisma`
 
-### 启动即迁移
+### Migrate on boot
 
-后端启动时（`AUTO_MIGRATE=true`，默认开）先执行 `prisma migrate deploy`：
+On startup (`AUTO_MIGRATE=true`, the default) the backend runs `prisma migrate deploy` first:
 
-- 空库首次启动自动建表，不会再出现“表不存在导致启动失败”；
-- 幂等，已应用的迁移不会重复执行；
-- 失败只打 `[migrate]` 错误日志、不阻断进程，`/health` 会显示 `degraded`；数据库连不上也不中断启动。
+- an empty database gets its tables created, so "table does not exist" startup failures are gone;
+- it is idempotent — already-applied migrations are not re-run;
+- failures only log a `[migrate]` error and do not block the process (`/health` reports `degraded`); a database that is unreachable also no longer aborts startup.
 
-想自己控制节奏：`AUTO_MIGRATE=false`，手动 `cd server && npm run prisma:deploy`。
+To control it yourself: `AUTO_MIGRATE=false`, then `cd server && npm run prisma:deploy`.
 
-**空库首次启动**还会按 `DEFAULT_ADMIN_*` 自动创建管理员（`AUTO_CREATE_ADMIN=false` 可关），日志会打印账号，登录后请尽快改密码。
+On the **first boot of an empty database** an admin is also created from `DEFAULT_ADMIN_*` (disable with `AUTO_CREATE_ADMIN=false`); the credentials are printed to the log — change the password after logging in.
 
-### SQLite（MySQL light）
+### SQLite ("MySQL light")
 
 ```bash
 # .env
 DB_PROVIDER=sqlite
-DB_FILE_PATH="file:./data/homebucket.db"   # 实际不加引号
+DB_FILE_PATH="file:./data/homebucket.db"   # in a real .env, no quotes
 ```
 
-然后 `npm run prisma:generate && npm run prisma:deploy`，库文件落在 `server/prisma/sqlite/data/`（已 gitignore）。
+Then `npm run prisma:generate && npm run prisma:deploy`. The database file lands in `server/prisma/sqlite/data/` (gitignored).
 
-## Docker（单容器）
+## Docker (single container)
 
-多阶段构建：`base → server-build → web-build → runtime`，按需 `COPY`（不使用 `COPY . .`），`.dockerignore` 排除 `node_modules` / `dist` / `.output` / `.nuxt`。运行期一个容器同时起 Nest（`:3001`）与 Nuxt（`:3000`），前端通过代理访问后端。
+Multi-stage build: `base → server-build → web-build → runtime`, with targeted `COPY` (no `COPY . .`); `.dockerignore` excludes `node_modules` / `dist` / `.output` / `.nuxt`. At runtime one container starts Nest (`:3001`) and Nuxt (`:3000`), with the frontend proxying to the backend.
 
 ```bash
 docker build \
@@ -260,167 +274,167 @@ docker build \
 docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 homebucket
 ```
 
-- 容器内数据统一放 `/data`（sqlite 库文件 + 上传图片），`VOLUME ["/data"]`，挂卷即可持久化；通常只需暴露 3000。
-- 数据库迁移由后端进程启动时自动完成。
-- 基础镜像装了 `openssl`（Prisma 查询引擎依赖），且在 `prisma generate` 之前装好。装它走的 apt 源默认换成清华（`APT_MIRROR`），只为这一层提速。
-- **运行期刻意不裁剪 devDependencies**：启动自动迁移依赖 `prisma` CLI（`server/src/prisma/auto-migrate.ts` 会 `require.resolve('prisma/build/index.js')`），`--omit=dev` 会让迁移被静默跳过。前端 `.output` 自包含，运行期不带 `web/node_modules`。
-- `NODE_IMAGE` / `NPM_REGISTRY` / `APT_MIRROR` 都是加速用构建参数，本地默认走官方源即可不传；`APT_MIRROR` 用 `http://`（slim 镜像里没有 `ca-certificates`，`https` 会让 `apt-get update` 证书校验失败）。
+- All container data lives under `/data` (SQLite file + uploaded images) and `VOLUME ["/data"]` is declared, so mounting a volume persists it. Usually only port 3000 needs to be exposed.
+- Migrations run automatically when the backend process starts.
+- The base image installs `openssl` (required by the Prisma query engine) before `prisma generate`. The apt source for that step defaults to the Tsinghua mirror (`APT_MIRROR`) purely to speed it up.
+- **devDependencies are deliberately not pruned at runtime**: the boot-time auto-migration needs the `prisma` CLI (`server/src/prisma/auto-migrate.ts` resolves `prisma/build/index.js`), and `--omit=dev` would make migrations silently skip. The frontend `.output` is self-contained, so `web/node_modules` is not shipped.
+- `NODE_IMAGE` / `NPM_REGISTRY` / `APT_MIRROR` are acceleration build args; you can omit them locally to use the official sources. `APT_MIRROR` must be `http://` — the slim image has no `ca-certificates`, so `https` makes `apt-get update` fail certificate verification.
 
-## CI（GitLab + kaniko）
+## CI (GitLab + kaniko)
 
-`.gitlab-ci.yml` 只有一个 job `docker:image`：
+`.gitlab-ci.yml` has a single job, `docker:image`:
 
-- **整个 job 在容器内执行**：使用 kaniko executor（debug）镜像，不需要 docker daemon / dind，也不需要 privileged runner。
-- **不做 typecheck、不做独立 build 校验 job**：编译发生在 `docker build` 内部（`nest build` / `nuxt build`），失败即 job 失败。
-- **零 artifacts**：构建结果只以镜像形式推送到**项目的容器注册表**（`$CI_REGISTRY_IMAGE`）。
-- **tag 策略**：始终推 `sha-<short>`；推送默认分支额外推 `latest`；打 tag 额外推版本号。
-- **触发**：push 默认分支 / 打 tag / 页面 Run pipeline / API。
+- **The whole job runs inside a container**: it uses the kaniko executor (debug) image — no docker daemon / dind and no privileged runner required.
+- **No typecheck, no separate build-verification job**: compilation happens inside `docker build` (`nest build` / `nuxt build`); if it fails, the job fails.
+- **Zero artifacts**: the only output is an image pushed to the **project container registry** (`$CI_REGISTRY_IMAGE`).
+- **Tag policy**: always pushes `sha-<short>`; the default branch additionally pushes `latest`; a git tag additionally pushes the version; other branches additionally push the branch slug.
+- **Triggers**: push to any branch / tag / Run pipeline in the UI / API.
 
-加速域名（可在 CI/CD Variables 覆盖）：
+Acceleration mirrors (override via CI/CD Variables):
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `NODE_IMAGE` | `docker.1ms.run/library/node:22-bookworm-slim` | 基础镜像（Docker Hub 加速） |
-| `NPM_REGISTRY` | `https://registry.npmmirror.com` | npm 源 |
-| `APT_MIRROR` | `http://mirrors.tuna.tsinghua.edu.cn` | Debian apt 源（装 openssl 提速）；用 `http://` |
-| `DB_PROVIDER` | `mysql` | 打进镜像的 Prisma schema |
+| `NODE_IMAGE` | `docker.1ms.run/library/node:22-bookworm-slim` | Base image (Docker Hub acceleration) |
+| `NPM_REGISTRY` | `https://registry.npmmirror.com` | npm registry |
+| `APT_MIRROR` | `http://mirrors.tuna.tsinghua.edu.cn` | Debian apt mirror (speeds up the openssl install); must be `http://` |
+| `DB_PROVIDER` | `mysql` | Prisma schema baked into the image |
 
-kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:debug` 加速（`docker.m.daocloud.io` 是 Docker Hub 的加速域名，没有这个仓库，会报「不在白名单」）。首次运行会创建 `$CI_REGISTRY_IMAGE/cache` 作为构建缓存；若注册表禁用了子仓库，去掉脚本里的 `--cache=true --cache-repo ...` 两行即可。
+The kaniko image lives on gcr.io and is pulled via `gcr.m.daocloud.io/kaniko-project/executor:debug` (`docker.m.daocloud.io` is the Docker Hub accelerator and does not have that repository — it fails with "not in the allowlist"). The first run creates `$CI_REGISTRY_IMAGE/cache` as a build cache; if your registry disallows sub-repositories, drop the `--cache=true --cache-repo ...` lines.
 
-## 跨域是怎么解决的
+## How CORS is handled
 
-前端 `WEB_HOST=0.0.0.0` 对外后，浏览器可能用 `localhost`、`127.0.0.1`、局域网 IP、域名等来源访问，靠白名单穷举不可靠。因此：
+Once the frontend is exposed with `WEB_HOST=0.0.0.0`, browsers may reach it via `localhost`, `127.0.0.1`, a LAN IP or a domain — enumerating an allowlist is unreliable. Therefore:
 
-1. Nuxt 用 nitro `routeRules` 把 `/api/**` 代理到后端（`API_PROXY_TARGET`），浏览器始终**同源**请求 `/api`；
-2. 后端另外开 `CORS_ORIGIN`（默认 `*`）并放行 `Authorization` 头，方便直连 `:3001` 调试或第三方调用。
+1. Nuxt proxies `/api/**` to the backend with a nitro `routeRules` entry (`API_PROXY_TARGET`), so the browser always requests `/api` **same-origin**;
+2. the backend still enables `CORS_ORIGIN` (default `*`) and allows the `Authorization` header, which makes direct calls to `:3001` (debugging, third-party clients) easy.
 
-## 前端说明（Nuxt 4）
+## Frontend notes (Nuxt 4)
 
-- 应用代码在 `web/app/`：`pages` / `components` / `composables` / `layouts` / `middleware` / `assets` / `types`；`nuxt.config.ts`、`public/`、`i18n/` 留在 `web/` 根下。
-- 图标使用本地图标集 `@iconify-json/lucide`，不依赖 Iconify 在线服务；`@nuxt/icon` 的接口改到 `/_nuxt_icon`，否则会被 `/api/**` 代理转发给 Nest 导致图标全部加载失败。
-- 关闭 `@nuxt/fonts`（`ui: { fonts: false }`）改用系统字体栈，离线/内网可跑。
-- 需要登录态的数据都在客户端加载（`onMounted` / `useAsyncData(..., { server: false })`），SSR 只渲染外壳，避免 SSR 阶段没有 cookie 时的 401。
-- 未登录直接 302 到登录页（鉴权中间件在服务端也执行）。
-- `npm run typecheck`（`nuxt typecheck`，vue-tsc），当前零错误。
+- Application code lives in `web/app/`: `pages` / `components` / `composables` / `layouts` / `middleware` / `assets` / `types`; `nuxt.config.ts`, `public/` and `i18n/` stay at the `web/` root.
+- Icons use the local `@iconify-json/lucide` set, with no reliance on the Iconify online service. Note that `@nuxt/icon`'s endpoint is moved to `/_nuxt_icon`; otherwise the `/api/**` proxy forwards it to Nest and every icon fails to load.
+- `@nuxt/fonts` is disabled (`ui: { fonts: false }`) in favor of a system font stack, so it runs offline / on an intranet.
+- Anything needing auth is loaded on the client (`onMounted` / `useAsyncData(..., { server: false })`); SSR only renders the shell, avoiding 401s when there is no cookie during SSR.
+- Unauthenticated visits are 302'd to the login page (the auth middleware runs on the server too).
+- `npm run typecheck` (`nuxt typecheck`, vue-tsc) currently reports zero errors.
 
-### 布局模式
+### Layout modes
 
-页面通过 `definePageMeta` 声明滚动模式，外壳用纯 CSS 类切换（不依赖渲染期 `matchMedia`，避免水合不一致与首帧闪动）：
+Pages declare their scrolling mode via `definePageMeta`, and the shell switches with plain CSS classes (no render-time `matchMedia`, which avoids hydration mismatches and first-paint flicker):
 
-- `layoutMode`：桌面端 `scroll`（整页滚动）/ `fixed`（面板内滚动，列表页用）
-- `layoutModeMobile`：移动端同上；位置/物品列表在移动端整页滚动，桌面端面板内滚动
-- `.desktop-only`：移动端直接不渲染只给桌面用的结构
+- `layoutMode`: desktop `scroll` (whole page scrolls) / `fixed` (scroll inside a panel, used by list pages)
+- `layoutModeMobile`: same for mobile; the location and item lists scroll the whole page on mobile and inside a panel on desktop
+- `.desktop-only`: structures meant for desktop only are not rendered on mobile at all
 
-### 视觉规范（现代清爽）
+### Visual spec (modern & clean)
 
-- 设计令牌集中在 `web/app/assets/css/main.css`：`--hb-brand` / `--hb-surface` / `--hb-text` / `--hb-shadow-*` / `--hb-r-*`，浅色与 `.dark` 各一套；**页面里不要再写死颜色**。
-- 通用类：`.hb-card`、`.hb-card-hover`、`.hb-tile`、`.hb-icon-tile`、`.hb-list`/`.hb-list-row`（统一行列表）、`.hb-tag`（标签胶囊）、`.hb-chip`、`.hb-section-title`、`.hb-skeleton`、`.hb-pager`、`.hb-rise`。
-- 可复用组件：`SearchBox`（主页与物品页共用搜索框）、`SwipeRow`（移动端左滑编辑/删除）、`ListPager`、`ListSkeleton`。
-- 深浅色由 `@nuxtjs/color-mode` 注入 `.dark`（跟随系统，可手动切换并记住）；品牌色在 `app.config.ts`（Nuxt UI primary=teal）。
+- Design tokens live in `web/app/assets/css/main.css`: `--hb-brand` / `--hb-surface` / `--hb-text` / `--hb-shadow-*` / `--hb-r-*`, one set for light and one under `.dark`; **do not hard-code colors in pages**.
+- Shared classes: `.hb-card`, `.hb-card-hover`, `.hb-tile`, `.hb-icon-tile`, `.hb-list` / `.hb-list-row` (unified row lists), `.hb-tag` (tag pill), `.hb-chip`, `.hb-section-title`, `.hb-skeleton`, `.hb-pager`, `.hb-rise`.
+- Reusable components: `SearchBox` (shared by the home page and the item list), `SwipeRow` (mobile swipe-to-edit/delete), `ListPager`, `ListSkeleton`.
+- Light/dark is driven by `@nuxtjs/color-mode` adding a `.dark` class (follows the system, can be toggled and remembered); the brand color is set in `app.config.ts` (Nuxt UI primary = teal).
 
-### 排版（字体）
+### Typography
 
-**字体族**：拉丁字母与数字自托管 **Inter Variable**（`@fontsource-variable/inter/wght.css`，本地 woff2，无外部请求）；中文走各平台原生字体（PingFang SC / HarmonyOS Sans / MiSans / 微软雅黑 / Noto Sans CJK / 思源黑体）——CJK 字体动辄数 MB，原生字形更清晰也更省流量。等宽场景用 `--hb-font-mono`。
+**Font families**: Latin letters and digits use self-hosted **Inter Variable** (`@fontsource-variable/inter/wght.css`, local woff2, no external requests); Chinese uses each platform's native font (PingFang SC / HarmonyOS Sans / MiSans / Microsoft YaHei / Noto Sans CJK / Source Han Sans) — CJK fonts are several MB each, and native glyphs look sharper and cost no bandwidth. Monospace uses `--hb-font-mono`.
 
-**字号阶梯**（全部走令牌，页面里不要再写 px）：`--hb-fs-display`（clamp 自适应页标题）/`h1`/`h2`/`h3`/`body`/`sm`/`xs`；行高 `--hb-lh-*`、字重 `--hb-fw-*`、字距 `--hb-ls-*` 一一对应。
+**Type scale** (all via tokens; no raw px in pages): `--hb-fs-display` (a clamp-based page title) / `h1` / `h2` / `h3` / `body` / `sm` / `xs`, with matching line height `--hb-lh-*`, weight `--hb-fw-*` and tracking `--hb-ls-*`.
 
-**中文专门处理**：`:lang(zh)` 行高 1.75、字距 0.01em；`html lang` 跟随语言切换；`text-spacing-trim`/`text-autospace` 优化中西文混排；`font-synthesis: none` 禁伪粗斜体；长串用 `.hb-break`、多行截断用 `.hb-clamp-2/3`。
+**Chinese-specific handling**: `:lang(zh)` raises line height to 1.75 and tracking to 0.01em; `html lang` follows the active language; `text-spacing-trim` / `text-autospace` improve CJK–Latin mixing; `font-synthesis: none` disables faux bold/italic; long strings use `.hb-break`, multi-line clamps use `.hb-clamp-2/3`.
 
-**数字**：金额、数量、计数统一加 `.hb-num`（`tabular-nums`），对齐不跳动。
+**Numbers**: amounts, quantities and counts use `.hb-num` (`tabular-nums`) so columns line up without jitter.
 
-**工具类**：`.hb-display .hb-h1 .hb-h2 .hb-h3 .hb-body .hb-sm .hb-xs .hb-eyebrow .hb-label .hb-num .hb-mono .hb-link .hb-truncate .hb-clamp-* .hb-break`。
+**Utilities**: `.hb-display .hb-h1 .hb-h2 .hb-h3 .hb-body .hb-sm .hb-xs .hb-eyebrow .hb-label .hb-num .hb-mono .hb-link .hb-truncate .hb-clamp-* .hb-break`.
 
-## 功能与页面
+## Features & pages
 
-| 页面 | 说明 |
+| Page | Description |
 | --- | --- |
-| `/` 主页 | 物品总数 / 价值总和 / 位置总数 / 标签总数，最近新增、位置列表、书签式标签、搜索框（与物品页共用 `SearchBox`） |
-| `/locations` | 桌面：左侧树 + 右侧内容（**拖拽排序与跨层移动由服务端裁决**，防闭环 + sortIndex 量化重排）；移动：树独占整屏，点节点进钻取路由 |
-| `/locations/[id]` | 移动端位置详情（竖屏排版）：子位置、本层物品、序列号列表，各自分页 |
-| `/items` | 库存概览与快速创建。桌面为表格（表头吸顶、面板内滚动），移动为行卡片（图标砖 + 标题/位置型号/标签 + 金额），支持**左滑编辑/删除**；统一搜索覆盖名称/型号/SN/条码/位置/标签；可导出 CSV |
-| `/items/[id]` | 物品详情：照片、标签、位置、**每个 SN 可位于不同位置**、二维码、来源模板 |
-| `/items/new` | 新增物品，支持顶部「套用模板」（也可扫模板条码自动套用），商品条码置顶可扫码填入 |
-| `/templates` | 模板管理（含商品条码），支持搜索与「用模板新增物品」 |
-| `/settings` | 家庭管理（成员 / 邀请链接 / 角色）、系统设置（家庭名、货币、语言、时区）、通知器 |
-| `/search` | 统一搜索：物品 + 位置 + 标签 + 序列号 |
-| `/scan`、`/r/[code]` | 摄像头扫码（需 https/localhost）、图片识别、手动输入/扫码枪；移动端底部扫码按钮弹出「创建 / 查找 / 编辑」气泡 |
+| `/` Home | Item count / total value / location count / tag count, recently added items, location list, bookmark-style tags, search box (shares `SearchBox` with the item list) |
+| `/locations` | Desktop: tree on the left, content on the right (**ordering and cross-level moves are decided server-side**, with cycle prevention and sortIndex requantization). Mobile: the tree takes the whole screen and tapping a node opens the drill-down route |
+| `/locations/[id]` | Mobile location detail (portrait layout): sub-locations, items directly here, and serial numbers, each paginated |
+| `/items` | Inventory overview and quick add. Desktop is a table (sticky header, scrolls inside the panel); mobile is a card list (icon tile + title/location/model/tags + amount) with **swipe to edit/delete**. Unified search covers name / model / SN / barcode / location / tags; CSV export |
+| `/items/[id]` | Item detail: photos, tags, location, **each SN can be in a different location**, QR code, source template |
+| `/items/new` | Create an item; "apply template" at the top (or scan a template barcode to apply it); the product barcode field comes first and can be filled by scanning |
+| `/templates` | Template management (including product barcodes), search and "create item from template" |
+| `/settings` | Household management (members / invite links / roles), system settings (household name, currency, language, time zone), notifiers |
+| `/search` | Unified search: items + locations + tags + serial numbers |
+| `/scan`, `/r/[code]` | Camera scanning (needs https/localhost), image recognition, manual input / barcode gun. On mobile the bottom scan button opens a "create / find / edit" popover |
 
-- **家庭即数据边界**：注册自动创建个人家庭；接受邀请后拥有多个家庭，通过 `X-Family-Id` 切换；所有查询强制按 `familyId` 过滤。仅家庭所有者可管理成员与邀请。
-- **物品页的标签筛选**：不再提供标签选择器；从主页/搜索页的标签书签进来时（`?tagId=`）会显示一个可一键清除的筛选 chip。
-- **移动端**：底部 Tab（扫码居中为核心入口）、抽屉菜单、安全区适配、触控目标 ≥44px、表单原生键盘类型。
+- **The household is the data boundary**: registering creates a personal household; accepting an invite grants access to more, switched via `X-Family-Id`; every query is hard-scoped by `familyId`. Only the household owner can manage members and invites.
+- **Tag filtering on the item page**: there is no tag picker anymore; arriving from a tag bookmark (`?tagId=`) shows a one-tap removable filter chip.
+- **Mobile**: bottom tab bar (scan in the middle as the primary entry), drawer menu, safe-area support, touch targets ≥44px, native keyboard types in forms.
 
-## 商品条码与扫码优先级
+## Product barcodes & scan priority
 
-- 物品可填「商品条码」（EAN/UPC 等），在**同一家庭内唯一**；重复会被拒绝（`item.barcodeTaken`）。
-- 创建物品时**条码优先**：条码字段在表单最前，可点「扫码填入」跳到扫码页，扫到的码带回表单（`/items/new?barcode=...`）。
-- 扫码解析优先级：**商品条码 → 物品/位置二维码 → SN 序列号**；响应带 `matchedBy` 便于前端提示。
-- 扫到未收录的码时给出「用这个条码新建物品」入口，扫码页可切换「扫到即新建」模式。
-- 库存列表的统一搜索（`q`）与 CSV 导出都包含条码列。
+- Items can carry a "product barcode" (EAN/UPC and friends), **unique within a household**; duplicates are rejected (`item.barcodeTaken`).
+- When creating an item, **barcode comes first**: the field is at the top of the form and has a "scan to fill" button that jumps to the scan page and brings the code back (`/items/new?barcode=...`).
+- Scan resolution priority: **product barcode → item/location QR → SN**; responses carry `matchedBy` so the UI can tell the user how it matched.
+- When a scanned code is unknown, the scan page offers "create an item with this barcode" and has a "scan to create" mode.
+- The inventory unified search (`q`) and the CSV export both include the barcode column.
 
-## 条码数据收集
+## Barcode data collection
 
-由开发者提供的**独立服务**收集「条码 → 商品信息」，综合判定后同步给各实例，创建物品时可自动补全名称/厂商/型号。开关与地址都在 `.env`，**默认开启**；`DATA_COLLECTION_ENDPOINT` 是占位地址，请替换成你自己的服务。
+A **separate service** (provided by the developer) collects "barcode → product info", aggregates it, and syncs it to instances so that creating an item can auto-fill name / manufacturer / model. The switch and URL are in `.env` and it is **enabled by default**; `DATA_COLLECTION_ENDPOINT` is a placeholder — replace it with your own service.
 
-本实例对外的接口（前端用）：
+The endpoint this instance exposes (used by the frontend):
 
 ```
 GET /api/barcodes/:code/lookup
-→ { barcode, local: {id,name,quantity,location}|null, remote: <收集服务返回>|null,
+→ { barcode, local: {id,name,quantity,location}|null, remote: <collection service response>|null,
     collectionEnabled: boolean, collectionAvailable: boolean }
 ```
 
-收集服务需要实现的契约（另一个项目）：
+The contract the collection service must implement (the other project):
 
 ```
 GET  {DATA_COLLECTION_ENDPOINT}/barcodes/{code}
-  200 → { "barcode": "6901234567890", "name": "5 号电池", "manufacturer": "南孚",
-          "model": "碱性", "category": "电池", "imageUrl": null,
+  200 → { "barcode": "6901234567890", "name": "AA battery", "manufacturer": "Nanfu",
+          "model": "alkaline", "category": "battery", "imageUrl": null,
           "confidence": 0.86, "sources": 12 }
-  404 → 未收录
+  404 → not indexed
 
 POST {DATA_COLLECTION_ENDPOINT}/observations
   body → { "barcode": "...", "name": "...", "manufacturer": "...", "model": "...",
            "category": "...", "clientVersion": "homebucket/1" }
-  2xx  → 已接收
+  2xx  → accepted
 ```
 
-降级策略：未配置地址、超时、网络不可达、非 2xx **都只记日志**，条码填写与物品创建不受影响；前端只在远端有数据时才提示「已用条码库的信息补全」。
+Degradation: an unconfigured URL, a timeout, an unreachable network or a non-2xx response **only produce a log line** and never block barcode entry or item creation; the frontend only shows "filled from the barcode library" when remote data actually came back.
 
-## 静态资源自托管
+## Self-hosted static assets
 
-不请求任何外部 CDN：
+No external CDN is contacted:
 
-- 字体：拉丁/数字用本地 `@fontsource-variable/inter` 的 woff2（按 `unicode-range` 分发，浏览器只加载 latin 子集约 48KB）；中文用系统原生字体；已关闭 `@nuxt/fonts`
-- 图标：本地 `@iconify-json/lucide` 集合 + 自建 `/_nuxt_icon` 接口，并设 `fallbackToApi: false`，不会回退到 Iconify 公共 API
-- 图片/Logo：`web/public/` 本地文件；用户上传的照片存在 `UPLOAD_DIR`（本地磁盘或自建 S3）
+- Fonts: Latin/digits use local `@fontsource-variable/inter` woff2 files (split by `unicode-range`, so browsers load only the ~48KB latin subset); Chinese uses native system fonts; `@nuxt/fonts` is disabled
+- Icons: the local `@iconify-json/lucide` set plus a self-hosted `/_nuxt_icon` endpoint, with `fallbackToApi: false` so it never falls back to the public Iconify API
+- Images / logo: local files in `web/public/`; user uploads live in `UPLOAD_DIR` (local disk or your own S3)
 
-## 多语言
+## Internationalization
 
-翻译文件只有一份，放在 `web/i18n/locales/`（主 `zh-CN`、次 `en`）。后端不做翻译，只返回机器可读的 `code`（如 `location.notFound`），前端按 code 查表，查不到才回退后端的中文兜底 `message`。
+There is exactly one set of translation files, in `web/i18n/locales/` (primary `zh-CN`, secondary `en`). The backend does not translate: it returns machine-readable `code`s (e.g. `location.notFound`) and the frontend looks them up, falling back to the backend's Chinese `message` only when a code is missing.
 
-新增语言：复制 `web/i18n/locales/en.json` → 改名 → 翻译 → 在 `nuxt.config.ts` 的 `locales` 里注册。详见 `web/i18n/README.md`。
+To add a language: copy `web/i18n/locales/en.json` → rename → translate → register it in the `locales` array of `nuxt.config.ts`. See `web/i18n/README.md`.
 
-## 演示数据（Mock）
+## Demo data
 
 ```bash
 cd server && npm run seed
 ```
 
-会清空并重建演示账号自己的数据（不影响其它用户），生成一个适合看效果的样板：
+This wipes and rebuilds only the demo accounts' data (other users are untouched) and produces a showcase-ready sample:
 
-- 登录用**用户名 + 密码**（邮箱只是记录字段）：主账号来自 `.env` 的 `DEFAULT_ADMIN_*`（默认 `admin` / `admin`），是「样板间」的 owner
-- 共享成员：`family@homebucket.local` / `homebucket123`（普通成员，用来验证多家庭与权限）
-- 内容：41 个位置（三层树）、17 个标签、147 件物品（总价值约 ¥5.99 万）、20 个序列号（12 件物品，含同一物品的 SN 分散在不同位置）、14 个模板、4 个未启用的通知器、3 条邀请链接
-- 图片：脚本**本地生成** 43 张 SVG 占位图（37 件物品封面 + 6 个位置照片）写入 `UPLOAD_DIR`，不请求任何外部图片
-- 物品创建时间分散在约 180 天内，主页「最近新增」看起来更自然
-- 可重复执行；脚本在 `server/scripts/seed.mjs`
+- Log in with **username + password** (email is only a record field): the main account comes from `.env` `DEFAULT_ADMIN_*` (defaults `admin` / `admin`) and owns the "Sample Home" household
+- A shared member: `family@homebucket.local` / `homebucket123` (a regular member, handy for testing multi-household and permissions)
+- Content: 41 locations (three-level tree), 17 tags, 147 items (about ¥59,924 total), 20 serial numbers across 12 items (including one item whose SNs sit in different locations), 14 templates, 4 disabled notifiers, 3 invite links
+- Images: the script **generates 43 SVG placeholders locally** (37 item covers + 6 location photos) into `UPLOAD_DIR`, requesting no external images
+- Item creation times are spread over ~180 days so "recently added" looks natural
+- Idempotent and repeatable; the script is `server/scripts/seed.mjs`
 
-## 已验证
+## Verified
 
-- **Nuxt 4**：Nuxt 4.5.2 + @nuxt/ui 4.11 + @nuxtjs/i18n 10.6 + Tailwind 4.3 + vue-tsc；应用代码迁到 `web/app/`；`nuxt typecheck` 零错误、`nuxt build` 通过、全部页面 200、`/api` 代理正常。
-- **接口端到端**：家庭隔离与角色（跨家庭 403、非 owner 403）、邀请链接注册即入家庭、位置树拖拽 move + 闭环校验、同一物品多 SN 分布不同位置、SN / 条码重复校验、仪表盘统计、统一搜索、CSV（UTF-8 BOM、含 SN@位置）、扫码优先级、模板建物品、通知器 9 种、校验错误结构。测试数据已清理。
-- **后端**：`nest build` 通过；注册 / 登录 / me 正常，重复注册 409、错误密码与伪造 token 401、参数校验 400；`MAX_UPLOAD_SIZE=1kb` 时 2KB 请求体返回 413；三种日志格式与 `LOG_ACCESS=false` 均生效。
-- **启动即迁移**：空 sqlite 库启动 → 自动建库建表并直接注册成功；二次启动输出 `No pending migrations to apply`；`AUTO_MIGRATE=false` 时跳过。
-- **迁移压缩**：单 `init` 迁移在全新 sqlite 库上 `migrate deploy` 成功、`migrate status` 为 up to date；`migrate diff --from-migrations --to-schema-datamodel` 输出 `No difference detected`。
-- **Docker**：镜像构建成功，单容器同时起前后端，`0.0.0.0:3000` 可访问、`/api` 代理通、后端连上 dev MySQL（`db:true`）；`docker build --check` 无告警。
-- **CI**：kaniko 流水线为单 job、容器内执行、无 artifacts；加速域名与镜像路径已按环境配置（尚未在真实 GitLab runner 上跑过）。
+- **Nuxt 4**: Nuxt 4.5.2 + @nuxt/ui 4.11 + @nuxtjs/i18n 10.6 + Tailwind 4.3 + vue-tsc; application code moved into `web/app/`; `nuxt typecheck` reports zero errors, `nuxt build` passes, every page returns 200 and the `/api` proxy works.
+- **API end to end**: household isolation and roles (cross-household 403, non-owner 403), invite links that join on registration, location-tree moves with cycle validation, one item with SNs in different locations, duplicate SN / barcode rejection, dashboard stats, unified search, CSV (UTF-8 BOM, SN@location, no thumbnail column), scan priority, create-from-template, 9 notifier types, validation error shape. Test data was cleaned up afterwards.
+- **Backend**: `nest build` passes; register / login / me work, duplicate registration 409, wrong password and forged token 401, validation 400; with `MAX_UPLOAD_SIZE=1kb` a 2KB body returns 413; all three log formats and `LOG_ACCESS=false` behave as expected.
+- **Migrate on boot**: starting against an empty SQLite database creates the file and tables and registration succeeds immediately; a second start prints `No pending migrations to apply`; `AUTO_MIGRATE=false` skips it.
+- **Squashed migrations**: the single `init` migration deploys successfully on a fresh SQLite database, `migrate status` is up to date, and `migrate diff --from-migrations --to-schema-datamodel` prints `No difference detected`.
+- **Docker**: the image builds; one container serves both apps with `0.0.0.0:3000` reachable, the `/api` proxy working and the backend connected to the dev MySQL (`db:true`); `docker build --check` reports no warnings.
+- **CI**: the kaniko pipeline is a single job that runs in-container with no artifacts; mirrors and image paths are configured for this environment (not yet exercised on a real GitLab runner).

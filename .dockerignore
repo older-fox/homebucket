@@ -13,4 +13,4 @@
 **/*.db
 **/*.db-journal
 server/prisma/*/data
-README.md
+README*.md
