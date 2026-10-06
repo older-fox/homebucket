@@ -124,6 +124,8 @@
     "contents": "Locations and items here",
     "directItems": "Items here",
     "subLocations": "Sub-locations",
+    "showMoreChildren": "Show {count} more",
+    "collapseChildren": "Collapse",
     "itemCount": "{count} items",
     "childCount": "{count} sub-locations",
     "emptyTree": "No locations yet — create one from the top right",

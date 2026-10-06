@@ -49,7 +49,7 @@
             <span class="hb-muted hb-num">{{ children.length }}</span>
           </h3>
           <ul v-if="mobile" class="hb-list">
-            <li v-for="child in children" :key="child.id" class="hb-list-row hb-tap" @click="openChild(child.id)">
+            <li v-for="child in visibleChildren" :key="child.id" class="hb-list-row hb-tap" @click="openChild(child.id)">
               <span class="hb-icon-tile small"><UIcon name="i-lucide-folder" /></span>
               <span class="hb-list-main">
                 <span class="hb-list-title">{{ child.name }}</span>
@@ -62,12 +62,35 @@
             </li>
           </ul>
           <div v-else class="grid">
-            <button v-for="child in children" :key="child.id" type="button" class="mini hb-tap" @click="openChild(child.id)">
+            <button
+              v-for="child in visibleChildren"
+              :key="child.id"
+              type="button"
+              class="mini hb-tap"
+              @click="openChild(child.id)"
+            >
               <UIcon name="i-lucide-folder" />
               <span class="mini-name">{{ child.name }}</span>
               <span class="mini-count hb-num">{{ child.itemCount }}</span>
             </button>
           </div>
+
+          <!-- 子位置过多：先折叠，点按钮才全展开 -->
+          <UButton
+            v-if="children.length > SUB_LIMIT"
+            color="neutral"
+            variant="soft"
+            size="sm"
+            class="hb-tap more"
+            @click="showAllChildren = !showAllChildren"
+          >
+            <UIcon :name="showAllChildren ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" />
+            <span>{{
+              showAllChildren
+                ? t('location.collapseChildren')
+                : t('location.showMoreChildren', { count: children.length - SUB_LIMIT })
+            }}</span>
+          </UButton>
         </section>
 
         <!-- 物品 -->
@@ -220,7 +243,18 @@ const unitPage = ref(1);
 
 const pageSize = computed(() => (props.mobile ? 12 : 20));
 const crumb = computed(() => data.value?.location.breadcrumb?.map((row) => row.name).join(' / ') ?? '');
-const children = computed(() => (data.value?.locations ?? []).filter((row) => row.id !== props.id));
+/** 子位置超过这个数量就折叠，避免明细面板被它占满 */
+const SUB_LIMIT = 6;
+
+const showAllChildren = ref(false);
+
+/** 只显示直接下级：contents 返回的是本位置+所有子孙，孙级不在子位置区重复列出 */
+const children = computed(() =>
+  (data.value?.locations ?? []).filter((row) => row.parentId === props.id),
+);
+const visibleChildren = computed(() =>
+  showAllChildren.value ? children.value : children.value.slice(0, SUB_LIMIT),
+);
 
 const pagedItems = computed(() => {
   const rows = data.value?.items ?? [];
@@ -256,7 +290,10 @@ function openChild(id: number) {
 
 watch(
   () => props.id,
-  () => void load(),
+  () => {
+    showAllChildren.value = false;
+    void load();
+  },
 );
 onMounted(() => void load());
 
@@ -384,6 +421,10 @@ h3.hb-section-title {
 .mini-count {
   color: var(--hb-muted);
   font-size: var(--hb-fs-xs);
+}
+
+.more {
+  margin-top: 8px;
 }
 
 /* 高度随内容撑开，交给 .detail-body 滚动；

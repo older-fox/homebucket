@@ -124,6 +124,8 @@
     "contents": "包含的位置与物品",
     "directItems": "本层物品",
     "subLocations": "子位置",
+    "showMoreChildren": "展开其余 {count} 个",
+    "collapseChildren": "收起",
     "itemCount": "{count} 件物品",
     "childCount": "{count} 个子位置",
     "emptyTree": "还没有位置，点击右上角新建",

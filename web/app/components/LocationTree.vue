@@ -46,7 +46,7 @@
         </div>
 
         <!-- 层级默认按展开状态显示；拖拽时只展开"悬停停留"的那个节点（Windows 文件拖放逻辑） -->
-        <div v-show="isExpanded(node.id)" class="children">
+        <div v-show="isExpanded(node.id)" class="children" :class="{ 'no-guide': !node.children.length }">
           <LocationTree
             :nodes="node.children"
             :parent-id="node.id"
@@ -319,6 +319,11 @@ function nodeMenu(node: TreeNode) {
   margin-left: 18px;
   border-left: 1px solid var(--hb-border);
   padding-left: 6px;
+}
+
+/* 子节点全被移走后容器还在（要留作拖拽落点），但不能再画这条引导线 */
+.children.no-guide {
+  border-left-color: transparent;
 }
 
 @media (pointer: coarse) {
