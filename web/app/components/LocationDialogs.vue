@@ -128,9 +128,10 @@ async function openEdit(id: number) {
       name: location.name,
       description: location.description ?? '',
       parentId: location.parentId ?? undefined,
-      imageIds: [],
+      imageIds: location.imageId ? [location.imageId] : [],
     });
-    initialImage.value = location.imageUrl ? [] : [];
+    initialImage.value =
+      location.imageId && location.imageUrl ? [{ id: location.imageId, url: location.imageUrl }] : [];
   } catch (error) {
     toast.add({ title: (error as { message?: string }).message ?? t('errors.unknown'), color: 'error' });
     return;

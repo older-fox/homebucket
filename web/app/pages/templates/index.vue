@@ -155,6 +155,7 @@ interface Template {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  imageId: number | null;
   quantity: number;
   price: number;
   model: string | null;
@@ -254,9 +255,10 @@ function openEdit(template: Template) {
     barcode: template.barcode ?? '',
     defaultLocationId: template.defaultLocationId,
     tagIds: template.tags.map((tag) => tag.id),
-    imageIds: [],
+    imageIds: template.imageId ? [template.imageId] : [],
   });
-  initialImage.value = template.imageUrl ? [] : [];
+  initialImage.value =
+    template.imageId && template.imageUrl ? [{ id: template.imageId, url: template.imageUrl }] : [];
   formOpen.value = true;
 }
 

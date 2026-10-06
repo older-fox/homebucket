@@ -113,10 +113,23 @@ export class LocationsService {
     return roots;
   }
 
+  /** 单个位置详情：编辑弹窗靠它回填名称 / 描述 / 父位置 / 图片 */
   async detail(familyId: number, id: number) {
-    const location = await this.mustExist(familyId, id);
+    const location = await this.prisma.location.findFirst({
+      where: { id, familyId },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        parentId: true,
+        imageId: true,
+        image: { select: { key: true, url: true } },
+      },
+    });
+    if (!location) throw new NotFoundException({ code: 'location.notFound', message: '位置不存在' });
+
     const breadcrumb = await this.breadcrumb(familyId, id);
-    return { ...location, breadcrumb };
+    return { ...location, imageUrl: mediaUrl(location.image), breadcrumb };
   }
 
   /** 当前位置 + 所有子孙位置里的位置与物品 */
