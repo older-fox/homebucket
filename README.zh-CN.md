@@ -200,6 +200,7 @@ npm run dev               # http://<本机IP>:3000
 | --- | --- | --- |
 | `JWT_SECRET` | — | 登录凭证签名密钥（正式环境务必改） |
 | `JWT_EXPIRES_IN` | `7d` | 凭证有效期 |
+| `ALLOW_REGISTRATION` | `true` | 是否开放注册；为 `false` 时拒绝所有注册请求（含凭邀请链接注册），已有账号照常登录，前端注册入口会自动隐藏 |
 
 ### 前端 Nuxt
 

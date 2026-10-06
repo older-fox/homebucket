@@ -1,8 +1,9 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { FamiliesService } from '../families/families.service';
+import { env } from '../config/env';
 import type { AuthUser } from './jwt-auth.guard';
 import type { LoginDto, RegisterDto } from './dto/auth.dto';
 
@@ -17,6 +18,11 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
+    // 注册总开关：关闭后任何人（含凭邀请链接）都不能创建账号
+    if (!env.allowRegistration) {
+      throw new ForbiddenException({ code: 'auth.registrationDisabled', message: '当前实例未开放注册' });
+    }
+
     const username = dto.username.trim();
     const email = dto.email?.trim().toLowerCase() || null;
 

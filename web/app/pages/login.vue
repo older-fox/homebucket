@@ -39,7 +39,8 @@
       </UButton>
     </form>
 
-    <p class="switch">
+    <!-- 实例关闭注册时不给入口 -->
+    <p v-if="allowRegistration" class="switch">
       {{ t('auth.noAccount') }}
       <NuxtLink :to="registerLink">{{ t('auth.goRegister') }}</NuxtLink>
     </p>
@@ -52,6 +53,9 @@ definePageMeta({ layout: 'auth' });
 const { t } = useI18n();
 const { login } = useAuth();
 const route = useRoute();
+const config = useSiteConfig();
+
+const allowRegistration = computed(() => config.value.allowRegistration);
 
 const form = reactive({ username: '', password: '' });
 const loading = ref(false);

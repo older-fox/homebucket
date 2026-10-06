@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
+import { env } from './config/env';
 
 @Controller()
 export class AppController {
@@ -12,6 +13,12 @@ export class AppController {
       env: process.env.NODE_ENV ?? 'development',
       db: process.env.DB_PROVIDER ?? 'mysql',
     };
+  }
+
+  /** 前端可见的站点级开关（无需登录），目前只有是否开放注册 */
+  @Get('config')
+  config() {
+    return { allowRegistration: env.allowRegistration };
   }
 
   @Get('health')

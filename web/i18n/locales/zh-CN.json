@@ -73,7 +73,9 @@
     "inviteAccept": "接受邀请",
     "inviteJoined": "已加入家庭",
     "inviteInvalid": "邀请链接无效或已失效",
-    "memberCount": "{count} 位成员"
+    "memberCount": "{count} 位成员",
+    "registrationDisabled": "本实例未开放注册",
+    "registrationDisabledHint": "请联系管理员为你创建账号"
   },
   "validation": {
     "failed": "请求参数不合法",
@@ -360,6 +362,7 @@
     "auth.invalidCredentials": "用户名或密码错误",
     "auth.missingToken": "缺少登录凭证",
     "auth.invalidToken": "登录凭证无效或已过期",
+    "auth.registrationDisabled": "当前实例未开放注册",
     "family.accessDenied": "无权访问该家庭的数据",
     "family.adminOnly": "只有管理员可以操作",
     "family.ownerOnly": "只有家庭所有者可以操作",

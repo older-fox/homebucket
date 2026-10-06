@@ -2,61 +2,72 @@
   <div>
     <h2 class="title">{{ t('auth.registerTitle') }}</h2>
 
-    <p v-if="invite" class="invite">
-      <UIcon name="i-lucide-mail-plus" />
-      <span>{{ t('auth.inviteAccept') }}</span>
-    </p>
-    <p v-else class="subtitle hb-muted">{{ t('common.slogan') }}</p>
-
-    <form class="form" @submit.prevent="submit">
-      <UFormField :label="t('auth.username')" :hint="t('auth.usernameHint')">
-        <UInput
-          v-model="form.username"
-          autocomplete="username"
-          autocapitalize="none"
-          spellcheck="false"
-          size="xl"
-          icon="i-lucide-user-round"
-          class="w-full"
-          required
-        />
-      </UFormField>
-
-      <UFormField :label="t('auth.password')" :hint="t('auth.passwordHint')">
-        <UInput
-          v-model="form.password"
-          type="password"
-          autocomplete="new-password"
-          size="xl"
-          icon="i-lucide-lock"
-          class="w-full"
-          minlength="8"
-          required
-        />
-      </UFormField>
-
-      <!-- 邮箱选填：仅用于通知/找回，登录用用户名 -->
-      <UFormField :label="t('auth.email')" :hint="t('auth.emailOptional')">
-        <UInput
-          v-model="form.email"
-          type="email"
-          autocomplete="email"
-          inputmode="email"
-          size="xl"
-          icon="i-lucide-mail"
-          class="w-full"
-        />
-      </UFormField>
-
-      <p v-if="error" class="error">
-        <UIcon name="i-lucide-circle-alert" />
-        <span>{{ error }}</span>
+    <template v-if="allowRegistration">
+      <p v-if="invite" class="invite">
+        <UIcon name="i-lucide-mail-plus" />
+        <span>{{ t('auth.inviteAccept') }}</span>
       </p>
+      <p v-else class="subtitle hb-muted">{{ t('common.slogan') }}</p>
 
-      <UButton type="submit" size="xl" block class="hb-tap submit" :loading="loading">
-        {{ t('auth.register') }}
-      </UButton>
-    </form>
+      <form class="form" @submit.prevent="submit">
+        <UFormField :label="t('auth.username')" :hint="t('auth.usernameHint')">
+          <UInput
+            v-model="form.username"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            size="xl"
+            icon="i-lucide-user-round"
+            class="w-full"
+            required
+          />
+        </UFormField>
+
+        <UFormField :label="t('auth.password')" :hint="t('auth.passwordHint')">
+          <UInput
+            v-model="form.password"
+            type="password"
+            autocomplete="new-password"
+            size="xl"
+            icon="i-lucide-lock"
+            class="w-full"
+            minlength="8"
+            required
+          />
+        </UFormField>
+
+        <!-- 邮箱选填：仅用于通知/找回，登录用用户名 -->
+        <UFormField :label="t('auth.email')" :hint="t('auth.emailOptional')">
+          <UInput
+            v-model="form.email"
+            type="email"
+            autocomplete="email"
+            inputmode="email"
+            size="xl"
+            icon="i-lucide-mail"
+            class="w-full"
+          />
+        </UFormField>
+
+        <p v-if="error" class="error">
+          <UIcon name="i-lucide-circle-alert" />
+          <span>{{ error }}</span>
+        </p>
+
+        <UButton type="submit" size="xl" block class="hb-tap submit" :loading="loading">
+          {{ t('auth.register') }}
+        </UButton>
+      </form>
+    </template>
+
+    <!-- 实例关闭注册：只留提示 -->
+    <template v-else>
+      <p class="closed">
+        <UIcon name="i-lucide-user-round-x" />
+        <span>{{ t('auth.registrationDisabled') }}</span>
+      </p>
+      <p class="closed-hint hb-muted">{{ t('auth.registrationDisabledHint') }}</p>
+    </template>
 
     <p class="switch">
       {{ t('auth.hasAccount') }}
@@ -71,6 +82,9 @@ definePageMeta({ layout: 'auth' });
 const { t } = useI18n();
 const { register } = useAuth();
 const route = useRoute();
+const config = useSiteConfig();
+
+const allowRegistration = computed(() => config.value.allowRegistration);
 
 const form = reactive({ username: '', password: '', email: '' });
 const loading = ref(false);
@@ -132,6 +146,33 @@ async function submit() {
 .invite :deep(svg) {
   width: 16px;
   height: 16px;
+}
+
+/* 关闭注册时的提示块 */
+.closed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 20px 0 8px;
+  padding: 12px;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-sm);
+  background: var(--hb-surface-2);
+  font-size: var(--hb-fs-sm);
+  font-weight: var(--hb-fw-semibold);
+}
+
+.closed :deep(svg) {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.closed-hint {
+  margin: 0;
+  font-size: var(--hb-fs-sm);
+  text-align: center;
 }
 
 .form {

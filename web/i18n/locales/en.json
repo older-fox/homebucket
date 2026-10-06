@@ -73,7 +73,9 @@
     "inviteAccept": "Accept invitation",
     "inviteJoined": "You joined the family",
     "inviteInvalid": "This invitation is invalid or expired",
-    "memberCount": "{count} members"
+    "memberCount": "{count} members",
+    "registrationDisabled": "Registration is closed on this instance",
+    "registrationDisabledHint": "Ask an administrator to create an account for you"
   },
   "validation": {
     "failed": "Invalid request",
@@ -360,6 +362,7 @@
     "auth.invalidCredentials": "Wrong username or password",
     "auth.missingToken": "Missing credentials",
     "auth.invalidToken": "Your session is invalid or expired",
+    "auth.registrationDisabled": "Registration is closed on this instance",
     "family.accessDenied": "You cannot access this family's data",
     "family.adminOnly": "Only admins can do that",
     "family.ownerOnly": "Only the family owner can do that",

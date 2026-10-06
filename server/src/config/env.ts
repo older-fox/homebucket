@@ -92,6 +92,10 @@ export const env = {
   get jwtExpiresIn(): string {
     return process.env.JWT_EXPIRES_IN ?? '7d';
   },
+  /** 是否开放注册（POST /auth/register）；关闭后注册一律拒绝，包括凭邀请链接注册 */
+  get allowRegistration(): boolean {
+    return (process.env.ALLOW_REGISTRATION ?? 'true').toLowerCase() !== 'false';
+  },
   get dbProvider(): 'mysql' | 'sqlite' {
     return (process.env.DB_PROVIDER ?? 'mysql').toLowerCase() === 'sqlite' ? 'sqlite' : 'mysql';
   },

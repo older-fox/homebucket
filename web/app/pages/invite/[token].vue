@@ -10,8 +10,15 @@
         {{ t('auth.inviteAccept') }}
       </UButton>
 
+      <!-- 实例关闭注册：只能登录后再加入（新账号需管理员创建） -->
       <div v-else class="actions">
-        <UButton size="xl" block class="hb-tap" @click="navigateTo({ path: '/register', query: { invite: token } })">
+        <UButton
+          v-if="allowRegistration"
+          size="xl"
+          block
+          class="hb-tap"
+          @click="navigateTo({ path: '/register', query: { invite: token } })"
+        >
           {{ t('auth.register') }}
         </UButton>
         <UButton
@@ -50,6 +57,9 @@ const route = useRoute();
 const toast = useToast();
 const { user, fetchMe } = useAuth();
 const { refresh } = useFamily();
+const config = useSiteConfig();
+
+const allowRegistration = computed(() => config.value.allowRegistration);
 
 const token = String(route.params.token);
 const invite = ref<InviteInfo | null>(null);

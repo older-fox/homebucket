@@ -200,6 +200,7 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 | --- | --- | --- |
 | `JWT_SECRET` | — | Signing key for login tokens (change in production) |
 | `JWT_EXPIRES_IN` | `7d` | Token lifetime |
+| `ALLOW_REGISTRATION` | `true` | Whether sign-up is open; when `false` every registration request is rejected (including sign-up via an invite link), existing accounts keep working and the frontend hides its sign-up entries |
 
 ### Frontend (Nuxt)
 
