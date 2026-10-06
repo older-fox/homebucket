@@ -56,6 +56,14 @@ docker:image:
   interruptible: true
   variables:
     GIT_STRATEGY: clone
+  # 基础设施层的保险：从加速域名拉基础镜像偶发中断（见下方 stream error 说明）时，
+  # 整条 job 重跑一次即可恢复，配合下面的 kaniko 内建重试一起用。
+  # 注意 GitLab 的 retry 只在 when 省略时对"任何失败"生效（含脚本退出码非 0），
+  # 这里要的正是这个行为——因为镜像源的 stream error 表现为 kaniko 退出码 1。
+  # max 上限就是 2；如果不想让真正的构建错误也重试，把这段删掉即可，
+  # kaniko 自己的 --image-download-retry / --image-fs-extract-retry 仍然生效。
+  retry:
+    max: 2
   script:
     # 目标 tag：始终推 sha-<short>；默认分支额外推 latest；打 tag 额外推版本号；
     # 其它分支额外推分支名 slug，便于区分是哪个分支构建的
@@ -93,6 +101,14 @@ docker:image:
     # 拿不到缓存挂载的跨构建收益。本地 docker build / BuildKit 构建仍能吃到这个加速。
     # 若要让 CI 也吃到，需把上面的 kaniko 镜像换成仍在维护、已实现 cache mount 的分支
     # （例如 ghcr.io/osscontainertools/kaniko:debug 或 docker.io/martizih/kaniko:debug）。
+    # 重试开关：kaniko 从加速域名拉基础镜像时，层流会被对端中途掐断，报
+    #   error building stage: failed to get filesystem from image:
+    #   stream error: stream ID 3; INTERNAL_ERROR; received from peer
+    # （HTTP/2 流错误，manifest 能取到、层数据下载中断，属于镜像源侧瞬时故障；
+    #   实测同一镜像源拉小镜像正常，所以不是配置问题）。
+    # --image-fs-extract-retry 正对 "failed to get filesystem" 这一步，
+    # --image-download-retry 覆盖层下载本身，--push-retry 覆盖推送到项目仓库的偶发失败。
+    # 三个都设成 3，避免一次网络抖动就让整条流水线失败。
     - |
       /kaniko/executor \
         --context "$CI_PROJECT_DIR" \
@@ -103,6 +119,9 @@ docker:image:
         --cache-repo "$CI_REGISTRY_IMAGE/cache" \
         --snapshot-mode=redo \
         --use-new-run \
+        --image-download-retry=3 \
+        --image-fs-extract-retry=3 \
+        --push-retry=3 \
         $dests
   rules:
     - if: $CI_PIPELINE_SOURCE == "push"
