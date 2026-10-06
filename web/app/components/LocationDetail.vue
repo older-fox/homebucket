@@ -386,11 +386,12 @@ h3.hb-section-title {
   font-size: var(--hb-fs-xs);
 }
 
+/* 高度随内容撑开，交给 .detail-body 滚动；
+   百分比 max-height 会以父级 section 的自身内容高为基准，把列表压成一条 */
 .sub-pane {
   border: 1px solid var(--hb-border);
   border-radius: var(--hb-r-md);
   overflow: auto;
-  max-height: 42%;
 }
 
 .clickable {
