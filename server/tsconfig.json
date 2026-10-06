@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "module": "commonjs",
-    "declaration": true,
+    // 这是一个应用而不是库：没有消费方需要 .d.ts。
+    // 关掉它既省一次声明生成（更快），也避免为了"能被声明导出"而被迫到处 export 内部类型
+    // （否则会报 TS4053: ... cannot be named）。
+    "declaration": false,
     "removeComments": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
@@ -9,14 +12,35 @@
     "esModuleInterop": true,
     "target": "ES2023",
     "sourceMap": true,
+    // TypeScript 6 起 rootDir 必须显式声明（TS5011）：否则产物会变成 dist/src/main.js，
+    // 直接打断 start:prod 与 Dockerfile 里的 `node dist/main.js`。
+    "rootDir": "./src",
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
+    // 显式列出需要"全局注入"的 @types 包。
+    // 原因：TypeScript 6 下 @types 不再被隐式全部加载，导致 @types/multer 的
+    // `declare global { namespace Express { namespace Multer {...} } }` 不生效，
+    // `Express.Multer.File` 会报 TS2694。显式声明还有个附带好处：
+    // 不再把整棵 @types 树都拉进编译，类型检查更快、也更可复现。
+    // 只列真正提供全局类型的包；其余（class-validator / nodemailer / qrcode …）
+    // 都是通过 import 解析的，不在这里列。
+    "types": ["node", "express", "multer"],
     "strictNullChecks": true,
     "noImplicitAny": false,
+    // TypeScript 6 起下面这些严格检查默认生效，会让"声明字段由框架赋值"的写法报 TS2564：
+    // 实体（@Column 装饰）与 DTO（class-validator 装饰）都是先声明、由框架/ORM 赋值的，
+    // 不可能也不应该在构造函数里初始化，所以逐个显式关掉（保持改造前的宽松程度）。
+    "strictPropertyInitialization": false,
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false
+  },
+  // typeorm CLI（db:* 脚本）用 ts-node 加载 data-source.ts。
+  // 必须开 transpileOnly：ts-node 10.9.2 在 TypeScript 6 下做不了模块解析，
+  // 会把 `import { join } from 'node:path'` 报成 "Cannot find name 'node:path'"。
+  // 迁移脚本不需要类型检查，跳过即可（实体元数据照常生成）。
+  "ts-node": {
+    "transpileOnly": true
   }
 }

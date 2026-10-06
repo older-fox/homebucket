@@ -1,0 +1,126 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class Init1791302382566 implements MigrationInterface {
+    name = 'Init1791302382566'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`CREATE TABLE \`FamilyMember\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`userId\` int NOT NULL, \`role\` varchar(191) NOT NULL DEFAULT 'member', \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), INDEX \`IDX_1b3c9e23d4f499a9fe4501289f\` (\`userId\`), UNIQUE INDEX \`IDX_aee436d2ac963dff186c42d759\` (\`familyId\`, \`userId\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`FamilyInvite\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`token\` varchar(191) NOT NULL, \`createdById\` int NOT NULL, \`expiresAt\` datetime(3) NULL, \`revokedAt\` datetime(3) NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), INDEX \`IDX_519dec9542647a659360ff2f2c\` (\`familyId\`), UNIQUE INDEX \`IDX_7da099066a06fffee6db8185c9\` (\`token\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`User\` (\`id\` int NOT NULL AUTO_INCREMENT, \`email\` varchar(191) NULL, \`username\` varchar(191) NOT NULL, \`passwordHash\` varchar(191) NOT NULL, \`locale\` varchar(191) NOT NULL DEFAULT 'zh-CN', \`defaultFamilyId\` int NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), UNIQUE INDEX \`IDX_4a257d2c9837248d70640b3e36\` (\`email\`), UNIQUE INDEX \`IDX_29a05908a0fa0728526d283365\` (\`username\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`Tag\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`name\` varchar(191) NOT NULL, \`color\` varchar(191) NOT NULL DEFAULT '#14b8a6', \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), UNIQUE INDEX \`IDX_e8403bb80c5d063f00821dd69a\` (\`familyId\`, \`name\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`Template\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`name\` varchar(191) NOT NULL, \`description\` varchar(191) NULL, \`barcode\` varchar(191) NULL, \`imageId\` int NULL, \`quantity\` int NOT NULL DEFAULT '1', \`price\` decimal(12,2) NOT NULL DEFAULT '0.00', \`model\` varchar(191) NULL, \`manufacturer\` varchar(191) NULL, \`defaultLocationId\` int NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), INDEX \`IDX_898018e1360e27d31631b41c72\` (\`familyId\`, \`name\`), UNIQUE INDEX \`IDX_62fc4398ae3f752579d87ffa86\` (\`familyId\`, \`barcode\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`ItemUnit\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`itemId\` int NOT NULL, \`sn\` varchar(191) NULL, \`locationId\` int NULL, \`note\` varchar(191) NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), INDEX \`IDX_de9ec71525a37888d490eac861\` (\`familyId\`, \`locationId\`), INDEX \`IDX_aed10fc1e34c6f5759d85825cb\` (\`familyId\`, \`itemId\`), UNIQUE INDEX \`IDX_fa576fa527eaa6ecc22d5da041\` (\`familyId\`, \`sn\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`Item\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`name\` varchar(191) NOT NULL, \`description\` varchar(191) NULL, \`quantity\` int NOT NULL DEFAULT '1', \`price\` decimal(12,2) NOT NULL DEFAULT '0.00', \`model\` varchar(191) NULL, \`manufacturer\` varchar(191) NULL, \`barcode\` varchar(191) NULL, \`traceCode\` varchar(191) NULL, \`locationId\` int NULL, \`templateId\` int NULL, \`coverImageId\` int NULL, \`qrToken\` varchar(191) NOT NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), INDEX \`IDX_79fe46c7a551e4a4c609a4ef7f\` (\`familyId\`, \`name\`), INDEX \`IDX_6530c27b99a7fede3c9903b593\` (\`familyId\`, \`locationId\`), INDEX \`IDX_b0c71c2a39a41a06ba41d74ed9\` (\`familyId\`, \`createdAt\`), UNIQUE INDEX \`IDX_fa2fa84b9b741736ecccc5e987\` (\`qrToken\`), UNIQUE INDEX \`IDX_4a2611b009249881578eb0ba78\` (\`familyId\`, \`traceCode\`), UNIQUE INDEX \`IDX_b6b9f63f8845175370afb8d20b\` (\`familyId\`, \`barcode\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`Location\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`parentId\` int NULL, \`name\` varchar(191) NOT NULL, \`description\` varchar(191) NULL, \`imageId\` int NULL, \`sortIndex\` double NOT NULL DEFAULT '0', \`qrToken\` varchar(191) NOT NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), INDEX \`IDX_4e6a0c91139990e2062dc22fe9\` (\`familyId\`, \`parentId\`, \`sortIndex\`), UNIQUE INDEX \`IDX_7d7054854037776b44d977cb63\` (\`qrToken\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`NotificationChannel\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`type\` varchar(191) NOT NULL, \`name\` varchar(191) NOT NULL, \`enabled\` tinyint NOT NULL DEFAULT 1, \`config\` varchar(191) NOT NULL, \`events\` varchar(191) NOT NULL DEFAULT '', \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), INDEX \`IDX_54ba606cb5a5b1a562bc226758\` (\`familyId\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`Family\` (\`id\` int NOT NULL AUTO_INCREMENT, \`name\` varchar(191) NOT NULL, \`currency\` varchar(191) NOT NULL DEFAULT 'CNY', \`locale\` varchar(191) NOT NULL DEFAULT 'zh-CN', \`timeZone\` varchar(191) NOT NULL DEFAULT 'Asia/Shanghai', \`isPersonal\` tinyint NOT NULL DEFAULT 0, \`ownerId\` int NOT NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`Attachment\` (\`id\` int NOT NULL AUTO_INCREMENT, \`familyId\` int NOT NULL, \`key\` varchar(191) NOT NULL, \`url\` varchar(191) NULL, \`mime\` varchar(191) NOT NULL, \`size\` int NOT NULL, \`width\` int NULL, \`height\` int NULL, \`uploadedById\` int NULL, \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), INDEX \`IDX_62bd618c4503bd1dd3234235b4\` (\`familyId\`), PRIMARY KEY (\`id\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`_TemplateTags\` (\`B\` int NOT NULL, \`A\` int NOT NULL, INDEX \`IDX_c55b9b333e905e1f21439fe7b9\` (\`B\`), INDEX \`IDX_446ebfca56f5d9b9bce20a49f9\` (\`A\`), PRIMARY KEY (\`B\`, \`A\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`_ItemImages\` (\`B\` int NOT NULL, \`A\` int NOT NULL, INDEX \`IDX_14a6bcef5571dbbab26a7301d2\` (\`B\`), INDEX \`IDX_d90e9591251b2a43ed1b485bc1\` (\`A\`), PRIMARY KEY (\`B\`, \`A\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`CREATE TABLE \`_ItemTags\` (\`A\` int NOT NULL, \`B\` int NOT NULL, INDEX \`IDX_4ddff1474545a4a78386ee982a\` (\`A\`), INDEX \`IDX_c2cf303c77cec519f0bc677153\` (\`B\`), PRIMARY KEY (\`A\`, \`B\`)) ENGINE=InnoDB`);
+        await queryRunner.query(`ALTER TABLE \`FamilyMember\` ADD CONSTRAINT \`FK_2d069a8ccc6f8270c523f4af4e9\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`FamilyMember\` ADD CONSTRAINT \`FK_1b3c9e23d4f499a9fe4501289f2\` FOREIGN KEY (\`userId\`) REFERENCES \`User\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`FamilyInvite\` ADD CONSTRAINT \`FK_519dec9542647a659360ff2f2c6\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`FamilyInvite\` ADD CONSTRAINT \`FK_aee74c7c75da1a8dd9ad750ef8e\` FOREIGN KEY (\`createdById\`) REFERENCES \`User\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`User\` ADD CONSTRAINT \`FK_d9cacc0fba2ab08bfb9c9f53860\` FOREIGN KEY (\`defaultFamilyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Tag\` ADD CONSTRAINT \`FK_3b203bc9fd1bed686cc632a3866\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Template\` ADD CONSTRAINT \`FK_8e51d60558f7ecb3c7433365819\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Template\` ADD CONSTRAINT \`FK_2ed84f7bdfd7ba3a8155f2ac603\` FOREIGN KEY (\`imageId\`) REFERENCES \`Attachment\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Template\` ADD CONSTRAINT \`FK_443fa753f7ca346084fc73df2a6\` FOREIGN KEY (\`defaultLocationId\`) REFERENCES \`Location\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`ItemUnit\` ADD CONSTRAINT \`FK_2ef0429378cc894460ee853f71b\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`ItemUnit\` ADD CONSTRAINT \`FK_b3f0a0ad87d66cae87be0598190\` FOREIGN KEY (\`itemId\`) REFERENCES \`Item\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`ItemUnit\` ADD CONSTRAINT \`FK_092ddadb955739d43e33f3150ea\` FOREIGN KEY (\`locationId\`) REFERENCES \`Location\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Item\` ADD CONSTRAINT \`FK_2dee3a9141240f1c5706119e696\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Item\` ADD CONSTRAINT \`FK_81bfd2a470f786abd1babac44cc\` FOREIGN KEY (\`locationId\`) REFERENCES \`Location\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Item\` ADD CONSTRAINT \`FK_68d05b97558cbad80482e6444f6\` FOREIGN KEY (\`templateId\`) REFERENCES \`Template\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Item\` ADD CONSTRAINT \`FK_294bd17c7561a6319da5b69a619\` FOREIGN KEY (\`coverImageId\`) REFERENCES \`Attachment\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Location\` ADD CONSTRAINT \`FK_a75c9398272a7a71b738cc3a8c8\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Location\` ADD CONSTRAINT \`FK_65556fcd36c96e3f8385a7df6de\` FOREIGN KEY (\`parentId\`) REFERENCES \`Location\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Location\` ADD CONSTRAINT \`FK_05edf5d8bf6368727b022c3ef1e\` FOREIGN KEY (\`imageId\`) REFERENCES \`Attachment\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`NotificationChannel\` ADD CONSTRAINT \`FK_54ba606cb5a5b1a562bc2267580\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Family\` ADD CONSTRAINT \`FK_a2080d57eda956cac073803ac1f\` FOREIGN KEY (\`ownerId\`) REFERENCES \`User\`(\`id\`) ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Attachment\` ADD CONSTRAINT \`FK_62bd618c4503bd1dd3234235b41\` FOREIGN KEY (\`familyId\`) REFERENCES \`Family\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`Attachment\` ADD CONSTRAINT \`FK_27a322b7a8c9dc19335ed2f18ce\` FOREIGN KEY (\`uploadedById\`) REFERENCES \`User\`(\`id\`) ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE \`_TemplateTags\` ADD CONSTRAINT \`FK_c55b9b333e905e1f21439fe7b9c\` FOREIGN KEY (\`B\`) REFERENCES \`Template\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE \`_TemplateTags\` ADD CONSTRAINT \`FK_446ebfca56f5d9b9bce20a49f90\` FOREIGN KEY (\`A\`) REFERENCES \`Tag\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE \`_ItemImages\` ADD CONSTRAINT \`FK_14a6bcef5571dbbab26a7301d20\` FOREIGN KEY (\`B\`) REFERENCES \`Item\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE \`_ItemImages\` ADD CONSTRAINT \`FK_d90e9591251b2a43ed1b485bc1b\` FOREIGN KEY (\`A\`) REFERENCES \`Attachment\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE \`_ItemTags\` ADD CONSTRAINT \`FK_4ddff1474545a4a78386ee982a7\` FOREIGN KEY (\`A\`) REFERENCES \`Item\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE \`_ItemTags\` ADD CONSTRAINT \`FK_c2cf303c77cec519f0bc677153c\` FOREIGN KEY (\`B\`) REFERENCES \`Tag\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE \`_ItemTags\` DROP FOREIGN KEY \`FK_c2cf303c77cec519f0bc677153c\``);
+        await queryRunner.query(`ALTER TABLE \`_ItemTags\` DROP FOREIGN KEY \`FK_4ddff1474545a4a78386ee982a7\``);
+        await queryRunner.query(`ALTER TABLE \`_ItemImages\` DROP FOREIGN KEY \`FK_d90e9591251b2a43ed1b485bc1b\``);
+        await queryRunner.query(`ALTER TABLE \`_ItemImages\` DROP FOREIGN KEY \`FK_14a6bcef5571dbbab26a7301d20\``);
+        await queryRunner.query(`ALTER TABLE \`_TemplateTags\` DROP FOREIGN KEY \`FK_446ebfca56f5d9b9bce20a49f90\``);
+        await queryRunner.query(`ALTER TABLE \`_TemplateTags\` DROP FOREIGN KEY \`FK_c55b9b333e905e1f21439fe7b9c\``);
+        await queryRunner.query(`ALTER TABLE \`Attachment\` DROP FOREIGN KEY \`FK_27a322b7a8c9dc19335ed2f18ce\``);
+        await queryRunner.query(`ALTER TABLE \`Attachment\` DROP FOREIGN KEY \`FK_62bd618c4503bd1dd3234235b41\``);
+        await queryRunner.query(`ALTER TABLE \`Family\` DROP FOREIGN KEY \`FK_a2080d57eda956cac073803ac1f\``);
+        await queryRunner.query(`ALTER TABLE \`NotificationChannel\` DROP FOREIGN KEY \`FK_54ba606cb5a5b1a562bc2267580\``);
+        await queryRunner.query(`ALTER TABLE \`Location\` DROP FOREIGN KEY \`FK_05edf5d8bf6368727b022c3ef1e\``);
+        await queryRunner.query(`ALTER TABLE \`Location\` DROP FOREIGN KEY \`FK_65556fcd36c96e3f8385a7df6de\``);
+        await queryRunner.query(`ALTER TABLE \`Location\` DROP FOREIGN KEY \`FK_a75c9398272a7a71b738cc3a8c8\``);
+        await queryRunner.query(`ALTER TABLE \`Item\` DROP FOREIGN KEY \`FK_294bd17c7561a6319da5b69a619\``);
+        await queryRunner.query(`ALTER TABLE \`Item\` DROP FOREIGN KEY \`FK_68d05b97558cbad80482e6444f6\``);
+        await queryRunner.query(`ALTER TABLE \`Item\` DROP FOREIGN KEY \`FK_81bfd2a470f786abd1babac44cc\``);
+        await queryRunner.query(`ALTER TABLE \`Item\` DROP FOREIGN KEY \`FK_2dee3a9141240f1c5706119e696\``);
+        await queryRunner.query(`ALTER TABLE \`ItemUnit\` DROP FOREIGN KEY \`FK_092ddadb955739d43e33f3150ea\``);
+        await queryRunner.query(`ALTER TABLE \`ItemUnit\` DROP FOREIGN KEY \`FK_b3f0a0ad87d66cae87be0598190\``);
+        await queryRunner.query(`ALTER TABLE \`ItemUnit\` DROP FOREIGN KEY \`FK_2ef0429378cc894460ee853f71b\``);
+        await queryRunner.query(`ALTER TABLE \`Template\` DROP FOREIGN KEY \`FK_443fa753f7ca346084fc73df2a6\``);
+        await queryRunner.query(`ALTER TABLE \`Template\` DROP FOREIGN KEY \`FK_2ed84f7bdfd7ba3a8155f2ac603\``);
+        await queryRunner.query(`ALTER TABLE \`Template\` DROP FOREIGN KEY \`FK_8e51d60558f7ecb3c7433365819\``);
+        await queryRunner.query(`ALTER TABLE \`Tag\` DROP FOREIGN KEY \`FK_3b203bc9fd1bed686cc632a3866\``);
+        await queryRunner.query(`ALTER TABLE \`User\` DROP FOREIGN KEY \`FK_d9cacc0fba2ab08bfb9c9f53860\``);
+        await queryRunner.query(`ALTER TABLE \`FamilyInvite\` DROP FOREIGN KEY \`FK_aee74c7c75da1a8dd9ad750ef8e\``);
+        await queryRunner.query(`ALTER TABLE \`FamilyInvite\` DROP FOREIGN KEY \`FK_519dec9542647a659360ff2f2c6\``);
+        await queryRunner.query(`ALTER TABLE \`FamilyMember\` DROP FOREIGN KEY \`FK_1b3c9e23d4f499a9fe4501289f2\``);
+        await queryRunner.query(`ALTER TABLE \`FamilyMember\` DROP FOREIGN KEY \`FK_2d069a8ccc6f8270c523f4af4e9\``);
+        await queryRunner.query(`DROP INDEX \`IDX_c2cf303c77cec519f0bc677153\` ON \`_ItemTags\``);
+        await queryRunner.query(`DROP INDEX \`IDX_4ddff1474545a4a78386ee982a\` ON \`_ItemTags\``);
+        await queryRunner.query(`DROP TABLE \`_ItemTags\``);
+        await queryRunner.query(`DROP INDEX \`IDX_d90e9591251b2a43ed1b485bc1\` ON \`_ItemImages\``);
+        await queryRunner.query(`DROP INDEX \`IDX_14a6bcef5571dbbab26a7301d2\` ON \`_ItemImages\``);
+        await queryRunner.query(`DROP TABLE \`_ItemImages\``);
+        await queryRunner.query(`DROP INDEX \`IDX_446ebfca56f5d9b9bce20a49f9\` ON \`_TemplateTags\``);
+        await queryRunner.query(`DROP INDEX \`IDX_c55b9b333e905e1f21439fe7b9\` ON \`_TemplateTags\``);
+        await queryRunner.query(`DROP TABLE \`_TemplateTags\``);
+        await queryRunner.query(`DROP INDEX \`IDX_62bd618c4503bd1dd3234235b4\` ON \`Attachment\``);
+        await queryRunner.query(`DROP TABLE \`Attachment\``);
+        await queryRunner.query(`DROP TABLE \`Family\``);
+        await queryRunner.query(`DROP INDEX \`IDX_54ba606cb5a5b1a562bc226758\` ON \`NotificationChannel\``);
+        await queryRunner.query(`DROP TABLE \`NotificationChannel\``);
+        await queryRunner.query(`DROP INDEX \`IDX_7d7054854037776b44d977cb63\` ON \`Location\``);
+        await queryRunner.query(`DROP INDEX \`IDX_4e6a0c91139990e2062dc22fe9\` ON \`Location\``);
+        await queryRunner.query(`DROP TABLE \`Location\``);
+        await queryRunner.query(`DROP INDEX \`IDX_b6b9f63f8845175370afb8d20b\` ON \`Item\``);
+        await queryRunner.query(`DROP INDEX \`IDX_4a2611b009249881578eb0ba78\` ON \`Item\``);
+        await queryRunner.query(`DROP INDEX \`IDX_fa2fa84b9b741736ecccc5e987\` ON \`Item\``);
+        await queryRunner.query(`DROP INDEX \`IDX_b0c71c2a39a41a06ba41d74ed9\` ON \`Item\``);
+        await queryRunner.query(`DROP INDEX \`IDX_6530c27b99a7fede3c9903b593\` ON \`Item\``);
+        await queryRunner.query(`DROP INDEX \`IDX_79fe46c7a551e4a4c609a4ef7f\` ON \`Item\``);
+        await queryRunner.query(`DROP TABLE \`Item\``);
+        await queryRunner.query(`DROP INDEX \`IDX_fa576fa527eaa6ecc22d5da041\` ON \`ItemUnit\``);
+        await queryRunner.query(`DROP INDEX \`IDX_aed10fc1e34c6f5759d85825cb\` ON \`ItemUnit\``);
+        await queryRunner.query(`DROP INDEX \`IDX_de9ec71525a37888d490eac861\` ON \`ItemUnit\``);
+        await queryRunner.query(`DROP TABLE \`ItemUnit\``);
+        await queryRunner.query(`DROP INDEX \`IDX_62fc4398ae3f752579d87ffa86\` ON \`Template\``);
+        await queryRunner.query(`DROP INDEX \`IDX_898018e1360e27d31631b41c72\` ON \`Template\``);
+        await queryRunner.query(`DROP TABLE \`Template\``);
+        await queryRunner.query(`DROP INDEX \`IDX_e8403bb80c5d063f00821dd69a\` ON \`Tag\``);
+        await queryRunner.query(`DROP TABLE \`Tag\``);
+        await queryRunner.query(`DROP INDEX \`IDX_29a05908a0fa0728526d283365\` ON \`User\``);
+        await queryRunner.query(`DROP INDEX \`IDX_4a257d2c9837248d70640b3e36\` ON \`User\``);
+        await queryRunner.query(`DROP TABLE \`User\``);
+        await queryRunner.query(`DROP INDEX \`IDX_7da099066a06fffee6db8185c9\` ON \`FamilyInvite\``);
+        await queryRunner.query(`DROP INDEX \`IDX_519dec9542647a659360ff2f2c\` ON \`FamilyInvite\``);
+        await queryRunner.query(`DROP TABLE \`FamilyInvite\``);
+        await queryRunner.query(`DROP INDEX \`IDX_aee436d2ac963dff186c42d759\` ON \`FamilyMember\``);
+        await queryRunner.query(`DROP INDEX \`IDX_1b3c9e23d4f499a9fe4501289f\` ON \`FamilyMember\``);
+        await queryRunner.query(`DROP TABLE \`FamilyMember\``);
+    }
+
+}

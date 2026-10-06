@@ -10,8 +10,13 @@
 # 加速域名（都可通过 CI/CD Variables 覆盖）：
 #   NODE_IMAGE     基础镜像，默认走 docker.1ms.run（Docker Hub 加速）
 #   NPM_REGISTRY   npm 源，默认走 npmmirror
-#   APT_MIRROR     Debian apt 源，默认走清华（容器内 apt-get install openssl 提速）
 #   kaniko 镜像本身在 gcr.io，用 gcr.m.daocloud.io 加速（ghcr.io 对应 ghcr.m.daocloud.io）
+#
+# 已经不需要的构建变量（Prisma → TypeORM 迁移后删掉）：
+#   DB_PROVIDER   数据库驱动改为运行期由环境变量 DB_PROVIDER 决定：
+#                 mysql2 / better-sqlite3 都已是生产依赖，同一个镜像两种库都能跑
+#   APT_MIRROR    镜像里不再 apt-get install openssl（那层只为 Prisma 查询引擎存在），
+#                 没有 apt 操作就不需要 Debian 加速源
 #
 # 触发：推送任意分支 / 打 tag 都会自动构建并推送镜像；也可在页面 / API 手动触发。
 
@@ -19,15 +24,11 @@ stages:
   - image
 
 variables:
-  # 基础镜像：Docker Hub 官方仓库经加速域名拉取
-  # 若该路径 404，可去掉 library/ 前缀试试：docker.1ms.run/node:22-bookworm-slim
-  NODE_IMAGE: docker.1ms.run/library/node:22-bookworm-slim
+  # 基础镜像：Node 24 LTS；Docker Hub 官方仓库经加速域名拉取
+  # 若该路径 404，可去掉 library/ 前缀试试：docker.1ms.run/node:24-bookworm-slim
+  NODE_IMAGE: docker.1ms.run/library/node:24-bookworm-slim
   # npm 加速源；留空则用官方 registry.npmjs.org
   NPM_REGISTRY: https://registry.npmmirror.com
-  # Debian apt 加速源（装 openssl 用）；留空则用镜像自带源。用 http（slim 镜像无 ca-certificates）
-  APT_MIRROR: http://mirrors.tuna.tsinghua.edu.cn
-  # 镜像内使用的 Prisma schema：mysql（默认）| sqlite
-  DB_PROVIDER: mysql
 
 workflow:
   rules:
@@ -46,7 +47,7 @@ docker:image:
   # 整个 job 在容器内执行，无需 docker daemon / dind。
   # kaniko 官方镜像只在 gcr.io：gcr.io/kaniko-project/executor:debug
   #   · 加速域名 → gcr.m.daocloud.io/kaniko-project/executor:debug（当前用法）
-  #   · 注意不要用 docker.m.daocloud.io（那是 Docker Hub 加速，没有这个仓库，会报“不在白名单”）
+  #   · 注意不要用 docker.m.daocloud.io（那是 Docker Hub 加速，没有这个仓库，会报"不在白名单"）
   #   · runner 若能直连 gcr.io，也可改回官方地址
   # debug 变体自带 shell，脚本里的 heredoc / mkdir 依赖它
   image:
@@ -74,17 +75,34 @@ docker:image:
       cat > /kaniko/.docker/config.json <<EOF
       {"auths":{"$CI_REGISTRY":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"}}}
       EOF
-    # 在容器内构建并推送（无需 daemon）
+    # 在容器内构建并推送（无需 daemon）。
+    #
+    # 加速参数（都已在当前 kaniko 镜像的 --help 里确认存在，不是猜的）：
+    #   --snapshot-mode=redo  快照只比对 mtime/size/mode/uid/gid，不再逐文件读内容。
+    #                         本项目 node_modules 文件数极多，官方称最多可省约 50% 快照时间。
+    #   --use-new-run         RUN 阶段不再做全盘快照，改用 marker 文件 + 遍历 mtime 找变更，
+    #                         官方称总构建时间可降约 75%。代价是极端情况下可能漏文件，
+    #                         本镜像的 RUN 都是 npm ci / tsc 编译这类整体产物，可以接受。
+    #                         ⚠ 它会改变层哈希：这个参数生效后的第一次构建必然整包缓存 miss。
+    #   （--compressed-caching=false 故意没开：官方语义是"不压缩缓存层"来换更低内存，
+    #     会让构建更慢，是大构建 OOM 时的救急开关而不是加速项；真遇到 OOM 再加。）
+    #
+    # 注意 Dockerfile 里 npm ci 用了 BuildKit 的 --mount=type=cache：
+    # 实测当前 kaniko（gcr.io/kaniko-project/executor，Google 仓库 2025 年已归档，
+    # 停在 v1.24.0 一代）会解析但**忽略**该挂载 —— 构建不会失败，只是 npm 缓存会落进层里、
+    # 拿不到缓存挂载的跨构建收益。本地 docker build / BuildKit 构建仍能吃到这个加速。
+    # 若要让 CI 也吃到，需把上面的 kaniko 镜像换成仍在维护、已实现 cache mount 的分支
+    # （例如 ghcr.io/osscontainertools/kaniko:debug 或 docker.io/martizih/kaniko:debug）。
     - |
       /kaniko/executor \
         --context "$CI_PROJECT_DIR" \
         --dockerfile "$CI_PROJECT_DIR/Dockerfile" \
         --build-arg NODE_IMAGE="$NODE_IMAGE" \
         --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
-        --build-arg APT_MIRROR="$APT_MIRROR" \
-        --build-arg DB_PROVIDER="$DB_PROVIDER" \
         --cache=true \
         --cache-repo "$CI_REGISTRY_IMAGE/cache" \
+        --snapshot-mode=redo \
+        --use-new-run \
         $dests
   rules:
     - if: $CI_PIPELINE_SOURCE == "push"

@@ -16,7 +16,7 @@ If you're coming from HomeBox, these are the differences worth knowing first:
 - **Optional barcode data collection**: a built-in client for a "barcode → product info" service, so scanning a new barcode can auto-fill name / manufacturer / model.
 - **i18n out of the box**: Chinese (primary) and English (secondary); translations are plain JSON files that the community can submit new languages to.
 - **Single-container deployment**: one image runs both frontend and backend, with the frontend reaching the API through a built-in proxy — same origin, so there is no CORS to configure.
-- **Two databases, one model**: MySQL and SQLite ("MySQL light") are generated as two schemas from a single `models.prisma`.
+- **Two databases, one model**: MySQL and SQLite ("MySQL light") share one set of hand-written TypeORM entities — same tables, same behaviour; only the driver differs.
 
 Once you own enough things, "where did I put this?" becomes a recurring question. Homebucket answers it with a **location tree + item ledger**: every item records where it is, how many there are and what it's worth — and each serial number (SN / barcode) of an item can point at its own location.
 
@@ -40,18 +40,20 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 - **Migrate on boot**: an empty database creates its tables on first start and seeds an admin from `DEFAULT_ADMIN_*`.
 - **i18n**: Chinese primary, English secondary; translation files are standalone and community-submittable. The backend only returns machine-readable `code`s.
 - **Real mobile support**: bottom tab bar with a scan hub, drill-down navigation for locations, swipe actions, in-page scrolling layouts — not just a re-flowed desktop page.
-- **Two database backends**: MySQL (default) and SQLite ("MySQL light"), from one shared model.
+- **Two database backends**: MySQL (default) and SQLite ("MySQL light"), from one shared set of TypeORM entities.
 
 ## Tech stack
 
 | Layer | Choice |
 | --- | --- |
-| Backend | NestJS 11 + Prisma 6.19 (Express 5) |
-| Frontend | Nuxt 4 (Vue 3.5) + Nuxt UI v4 + Tailwind v4, SSR |
-| Database | MySQL (default) / SQLite ("MySQL light", file-based) |
+| Backend | NestJS 12.1 + TypeORM 1.1 (`@nestjs/typeorm` 12) on Express 5 |
+| Frontend | Nuxt 4.6 (Vue 3.5) + Nuxt UI v4 + Tailwind v4, SSR |
+| Database | MySQL (default, `mysql2`) / SQLite ("MySQL light", `better-sqlite3`) |
 | Deployment | Single Docker container (multi-stage build); GitLab CI builds and pushes the image with kaniko inside the container |
 
 **Not a monorepo**: `server/` and `web/` are two fully independent npm packages, each with its own `package.json` and `node_modules`. The repository root only holds environment files, the Dockerfile, CI and docs.
+
+**Runtime & versions**: Node **24** LTS (NestJS 12 and Nuxt 4.6 require `^22.22.3 || ^24.15.0`). NestJS 12's packages are ESM-only, but the backend still runs as CommonJS via Node's `require(esm)` support. `typescript` is pinned to `~6.0.3`: TypeScript 7 ships only the `tsc` binary and no programmatic compiler API, which the Nest CLI requires (`nest build` refuses it outright), so 6.0.3 is the newest usable version. TS 6 also needs an explicit `"rootDir": "./src"` in `tsconfig.json` (without it the output becomes `dist/src/main.js`) and an explicit `"types": ["node", "express", "multer"]` array (TS 6 no longer loads all `@types` implicitly, so e.g. `@types/multer`'s global `Express.Multer` augmentation would not apply).
 
 ## Directory structure
 
@@ -62,14 +64,9 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 ├── docker-entrypoint.sh
 ├── .dockerignore
 ├── .gitlab-ci.yml           # kaniko image pipeline (build in-container → push to the project registry)
-├── server/                  # NestJS + Prisma
-│   ├── prisma/
-│   │   ├── src/models.prisma        # single source of truth for models (shared by both providers)
-│   │   ├── mysql/{schema.prisma,migrations/}   # generated; migrations contain a single init
-│   │   └── sqlite/{schema.prisma,migrations/}  # generated; migrations contain a single init
+├── server/                  # NestJS + TypeORM
 │   ├── scripts/
-│   │   ├── build-schemas.mjs        # generates both schemas from the single source
-│   │   ├── prisma.mjs               # Prisma CLI wrapper (picks provider + rebuilds schemas)
+│   │   ├── db-baseline.mjs          # register an existing (Prisma-era) database as "Init already applied"
 │   │   └── seed.mjs                 # demo data
 │   └── src/
 │       ├── main.ts  app.module.ts
@@ -77,7 +74,8 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 │       ├── config/bootstrap-admin.ts# creates the admin on first boot of an empty DB
 │       ├── common/                  # family-context guard, param decorators, validation normalization
 │       ├── logger/                  # app logger + nginx-style access log
-│       ├── prisma/                  # PrismaService + auto-migrate
+│       ├── entities/                # 11 entity classes (single source of truth) + index.ts + transformers
+│       ├── database/                # data-source / DatabaseModule / auto-migrate / migrations/{mysql,sqlite}
 │       ├── auth/                    # register / login / me (username + password, JWT)
 │       ├── families/                # families, members, invite links
 │       ├── locations/               # location tree (moves decided server-side)
@@ -87,8 +85,9 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 │       ├── uploads/                 # uploads (local / S3 abstraction)
 │       ├── collection/              # barcode data-collection client
 │       ├── notifiers/               # notifiers (SMTP / Telegram / DingTalk …)
+│       │   └── channels/            # one file per channel (smtp / telegram / dingtalk …)
 │       ├── dashboard/  search/  scan/
-│       └── ...
+│       └── ...                      # every domain is <domain>.module.ts + .controller.ts + .service.ts (+ dto.ts)
 └── web/                     # Nuxt 4 + Nuxt UI v4 + Tailwind v4
     ├── nuxt.config.ts               # listen address, /api proxy, i18n, icons
     ├── i18n/locales/{zh-CN,en}.json # translation files (single source, community-submittable)
@@ -120,9 +119,9 @@ cp .env.example .env      # at minimum set DATABASE_URL (or switch to sqlite)
 # 2) backend
 cd server
 npm install
-npm run prisma:generate   # generate the Prisma Client for DB_PROVIDER
-npm run prisma:deploy     # apply migrations (an empty DB runs the single init migration)
+npm run db:run            # apply migrations (an empty DB gets all tables)
 npm run start:dev         # http://localhost:3001/api
+                          # (AUTO_MIGRATE=true also applies migrations at boot, so db:run is optional)
 
 # 3) frontend (in another terminal)
 cd web
@@ -132,7 +131,7 @@ npm run dev               # http://<your-lan-ip>:3000
 
 Endpoints: `GET /api` (info), `GET /api/health` (health check), `POST /api/auth/register` (username + password, email optional), `POST /api/auth/login` (**username** + password), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
 
-Want to see it populated right away? `cd server && npm run seed` (see "Demo data" below).
+Want to see it populated right away? `cd server && npm run build && npm run seed` (see "Demo data" below).
 
 ## Configuration
 
@@ -144,10 +143,9 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 | --- | --- | --- |
 | `NODE_ENV` | `development` | Runtime environment |
 | `DB_PROVIDER` | `mysql` | `mysql` or `sqlite` ("MySQL light", no database server needed) |
-| `DATABASE_URL` | — | `mysql://user:pass@host:3306/db`; **do not quote it** (see the note below) |
-| `SHADOW_DATABASE_URL` | commented out | Dev only: shadow database for `prisma migrate dev` on MySQL |
-| `AUTO_MIGRATE` | `true` | Run `prisma migrate deploy` on process start (an empty DB gets its tables created) |
-| `DB_FILE_PATH` | `file:./data/homebucket.db` | SQLite file path (in Docker use `file:/data/homebucket.db`) |
+| `DATABASE_URL` | — | `mysql://user:pass@host:3306/db`; **do not quote it** (see the note below). Individual fields can be overridden with `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` |
+| `AUTO_MIGRATE` | `true` | Run the TypeORM migrator in-process on start (an empty DB gets its tables created) |
+| `DB_FILE_PATH` | `./data/homebucket.db` | SQLite file path, resolved from `server/`; a legacy `file:` prefix is stripped (in Docker use `/data/homebucket.db`) |
 
 ### Backend (Nest)
 
@@ -218,35 +216,73 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 
 ## Database & migrations
 
-### One model source, two schemas
+### One entity set, two providers
 
-Prisma's `provider` cannot come from an environment variable, so models are maintained only in `server/prisma/src/models.prisma`; `scripts/build-schemas.mjs` prepends a different provider header to generate:
+The data model lives in hand-written entity classes in `server/src/entities/*.entity.ts` (**11 entities**, listed in `server/src/entities/index.ts`); that one set drives both MySQL and SQLite. Data access goes through injected `Repository<T>` (`@InjectRepository`): the global `DatabaseModule` exports `TypeOrmModule.forFeature(entities)`, so business modules inject repositories without repeating a `forFeature` list.
 
-- `server/prisma/mysql/schema.prisma` (`DATABASE_URL`)
-- `server/prisma/sqlite/schema.prisma` (`DB_FILE_PATH`)
+Three cross-provider conventions are documented at the top of `entities/index.ts` and worth keeping in mind when editing entities:
 
-`npm run prisma:generate` / `prisma:migrate` / `prisma:deploy` all rebuild both schemas first, so there is nothing to sync by hand.
+| Convention | Why |
+| --- | --- |
+| Explicit `@Entity('TableName')` | TypeORM's default naming strategy is snake_case (`ItemUnit` → `item_unit`); the existing tables are camel-case, so a default name means "no such table" |
+| No `precision` option on `@CreateDateColumn` / `@UpdateDateColumn` | `{ precision: 3 }` makes TypeORM emit `datetime(3) ... DEFAULT CURRENT_TIMESTAMP(6)`, which MySQL rejects ("Invalid default value"; the same column then fails with "Invalid ON UPDATE clause"). Bare columns let TypeORM generate valid DDL per provider and still set the values in JS on insert/update |
+| `decimalNumber` transformer on money columns | `mysql2` returns `DECIMAL` as a string while SQLite returns a number; the transformer makes `price` a JS `number` on both providers |
 
-### Migrations squashed into a single init
+Enum / Json / BigInt are avoided entirely (SQLite does not support them): choices are stored as strings (documented in comments) and JSON is stored as text.
 
-Each provider's `migrations/` directory now holds **one** migration, `20261006000000_init` (plus `migration_lock.toml`) — a full snapshot of the current schema. The production database was empty, so there was no history worth keeping.
+The SQLite driver is **`better-sqlite3`** (pinned to `13.x`) — `type: 'sqlite'` no longer exists in TypeORM 1.x. Its prebuilt binaries ship inside the npm tarball, so installing needs no compiler and no GitHub access; the image installs with `--ignore-scripts`, which also avoids the implicit `node-gyp rebuild` that the package would otherwise trigger.
 
-- **Fresh / production database**: just `npm run prisma:deploy` (or start the backend) — all tables are created at once.
-- **A dev database that ran the old migrations**: the tables exist, but `_prisma_migrations` still lists the 6 old entries, so `deploy` fails with "table already exists". Pick one:
-  1. Reset (wipes data, then re-seed with `npm run seed`):
-     `npx prisma migrate reset --schema prisma/mysql/schema.prisma --skip-seed`
-  2. Reconcile the records only, keeping data: run `DELETE FROM _prisma_migrations;` on the database, then
-     `npx prisma migrate resolve --applied 20261006000000_init --schema prisma/mysql/schema.prisma`
+### Migrations: two directories, four files
+
+MySQL and SQLite DDL differ too much (auto-increment, type names, ALTER syntax, time defaults) to share one set of migrations, so the entities stay shared while each provider gets its own migration directory:
+
+| Provider | Directory | Migrations |
+| --- | --- | --- |
+| MySQL | `server/src/database/migrations/mysql/` | `Init`, `NormalizeFromPrisma`, `RenamePrismaFkIndexes` |
+| SQLite | `server/src/database/migrations/sqlite/` | `Init` |
+
+npm scripts (replacing the old `prisma:*` ones):
+
+| Script | What it does |
+| --- | --- |
+| `npm run db:generate` | `migration:generate` from the entities. Needs a target path: `npm run db:generate -- src/database/migrations/mysql/AddThing` |
+| `npm run db:run` | `migration:run` |
+| `npm run db:revert` | `migration:revert` (one migration at a time — see the warning below) |
+| `npm run db:show` | `migration:show` (`migrations` table contents) |
+| `npm run db:baseline` | register an existing Prisma-era database (see the upgrade section below) |
+| `npm run seed` | demo/seed data |
+
+`db:generate` / `db:run` / `db:revert` / `db:show` use `typeorm-ts-node-commonjs` with `-d src/database/data-source.ts`, so they run against `src/`. `db:baseline` and `seed` run against the compiled `dist/` output, so they require `npm run build` first — that is what lets them also run inside the production-dependency-only runtime image.
+
+Migrations are provider-specific, so pass a path inside the right directory (`src/database/migrations/mysql/...` or `.../sqlite/...`) when generating.
+
+> **⚠️ `db:revert` is not "undo `db:baseline`".** `db:baseline` only inserts a bookkeeping row — TypeORM does not know that `Init` never actually ran, so a revert will execute `Init.down()`, which expects TypeORM-named foreign keys. On a baselined Prisma-era database this fails with `Can't DROP ... FK_<hash>; check that column/key exists`; because `Init.down()` drops foreign keys first and the `DROP TABLE` statements come last, it aborts *before* anything is dropped, so tables and data survive. To get back to the Prisma-era schema, restore from a dump instead. On a **fresh install** (where `Init` really did run) reverting `Init` is a genuine teardown and *will* drop the tables, which is the normal, expected behaviour.
+
+### Upgrading an existing Prisma-era database
+
+This is the one operational step to be careful about. The tables already exist (they were created by Prisma) but there is no TypeORM `migrations` table, so a plain `migration:run` would try to create the tables again and fail.
+
+1. `npm run db:baseline` — creates the TypeORM `migrations` table and records `Init` as already applied **without running any DDL** (the tables are already there). It refuses to run against a database with no application tables (that is a fresh install — just run the migrations) and it deliberately leaves the increment migrations pending.
+2. `npm run db:run` — applies `NormalizeFromPrisma` and `RenamePrismaFkIndexes`.
+
+The two increment migrations only affect Prisma-era databases:
+
+- **`NormalizeFromPrisma`** skips itself on a fresh install (it probes for the Prisma foreign-key naming) and otherwise narrows `decimal(65,30)` → `decimal(12,2)` on `Item.price` / `Template.price`, widens `datetime(3)` → `datetime(6)` on `createdAt` / `updatedAt`, and adds a database default plus `ON UPDATE` to the `updatedAt` columns.
+- **`RenamePrismaFkIndexes`** renames the 13 Prisma-named foreign-key backing indexes (`<Table>_<col>_fkey`) to TypeORM's `FK_<hash>` names, so future `migration:generate` runs are drift-free. MySQL cannot drop them (the foreign key needs them), which is why they are renamed rather than dropped.
+
+Prisma's `_prisma_migrations` table is deliberately **left in place**: nothing reads it any more, and it can be dropped manually once you are confident. The upgrade path (baseline, then the two increments) preserves existing data and leaves the schema in the same shape as a fresh install.
+
+For a **fresh install** there is nothing special to do: an empty database gets all its tables from `Init` on first boot or via `npm run db:run`.
 
 ### Migrate on boot
 
-On startup (`AUTO_MIGRATE=true`, the default) the backend runs `prisma migrate deploy` first:
+On startup (`AUTO_MIGRATE=true`, the default) the backend runs TypeORM's migrator **in-process** (`src/database/auto-migrate.ts`) before Nest is created — it no longer shells out to the Prisma CLI, which is what allows the runtime image to ship production dependencies only:
 
 - an empty database gets its tables created, so "table does not exist" startup failures are gone;
-- it is idempotent — already-applied migrations are not re-run;
+- it is idempotent — already-applied migrations are not re-run (a second start logs `[migrate] provider=… 没有待执行的迁移`);
 - failures only log a `[migrate]` error and do not block the process (`/health` reports `degraded`); a database that is unreachable also no longer aborts startup.
 
-To control it yourself: `AUTO_MIGRATE=false`, then `cd server && npm run prisma:deploy`.
+To control it yourself: `AUTO_MIGRATE=false`, then `cd server && npm run db:run`.
 
 On the **first boot of an empty database** an admin is also created from `DEFAULT_ADMIN_*` (disable with `AUTO_CREATE_ADMIN=false`); the credentials are printed to the log — change the password after logging in.
 
@@ -255,31 +291,31 @@ On the **first boot of an empty database** an admin is also created from `DEFAUL
 ```bash
 # .env
 DB_PROVIDER=sqlite
-DB_FILE_PATH="file:./data/homebucket.db"   # in a real .env, no quotes
+DB_FILE_PATH=./data/homebucket.db   # relative paths resolve from server/; a legacy "file:" prefix is stripped
 ```
 
-Then `npm run prisma:generate && npm run prisma:deploy`. The database file lands in `server/prisma/sqlite/data/` (gitignored).
+Then `npm run db:run` (or just start the backend). With the default path the database file lands in `server/data/homebucket.db` (gitignored); in Docker use `DB_FILE_PATH=/data/homebucket.db`.
 
 ## Docker (single container)
 
-Multi-stage build: `base → server-build → web-build → runtime`, with targeted `COPY` (no `COPY . .`); `.dockerignore` excludes `node_modules` / `dist` / `.output` / `.nuxt`. At runtime one container starts Nest (`:3001`) and Nuxt (`:3000`), with the frontend proxying to the backend.
+Multi-stage build: `base → server-build → server-prod-deps → web-build → runtime`, with targeted `COPY` (no `COPY . .`); `.dockerignore` excludes `node_modules` / `dist` / `.output` / `.nuxt`. At runtime one container starts Nest (`:3001`) and Nuxt (`:3000`), with the frontend proxying to the backend.
 
 ```bash
-docker build \
-  --build-arg DB_PROVIDER=mysql \
-  --build-arg NODE_IMAGE=docker.1ms.run/library/node:22-bookworm-slim \
+DOCKER_BUILDKIT=1 docker build \
+  --build-arg NODE_IMAGE=docker.1ms.run/library/node:24-bookworm-slim \
   --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
-  --build-arg APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn \
   -t homebucket .
 
 docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 homebucket
 ```
 
 - All container data lives under `/data` (SQLite file + uploaded images) and `VOLUME ["/data"]` is declared, so mounting a volume persists it. Usually only port 3000 needs to be exposed.
-- Migrations run automatically when the backend process starts.
-- The base image installs `openssl` (required by the Prisma query engine) before `prisma generate`. The apt source for that step defaults to the Tsinghua mirror (`APT_MIRROR`) purely to speed it up.
-- **devDependencies are deliberately not pruned at runtime**: the boot-time auto-migration needs the `prisma` CLI (`server/src/prisma/auto-migrate.ts` resolves `prisma/build/index.js`), and `--omit=dev` would make migrations silently skip. The frontend `.output` is self-contained, so `web/node_modules` is not shipped.
-- `NODE_IMAGE` / `NPM_REGISTRY` / `APT_MIRROR` are acceleration build args; you can omit them locally to use the official sources. `APT_MIRROR` must be `http://` — the slim image has no `ca-certificates`, so `https` makes `apt-get update` fail certificate verification.
+- Migrations run automatically when the backend process starts (TypeORM's migrator, in-process).
+- The base image is `node:24-bookworm-slim`. The old `openssl` apt layer is **gone** (it existed only for the Prisma query engine), and with it the `APT_MIRROR` build arg and the apt-source rewriting.
+- The `DB_PROVIDER` **build arg is gone**: the image is provider-agnostic because both `mysql2` and `better-sqlite3` are production dependencies and the driver is chosen at runtime by the `DB_PROVIDER` env var. There is no `prisma generate` build step any more either.
+- npm installs use BuildKit cache mounts (`# syntax=docker/dockerfile:1`, `RUN --mount=type=cache,target=/root/.npm`), so a BuildKit-enabled Docker is required; on older setups set `DOCKER_BUILDKIT=1` (or run a modern Docker).
+- The runtime stage copies a **production-dependencies-only** `node_modules`: a dedicated `server-prod-deps` stage runs `npm ci --omit=dev --ignore-scripts`. This is safe for `better-sqlite3` because its prebuilt binding is loaded directly from the package; `--ignore-scripts` also avoids the implicit `node-gyp rebuild` that would otherwise need a compiler in the slim image. The frontend `.output` is self-contained, so `web/node_modules` is not shipped.
+- `NODE_IMAGE` / `NPM_REGISTRY` are acceleration build args; you can omit them locally to use the official sources.
 
 ## CI (GitLab + kaniko)
 
@@ -295,12 +331,10 @@ Acceleration mirrors (override via CI/CD Variables):
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `NODE_IMAGE` | `docker.1ms.run/library/node:22-bookworm-slim` | Base image (Docker Hub acceleration) |
+| `NODE_IMAGE` | `docker.1ms.run/library/node:24-bookworm-slim` | Base image (Docker Hub acceleration) |
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | npm registry |
-| `APT_MIRROR` | `http://mirrors.tuna.tsinghua.edu.cn` | Debian apt mirror (speeds up the openssl install); must be `http://` |
-| `DB_PROVIDER` | `mysql` | Prisma schema baked into the image |
 
-The kaniko image lives on gcr.io and is pulled via `gcr.m.daocloud.io/kaniko-project/executor:debug` (`docker.m.daocloud.io` is the Docker Hub accelerator and does not have that repository — it fails with "not in the allowlist"). The first run creates `$CI_REGISTRY_IMAGE/cache` as a build cache; if your registry disallows sub-repositories, drop the `--cache=true --cache-repo ...` lines.
+The kaniko image lives on gcr.io and is pulled via `gcr.m.daocloud.io/kaniko-project/executor:debug` (`docker.m.daocloud.io` is the Docker Hub accelerator and does not have that repository — it fails with "not in the allowlist"). The build uses `--cache=true --cache-repo "$CI_REGISTRY_IMAGE/cache"` plus `--snapshot-mode=redo` and `--use-new-run` (faster snapshotting for the many files under `node_modules`); if your registry disallows sub-repositories, drop the `--cache` lines. Note that this kaniko version parses but ignores BuildKit's `--mount=type=cache`, so the npm cache mounts only pay off in a local BuildKit build.
 
 ## How CORS is handled
 
@@ -317,6 +351,7 @@ Once the frontend is exposed with `WEB_HOST=0.0.0.0`, browsers may reach it via 
 - Anything needing auth is loaded on the client (`onMounted` / `useAsyncData(..., { server: false })`); SSR only renders the shell, avoiding 401s when there is no cookie during SSR.
 - Unauthenticated visits are 302'd to the login page (the auth middleware runs on the server too).
 - `npm run typecheck` (`nuxt typecheck`, vue-tsc) currently reports zero errors.
+- Nuxt is on **4.6.0** and `vue-router` on `^5.3.1` (it was pinned at `^4.5.0` while Nuxt already required 5.x, so `node_modules` previously held two copies); `nuxt.config.ts` sets `sourcemap: { server: false }`, so the production build no longer emits server `.map` files. The `/api/**` proxy `routeRules` and the `icon` / `colorMode` / `i18n` configs are unchanged.
 
 ### Layout modes
 
@@ -419,7 +454,7 @@ To add a language: copy `web/i18n/locales/en.json` → rename → translate → 
 ## Demo data
 
 ```bash
-cd server && npm run seed
+cd server && npm run build && npm run seed   # seed runs against dist/, so build first
 ```
 
 This wipes and rebuilds only the demo accounts' data (other users are untouched) and produces a showcase-ready sample:
@@ -433,10 +468,10 @@ This wipes and rebuilds only the demo accounts' data (other users are untouched)
 
 ## Verified
 
-- **Nuxt 4**: Nuxt 4.5.2 + @nuxt/ui 4.11 + @nuxtjs/i18n 10.6 + Tailwind 4.3 + vue-tsc; application code moved into `web/app/`; `nuxt typecheck` reports zero errors, `nuxt build` passes, every page returns 200 and the `/api` proxy works.
+- **Nuxt 4.6**: Nuxt 4.6.0 + @nuxt/ui 4.11.3 + @nuxtjs/i18n 10.6.0 + Tailwind 4.3.3 + vue-router 5.3.1 + vue-tsc; application code lives in `web/app/`; `nuxt typecheck` reports zero errors, `nuxt build` passes and the `/api` proxy works.
 - **API end to end**: household isolation and roles (cross-household 403, non-owner 403), invite links that join on registration, location-tree moves with cycle validation, one item with SNs in different locations, duplicate SN / barcode rejection, dashboard stats, unified search, CSV (UTF-8 BOM, SN@location, no thumbnail column), scan priority, create-from-template, 9 notifier types, validation error shape. Test data was cleaned up afterwards.
 - **Backend**: `nest build` passes; register / login / me work, duplicate registration 409, wrong password and forged token 401, validation 400; with `MAX_UPLOAD_SIZE=1kb` a 2KB body returns 413; all three log formats and `LOG_ACCESS=false` behave as expected.
-- **Migrate on boot**: starting against an empty SQLite database creates the file and tables and registration succeeds immediately; a second start prints `No pending migrations to apply`; `AUTO_MIGRATE=false` skips it.
-- **Squashed migrations**: the single `init` migration deploys successfully on a fresh SQLite database, `migrate status` is up to date, and `migrate diff --from-migrations --to-schema-datamodel` prints `No difference detected`.
-- **Docker**: the image builds; one container serves both apps with `0.0.0.0:3000` reachable, the `/api` proxy working and the backend connected to the dev MySQL (`db:true`); `docker build --check` reports no warnings.
+- **Migrate on boot**: starting against an empty SQLite database creates the file and tables and registration succeeds immediately; a second start logs `[migrate] provider=sqlite 没有待执行的迁移`; `AUTO_MIGRATE=false` skips it.
+- **Prisma-era upgrade**: `db:baseline` records `Init` without touching any table and leaves the increment migrations pending, then `db:run` applies `NormalizeFromPrisma` + `RenamePrismaFkIndexes`; the path was rehearsed and then applied with zero data loss, and the resulting schema matches a fresh install.
+- **Docker**: the image builds with BuildKit; one container serves both apps with `0.0.0.0:3000` reachable, the `/api` proxy working and the backend connected to the dev MySQL (`db:true`); `docker build --check` reports no warnings.
 - **CI**: the kaniko pipeline is a single job that runs in-container with no artifacts; mirrors and image paths are configured for this environment (not yet exercised on a real GitLab runner).

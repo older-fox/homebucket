@@ -1,5 +1,9 @@
+# 构建上下文白名单式的排除：Dockerfile 只按需 COPY 具体路径，
+# 这里主要减少上下文体积（CI 里要传给 kaniko）并避免本地脏文件污染层缓存。
 **/.git
 **/.idea
+# 本地工具目录（编辑器/agent 产物），与镜像无关
+**/.codebuddy
 **/node_modules
 **/dist
 **/.nuxt
@@ -7,10 +11,16 @@
 **/.cache
 **/.temp
 **/*.log
+# TypeScript 增量编译缓存：与产物无关，但要 400KB 且每次构建都变，进上下文只会干扰层缓存
+**/tsconfig.tsbuildinfo
 .env
 .env.local
 .env.*.local
+# 开发机的 sqlite 库 / 上传文件 / 备份 dump，绝不能打进镜像
+server/data
 **/*.db
 **/*.db-journal
-server/prisma/*/data
+# better-sqlite3 开了 WAL，运行期还会生成 -wal / -shm 两个副文件
+**/*.db-wal
+**/*.db-shm
 README*.md

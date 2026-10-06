@@ -1,61 +1,63 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CollectionService } from '../collection/collection.module';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Like, Not, type FindOptionsWhere, type Repository } from 'typeorm';
+import { Attachment } from '../entities/attachment.entity';
+import { Item } from '../entities/item.entity';
+import { ItemUnit } from '../entities/item-unit.entity';
+import { Location } from '../entities/location.entity';
+import { Tag } from '../entities/tag.entity';
+import { CollectionService } from '../collection/collection.service';
 import { shortToken, traceCode } from '../common/id';
+import { mediaUrl } from '../common/media';
+import { normalizePaging } from '../common/pagination';
+import { countByForeignKey } from '../common/relation-count';
 import type { CreateItemDto, ItemUnitDto, QueryItemsDto, UpdateItemDto } from './dto';
-
-type AttachmentLike = { key: string; url: string | null } | null;
-
-/** 附件访问地址：local 模式没有 url，用后端静态路由拼 */
-const mediaUrl = (attachment: AttachmentLike) =>
-  attachment ? attachment.url || `/api/media/${attachment.key}` : null;
-
-const priceNumber = (value: unknown) => Number(value ?? 0);
 
 @Injectable()
 export class ItemsService {
   constructor(
-    private readonly prisma: PrismaService,
+    @InjectRepository(Item) private readonly items: Repository<Item>,
+    @InjectRepository(ItemUnit) private readonly units: Repository<ItemUnit>,
+    @InjectRepository(Location) private readonly locations: Repository<Location>,
+    @InjectRepository(Tag) private readonly tags: Repository<Tag>,
+    @InjectRepository(Attachment) private readonly attachments: Repository<Attachment>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly collection: CollectionService,
   ) {}
 
   async list(familyId: number, query: QueryItemsDto) {
-    const page = query.page ?? 1;
-    const pageSize = Math.min(query.pageSize ?? 50, 500);
-    const where = this.buildWhere(familyId, query);
+    const { page, pageSize, skip } = normalizePaging(query.page, query.pageSize);
 
-    const [rows, total] = await Promise.all([
-      this.prisma.item.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        select: {
-          id: true,
-          name: true,
-          quantity: true,
-          price: true,
-          model: true,
-          manufacturer: true,
-          barcode: true,
-          traceCode: true,
-          qrToken: true,
-          createdAt: true,
-          location: { select: { id: true, name: true } },
-          tags: { select: { id: true, name: true, color: true } },
-          _count: { select: { units: true } },
-        },
-      }),
-      this.prisma.item.count({ where }),
-    ]);
+    const [rows, total] = await this.items.findAndCount({
+      where: this.buildWhere(familyId, query),
+      order: { createdAt: 'DESC' },
+      skip,
+      take: pageSize,
+      // 旧接口用 select 只取关系的少数字段。TypeORM 的 relations 会加载整行，
+      // 因此下面显式映射返回值，保持响应结构不变（不多吐字段）
+      relations: { location: true, tags: true },
+    });
+
+    // 原先由 Prisma 的 `_count: { select: { units: true } }` 提供；TypeORM 1.x 删了
+    // loadRelationCountAndMap，这里用一次聚合查询替代（见 common/relation-count.ts）
+    const unitCounts = await countByForeignKey(this.units, 'itemId', rows.map((row) => row.id));
 
     return {
       // 库存列表不返回缩略图，只给结构化数据
       items: rows.map((row) => ({
-        ...row,
-        price: priceNumber(row.price),
-        unitCount: row._count.units,
-        _count: undefined,
+        id: row.id,
+        name: row.name,
+        quantity: row.quantity,
+        price: row.price,
+        model: row.model,
+        manufacturer: row.manufacturer,
+        barcode: row.barcode,
+        traceCode: row.traceCode,
+        qrToken: row.qrToken,
+        createdAt: row.createdAt,
+        location: row.location ? { id: row.location.id, name: row.location.name } : null,
+        tags: row.tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color })),
+        unitCount: unitCounts.get(row.id) ?? 0,
       })),
       total,
       page,
@@ -64,25 +66,47 @@ export class ItemsService {
   }
 
   async detail(familyId: number, id: number) {
-    const item = await this.prisma.item.findFirst({
+    const item = await this.items.findOne({
       where: { id, familyId },
-      include: {
-        location: { select: { id: true, name: true } },
-        template: { select: { id: true, name: true } },
+      relations: {
+        location: true,
+        template: true,
         tags: true,
         images: true,
         coverImage: true,
-        units: {
-          orderBy: { id: 'asc' },
-          include: { location: { select: { id: true, name: true } } },
-        },
+        units: { location: true },
       },
+      order: { units: { id: 'ASC' } },
     });
     if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });
 
     return {
-      ...item,
-      price: priceNumber(item.price),
+      id: item.id,
+      familyId: item.familyId,
+      name: item.name,
+      description: item.description,
+      quantity: item.quantity,
+      price: item.price,
+      model: item.model,
+      manufacturer: item.manufacturer,
+      barcode: item.barcode,
+      traceCode: item.traceCode,
+      qrToken: item.qrToken,
+      locationId: item.locationId,
+      templateId: item.templateId,
+      coverImageId: item.coverImageId,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      location: item.location ? { id: item.location.id, name: item.location.name } : null,
+      template: item.template ? { id: item.template.id, name: item.template.name } : null,
+      tags: item.tags,
+      units: item.units.map((unit) => ({
+        id: unit.id,
+        sn: unit.sn,
+        locationId: unit.locationId,
+        note: unit.note,
+        location: unit.location ? { id: unit.location.id, name: unit.location.name } : null,
+      })),
       coverImageUrl: mediaUrl(item.coverImage),
       images: item.images.map((image) => ({
         id: image.id,
@@ -97,35 +121,45 @@ export class ItemsService {
     await this.assertRelations(familyId, dto);
     await this.assertBarcodeAvailable(familyId, dto.barcode);
     await this.assertTraceCodeAvailable(familyId, dto.traceCode);
-    const item = await this.prisma.item.create({
-      data: {
+
+    // 主记录 + 序列号 + 多对多关系放同一个事务，避免中途失败留下半条数据
+    const created = await this.dataSource.transaction(async (manager) => {
+      const item = manager.create(Item, {
         familyId,
         name: dto.name,
-        description: dto.description,
+        description: dto.description ?? null,
         quantity: dto.quantity ?? 1,
         price: dto.price ?? 0,
-        model: dto.model,
-        manufacturer: dto.manufacturer,
+        model: dto.model ?? null,
+        manufacturer: dto.manufacturer ?? null,
         barcode: dto.barcode?.trim() || null,
         traceCode: dto.traceCode?.trim().toUpperCase() || null,
-        locationId: dto.locationId,
-        templateId: dto.templateId,
-        coverImageId: dto.coverImageId,
+        locationId: dto.locationId ?? null,
+        templateId: dto.templateId ?? null,
+        coverImageId: dto.coverImageId ?? null,
         qrToken: shortToken(),
-        tags: dto.tagIds?.length ? { connect: dto.tagIds.map((id) => ({ id })) } : undefined,
-        images: dto.imageIds?.length ? { connect: dto.imageIds.map((id) => ({ id })) } : undefined,
-        units: dto.units?.length
-          ? {
-              create: dto.units.map((unit) => ({
-                familyId,
-                sn: unit.sn,
-                locationId: unit.locationId,
-                note: unit.note,
-              })),
-            }
-          : undefined,
-      },
-      select: { id: true, name: true, qrToken: true },
+        tags: dto.tagIds?.length ? await manager.findBy(Tag, { id: In(dto.tagIds), familyId }) : [],
+        images: dto.imageIds?.length
+          ? await manager.findBy(Attachment, { id: In(dto.imageIds), familyId })
+          : [],
+      });
+      const saved = await manager.save(item);
+
+      if (dto.units?.length) {
+        await manager.save(
+          dto.units.map((unit) =>
+            manager.create(ItemUnit, {
+              familyId,
+              itemId: saved.id,
+              sn: unit.sn ?? null,
+              locationId: unit.locationId ?? null,
+              note: unit.note ?? null,
+            }),
+          ),
+        );
+      }
+
+      return saved;
     });
 
     // 把新条码信息回传给收集服务（开关控制，失败不影响主流程）
@@ -138,29 +172,35 @@ export class ItemsService {
       });
     }
 
-    return item;
+    return { id: created.id, name: created.name, qrToken: created.qrToken };
   }
 
   async update(familyId: number, id: number, dto: UpdateItemDto) {
-    await this.mustExist(familyId, id);
+    const item = await this.mustExist(familyId, id);
     await this.assertRelations(familyId, dto);
     await this.assertBarcodeAvailable(familyId, dto.barcode, id);
 
-    await this.prisma.item.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        description: dto.description,
-        quantity: dto.quantity,
-        price: dto.price,
-        model: dto.model,
-        manufacturer: dto.manufacturer,
-        barcode: dto.barcode === undefined ? undefined : dto.barcode.trim() || null,
-        locationId: dto.locationId,
-        coverImageId: dto.coverImageId,
-        tags: dto.tagIds ? { set: dto.tagIds.map((tagId) => ({ id: tagId })) } : undefined,
-        images: dto.imageIds ? { set: dto.imageIds.map((imageId) => ({ id: imageId })) } : undefined,
-      },
+    await this.dataSource.transaction(async (manager) => {
+      // 只覆盖 dto 里出现过的字段（Prisma 的 undefined = 不改，这里保持一致）
+      if (dto.name !== undefined) item.name = dto.name;
+      if (dto.description !== undefined) item.description = dto.description ?? null;
+      if (dto.quantity !== undefined) item.quantity = dto.quantity;
+      if (dto.price !== undefined) item.price = dto.price;
+      if (dto.model !== undefined) item.model = dto.model ?? null;
+      if (dto.manufacturer !== undefined) item.manufacturer = dto.manufacturer ?? null;
+      if (dto.barcode !== undefined) item.barcode = dto.barcode.trim() || null;
+      if (dto.locationId !== undefined) item.locationId = dto.locationId ?? null;
+      if (dto.coverImageId !== undefined) item.coverImageId = dto.coverImageId ?? null;
+      if (dto.tagIds !== undefined) {
+        item.tags = dto.tagIds.length ? await manager.findBy(Tag, { id: In(dto.tagIds), familyId }) : [];
+      }
+      if (dto.imageIds !== undefined) {
+        item.images = dto.imageIds.length
+          ? await manager.findBy(Attachment, { id: In(dto.imageIds), familyId })
+          : [];
+      }
+      // updatedAt 由 @UpdateDateColumn 自动维护
+      await manager.save(item);
     });
 
     if (dto.barcode) {
@@ -177,7 +217,7 @@ export class ItemsService {
 
   async remove(familyId: number, id: number) {
     await this.mustExist(familyId, id);
-    await this.prisma.item.delete({ where: { id } });
+    await this.items.delete({ id });
     return { ok: true };
   }
 
@@ -188,47 +228,41 @@ export class ItemsService {
     if (dto.locationId) await this.mustLocation(familyId, dto.locationId);
     if (dto.sn) await this.assertSnAvailable(familyId, dto.sn);
 
-    return this.prisma.itemUnit.create({
-      data: { familyId, itemId, sn: dto.sn, locationId: dto.locationId, note: dto.note },
-    });
+    return this.units.save(
+      this.units.create({
+        familyId,
+        itemId,
+        sn: dto.sn ?? null,
+        locationId: dto.locationId ?? null,
+        note: dto.note ?? null,
+      }),
+    );
   }
 
   async updateUnit(familyId: number, itemId: number, unitId: number, dto: ItemUnitDto) {
-    const unit = await this.prisma.itemUnit.findFirst({
-      where: { id: unitId, itemId, familyId },
-      select: { id: true },
-    });
-    if (!unit) throw new NotFoundException({ code: 'item.unitNotFound', message: '序列号记录不存在' });
+    const unit = await this.mustUnit(familyId, itemId, unitId);
     if (dto.locationId) await this.mustLocation(familyId, dto.locationId);
     if (dto.sn) await this.assertSnAvailable(familyId, dto.sn, unitId);
 
-    return this.prisma.itemUnit.update({
-      where: { id: unitId },
-      data: { sn: dto.sn, locationId: dto.locationId, note: dto.note },
-    });
+    if (dto.sn !== undefined) unit.sn = dto.sn ?? null;
+    if (dto.locationId !== undefined) unit.locationId = dto.locationId ?? null;
+    if (dto.note !== undefined) unit.note = dto.note ?? null;
+    return this.units.save(unit);
   }
 
   async removeUnit(familyId: number, itemId: number, unitId: number) {
-    const unit = await this.prisma.itemUnit.findFirst({
-      where: { id: unitId, itemId, familyId },
-      select: { id: true },
-    });
-    if (!unit) throw new NotFoundException({ code: 'item.unitNotFound', message: '序列号记录不存在' });
-    await this.prisma.itemUnit.delete({ where: { id: unitId } });
+    await this.mustUnit(familyId, itemId, unitId);
+    await this.units.delete({ id: unitId });
     return { ok: true };
   }
 
   // ---------- CSV 导出（不含缩略图） ----------
 
   async exportCsv(familyId: number, query: QueryItemsDto) {
-    const rows = await this.prisma.item.findMany({
+    const rows = await this.items.find({
       where: this.buildWhere(familyId, query),
-      orderBy: { createdAt: 'desc' },
-      include: {
-        location: { select: { name: true } },
-        tags: { select: { name: true } },
-        units: { include: { location: { select: { name: true } } }, orderBy: { id: 'asc' } },
-      },
+      relations: { location: true, tags: true, units: { location: true } },
+      order: { createdAt: 'DESC', units: { id: 'ASC' } },
     });
 
     const header = [
@@ -251,8 +285,8 @@ export class ItemsService {
       [
         row.name,
         String(row.quantity),
-        priceNumber(row.price).toFixed(2),
-        (priceNumber(row.price) * row.quantity).toFixed(2),
+        row.price.toFixed(2),
+        (row.price * row.quantity).toFixed(2),
         row.model ?? '',
         row.manufacturer ?? '',
         row.barcode ?? '',
@@ -275,39 +309,48 @@ export class ItemsService {
 
   // ---------- 内部工具 ----------
 
-  private buildWhere(familyId: number, query: QueryItemsDto) {
-    const where: Record<string, unknown> = { familyId };
+  /**
+   * 把 Prisma 的 where 翻译成 TypeORM 的 FindOptionsWhere。
+   *
+   * 两点要注意：
+   *   1. 顶层 AND + 一个 OR 组：用"where 数组"表达 OR，每个元素都带上同样的 AND 条件
+   *   2. **绝不能把 undefined 放进 where**：TypeORM 1.x 的 invalidWhereValuesBehavior
+   *      默认是 "throw"，where 里出现 null/undefined 会直接抛 TypeORMError（Prisma 会忽略）
+   */
+  private buildWhere(familyId: number, query: QueryItemsDto): FindOptionsWhere<Item>[] | FindOptionsWhere<Item> {
+    const base: FindOptionsWhere<Item> = { familyId };
 
-    if (query.locationId) where.locationId = query.locationId;
-    if (query.tagId) where.tags = { some: { id: query.tagId } };
-    if (query.sn) {
-      where.units = { some: { sn: { contains: query.sn } } };
-    }
-    if (query.q) {
-      const q = query.q;
-      where.OR = [
-        { name: { contains: q } },
-        { barcode: { contains: q } },
-        { traceCode: { contains: q } },
-        { model: { contains: q } },
-        { manufacturer: { contains: q } },
-        { description: { contains: q } },
-        { units: { some: { sn: { contains: q } } } },
-        { location: { name: { contains: q } } },
-        { tags: { some: { name: { contains: q } } } },
-      ];
-    }
+    if (query.locationId) base.locationId = query.locationId;
+    if (query.tagId) base.tags = { id: query.tagId };
+    if (query.sn) base.units = { sn: Like(`%${query.sn}%`) };
 
-    return where;
+    if (!query.q) return base;
+
+    // 关键字搜索：名称/条码/追溯码/型号/制造商/描述/序列号/位置名/标签名
+    const q = `%${query.q}%`;
+    return [
+      { ...base, name: Like(q) },
+      { ...base, barcode: Like(q) },
+      { ...base, traceCode: Like(q) },
+      { ...base, model: Like(q) },
+      { ...base, manufacturer: Like(q) },
+      { ...base, description: Like(q) },
+      { ...base, units: { sn: Like(q) } },
+      { ...base, location: { name: Like(q) } },
+      { ...base, tags: { name: Like(q) } },
+    ];
   }
 
-  private async mustExist(familyId: number, id: number) {
-    const item = await this.prisma.item.findFirst({
-      where: { id, familyId },
-      select: { id: true },
-    });
+  private async mustExist(familyId: number, id: number): Promise<Item> {
+    const item = await this.items.findOne({ where: { id, familyId } });
     if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });
     return item;
+  }
+
+  private async mustUnit(familyId: number, itemId: number, unitId: number): Promise<ItemUnit> {
+    const unit = await this.units.findOne({ where: { id: unitId, itemId, familyId } });
+    if (!unit) throw new NotFoundException({ code: 'item.unitNotFound', message: '序列号记录不存在' });
+    return unit;
   }
 
   /** 商品条码在同一个家庭内唯一 */
@@ -315,11 +358,11 @@ export class ItemsService {
     const code = barcode?.trim();
     if (!code) return;
 
-    const exists = await this.prisma.item.findFirst({
-      where: { familyId, barcode: code, id: exceptItemId ? { not: exceptItemId } : undefined },
-      select: { id: true },
-    });
-    if (exists) {
+    // 注意：排除自身的条件必须"只在有值时添加"，不能写成 id: undefined（会抛错）
+    const where: FindOptionsWhere<Item> = { familyId, barcode: code };
+    if (exceptItemId) where.id = Not(exceptItemId);
+
+    if (await this.items.exists({ where })) {
       throw new ConflictException({
         code: 'item.barcodeTaken',
         message: '该商品条码已被本家庭的其他物品使用',
@@ -334,11 +377,7 @@ export class ItemsService {
   async mintTraceCode(familyId: number): Promise<string> {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const candidate = traceCode();
-      const exists = await this.prisma.item.findFirst({
-        where: { familyId, traceCode: candidate },
-        select: { id: true },
-      });
-      if (!exists) return candidate;
+      if (!(await this.items.exists({ where: { familyId, traceCode: candidate } }))) return candidate;
     }
     throw new ConflictException({
       code: 'item.traceCodeFailed',
@@ -347,19 +386,14 @@ export class ItemsService {
   }
 
   /** 追溯码在同一个家庭内唯一 */
-  private async assertTraceCodeAvailable(
-    familyId: number,
-    value?: string,
-    exceptItemId?: number,
-  ) {
+  private async assertTraceCodeAvailable(familyId: number, value?: string, exceptItemId?: number) {
     const code = value?.trim().toUpperCase();
     if (!code) return;
 
-    const exists = await this.prisma.item.findFirst({
-      where: { familyId, traceCode: code, id: exceptItemId ? { not: exceptItemId } : undefined },
-      select: { id: true },
-    });
-    if (exists) {
+    const where: FindOptionsWhere<Item> = { familyId, traceCode: code };
+    if (exceptItemId) where.id = Not(exceptItemId);
+
+    if (await this.items.exists({ where })) {
       throw new ConflictException({
         code: 'item.traceCodeTaken',
         message: '该追溯码已被本家庭的其他物品使用',
@@ -368,19 +402,17 @@ export class ItemsService {
   }
 
   private async mustLocation(familyId: number, locationId: number) {
-    const location = await this.prisma.location.findFirst({
-      where: { id: locationId, familyId },
-      select: { id: true },
-    });
-    if (!location) throw new BadRequestException({ code: 'location.notFound', message: '位置不存在' });
+    const exists = await this.locations.exists({ where: { id: locationId, familyId } });
+    if (!exists) throw new BadRequestException({ code: 'location.notFound', message: '位置不存在' });
   }
 
   private async assertSnAvailable(familyId: number, sn: string, exceptUnitId?: number) {
-    const exists = await this.prisma.itemUnit.findFirst({
-      where: { familyId, sn, id: exceptUnitId ? { not: exceptUnitId } : undefined },
-      select: { id: true },
-    });
-    if (exists) throw new BadRequestException({ code: 'item.snTaken', message: '该序列号/条码已存在' });
+    const where: FindOptionsWhere<ItemUnit> = { familyId, sn };
+    if (exceptUnitId) where.id = Not(exceptUnitId);
+
+    if (await this.units.exists({ where })) {
+      throw new BadRequestException({ code: 'item.snTaken', message: '该序列号/条码已存在' });
+    }
   }
 
   private async assertRelations(
@@ -394,18 +426,16 @@ export class ItemsService {
     }
 
     if (dto.tagIds?.length) {
-      const count = await this.prisma.tag.count({ where: { familyId, id: { in: dto.tagIds } } });
+      const count = await this.tags.count({ where: { familyId, id: In(dto.tagIds) } });
       if (count !== dto.tagIds.length) {
         throw new BadRequestException({ code: 'tag.notFound', message: '标签不存在' });
       }
     }
 
-    const imageIds = [...(dto.imageIds ?? []), ...(dto.coverImageId ? [dto.coverImageId] : [])];
+    const imageIds = [...new Set([...(dto.imageIds ?? []), ...(dto.coverImageId ? [dto.coverImageId] : [])])];
     if (imageIds.length) {
-      const count = await this.prisma.attachment.count({
-        where: { familyId, id: { in: [...new Set(imageIds)] } },
-      });
-      if (count !== new Set(imageIds).size) {
+      const count = await this.attachments.count({ where: { familyId, id: In(imageIds) } });
+      if (count !== imageIds.length) {
         throw new BadRequestException({ code: 'upload.notFound', message: '图片不存在' });
       }
     }

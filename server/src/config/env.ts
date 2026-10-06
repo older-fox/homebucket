@@ -99,9 +99,50 @@ export const env = {
   get dbProvider(): 'mysql' | 'sqlite' {
     return (process.env.DB_PROVIDER ?? 'mysql').toLowerCase() === 'sqlite' ? 'sqlite' : 'mysql';
   },
-  /** 启动时是否自动执行 prisma migrate deploy（默认开） */
+  /** 启动时是否自动执行数据库迁移（默认开） */
   get autoMigrate(): boolean {
     return (process.env.AUTO_MIGRATE ?? 'true').toLowerCase() !== 'false';
+  },
+
+  // ---- 数据库连接 ----
+  /**
+   * MySQL 连接参数。仍然以 `DATABASE_URL` 为准（沿用 Prisma 时代的格式，
+   * 这样已有部署的 .env 不用改），格式：mysql://user:pass@host:3306/dbname。
+   * 另外允许用 DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME 单独覆盖。
+   */
+  get mysqlConnection(): {
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    database: string;
+  } {
+    const raw = (process.env.DATABASE_URL ?? '').trim();
+    let parsed: URL | null = null;
+    if (raw) {
+      try {
+        parsed = new URL(raw);
+      } catch {
+        console.warn('[env] DATABASE_URL 格式不合法，将只使用 DB_* 变量');
+      }
+    }
+    const database = process.env.DB_NAME?.trim() || parsed?.pathname.replace(/^\//, '') || '';
+    return {
+      host: process.env.DB_HOST?.trim() || parsed?.hostname || '127.0.0.1',
+      port: Number(process.env.DB_PORT ?? parsed?.port ?? 3306),
+      username: process.env.DB_USER?.trim() || (parsed ? decodeURIComponent(parsed.username) : ''),
+      password: process.env.DB_PASSWORD ?? (parsed ? decodeURIComponent(parsed.password) : ''),
+      database,
+    };
+  },
+  /**
+   * SQLite 数据库文件绝对路径。
+   * 兼容 Prisma 时代的 `file:./data/homebucket.db` 写法：剥掉 `file:` 前缀，
+   * 相对路径按 server/ 运行目录解析（与 DATA_DIR 的规则一致）。
+   */
+  get sqliteFile(): string {
+    const raw = (process.env.DB_FILE_PATH ?? './data/homebucket.db').trim();
+    return absolute(raw.replace(/^file:/i, ''));
   },
 
   // ---- 数据目录与文件存储 ----

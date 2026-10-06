@@ -1,11 +1,13 @@
 import { Controller, Get } from '@nestjs/common';
-import { PrismaService } from './prisma/prisma.service';
+import { DatabaseService } from './database/database.service';
 import { env } from './config/env';
 
+/** 站点级信息与健康检查（无业务逻辑，所以没有独立的 service） */
 @Controller()
 export class AppController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly database: DatabaseService) {}
 
+  /** 服务自述：前端启动时可以据此显示环境与数据库类型 */
   @Get()
   info() {
     return {
@@ -23,7 +25,7 @@ export class AppController {
 
   @Get('health')
   async health() {
-    const db = await this.prisma.ping();
+    const db = await this.database.ping();
     return { status: db ? 'ok' : 'degraded', db };
   }
 }

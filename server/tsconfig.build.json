@@ -1,4 +1,11 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "dist", "test"]
+  "exclude": ["node_modules", "dist", "test"],
+  // 生产构建产物：不生成 .d.ts 与 sourcemap。
+  // 这是一个应用而不是库，没有任何消费方需要类型声明；关掉它们能明显缩短构建时间并减小镜像体积。
+  // 注意：ts-node（typeorm CLI 的 db:* 脚本）读的是 tsconfig.json，因此不受这里影响。
+  "compilerOptions": {
+    "declaration": false,
+    "sourceMap": false
+  }
 }

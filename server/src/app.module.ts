@@ -9,7 +9,7 @@ import { AppLogger } from './logger/app.logger';
 import { AccessLogMiddleware } from './logger/access-log.middleware';
 import { LocationsModule } from './locations/locations.module';
 import { NotifiersModule } from './notifiers/notifiers.module';
-import { PrismaModule } from './prisma/prisma.module';
+import { DatabaseModule } from './database/database.module';
 import { ScanModule } from './scan/scan.module';
 import { SearchModule } from './search/search.module';
 import { TagsModule } from './tags/tags.module';
@@ -19,7 +19,7 @@ import { env } from './config/env';
 
 @Module({
   imports: [
-    PrismaModule,
+    DatabaseModule,
     CollectionModule,
     AuthModule,
     FamiliesModule,

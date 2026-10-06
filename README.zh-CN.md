@@ -16,7 +16,7 @@
 - **条码数据收集（可关）**：内置一个可选的「条码 → 商品信息」收集客户端，扫到新条码可自动补全名称/厂商/型号。
 - **开箱即用的多语言**：主中文、次英文，翻译是独立 JSON，社区可直接提交新语言。
 - **单容器部署**：一个镜像同时跑前后端，前端经内置代理访问后端，天然同源无跨域。
-- **两种数据库共用一个模型**：MySQL 与 SQLite（“MySQL light”）由同一份 `models.prisma` 生成两套 schema。
+- **两种数据库共用一个模型**：MySQL 与 SQLite（“MySQL light”）共用同一套手写 TypeORM 实体——表结构与行为一致，只有驱动不同。
 
 家里东西一多，就会反复出现「这东西到底收哪了」。Homebucket 用**位置树 + 物品台账**回答这个问题：每件物品记录它所在的位置、数量、价值，还可以为同一件物品的多个序列号（SN / 条码）分别指定位置——同型号的两台落地风扇，一台在储藏室、一台在卧室，也能各归各位。
 
@@ -40,18 +40,20 @@
 - **启动即迁移**：空库首次启动自动建表，并按 `DEFAULT_ADMIN_*` 创建管理员。
 - **多语言**：主中文、次英文，翻译文件独立可社区提交；后端只回机器可读 `code`。
 - **真移动端适配**：底部 Tab + 扫码中枢、位置钻取式导航、左滑快捷操作、页面内滚动布局，不是简单重排版。
-- **两种数据库**：MySQL（默认）与 SQLite（“MySQL light”），同一份模型生成两套 schema。
+- **两种数据库**：MySQL（默认）与 SQLite（“MySQL light”），共用同一套 TypeORM 实体。
 
 ## 技术栈
 
 | 层 | 选型 |
 | --- | --- |
-| 后端 | NestJS 11 + Prisma 6.19（Express 5） |
-| 前端 | Nuxt 4（Vue 3.5）+ Nuxt UI v4 + Tailwind v4，SSR |
-| 数据库 | MySQL（默认）/ SQLite（“MySQL light”，文件型） |
+| 后端 | NestJS 12.1 + TypeORM 1.1（`@nestjs/typeorm` 12），Express 5 |
+| 前端 | Nuxt 4.6（Vue 3.5）+ Nuxt UI v4 + Tailwind v4，SSR |
+| 数据库 | MySQL（默认，`mysql2`）/ SQLite（“MySQL light”，`better-sqlite3`） |
 | 部署 | 单 Docker 容器（多阶段构建）；GitLab CI 用 kaniko 在容器内构建并推送镜像 |
 
 **非 monorepo**：`server/` 与 `web/` 是两个完全独立的 npm 包，各有自己的 `package.json` 和 `node_modules`。仓库根目录只放环境变量、Dockerfile、CI 与文档。
+
+**运行环境与版本**：Node **24** LTS（NestJS 12 与 Nuxt 4.6 都要求 `^22.22.3 || ^24.15.0`）。NestJS 12 的包是纯 ESM，但后端仍以 CommonJS 运行（靠 Node 的 `require(esm)` 支持）。`typescript` 固定为 `~6.0.3`：TypeScript 7 只提供 `tsc` 二进制、不再提供 Nest CLI 需要的编译器 API（`nest build` 会直接拒绝），所以 6.0.3 是当前可用的最新版本。TS 6 还要求 `tsconfig.json` 显式写 `"rootDir": "./src"`（否则产物会变成 `dist/src/main.js`）与 `"types": ["node", "express", "multer"]`（TS 6 不再隐式加载全部 `@types`，否则 `@types/multer` 的 `Express.Multer` 全局声明不生效）。
 
 ## 目录结构
 
@@ -62,14 +64,9 @@
 ├── docker-entrypoint.sh
 ├── .dockerignore
 ├── .gitlab-ci.yml           # kaniko 镜像流水线（容器内构建 → 推项目容器注册表）
-├── server/                  # NestJS + Prisma
-│   ├── prisma/
-│   │   ├── src/models.prisma        # 模型唯一来源（双 provider 共用）
-│   │   ├── mysql/{schema.prisma,migrations/}   # 生成物；migrations 只有一个 init
-│   │   └── sqlite/{schema.prisma,migrations/}  # 生成物；migrations 只有一个 init
+├── server/                  # NestJS + TypeORM
 │   ├── scripts/
-│   │   ├── build-schemas.mjs        # 由唯一来源生成两份 schema
-│   │   ├── prisma.mjs               # Prisma CLI 包装（选 provider + 先重建 schema）
+│   │   ├── db-baseline.mjs          # 把已有（Prisma 时代）的库登记为已执行 Init
 │   │   └── seed.mjs                 # 演示数据
 │   └── src/
 │       ├── main.ts  app.module.ts
@@ -77,7 +74,8 @@
 │       ├── config/bootstrap-admin.ts# 空库首次启动创建管理员
 │       ├── common/                  # 家庭上下文守卫、参数装饰器、校验归一化
 │       ├── logger/                  # 应用日志 + nginx 风格访问日志
-│       ├── prisma/                  # PrismaService + auto-migrate
+│       ├── entities/                # 11 个实体类（唯一来源）+ index.ts + transformer
+│       ├── database/                # data-source / DatabaseModule / auto-migrate / migrations/{mysql,sqlite}
 │       ├── auth/                    # 注册 / 登录 / me（用户名 + 密码，JWT）
 │       ├── families/                # 家庭、成员、邀请链接
 │       ├── locations/               # 位置树（拖拽由服务端裁决）
@@ -87,8 +85,9 @@
 │       ├── uploads/                 # 上传（local / S3 抽象）
 │       ├── collection/              # 条码数据收集客户端
 │       ├── notifiers/               # 通知器（SMTP / Telegram / 钉钉 …）
+│       │   └── channels/            # 每个渠道一个文件（smtp / telegram / dingtalk …）
 │       ├── dashboard/  search/  scan/
-│       └── ...
+│       └── ...                      # 每个域统一为 <domain>.module.ts + .controller.ts + .service.ts（+ dto.ts）
 └── web/                     # Nuxt 4 + Nuxt UI v4 + Tailwind v4
     ├── nuxt.config.ts               # 监听地址、/api 代理、i18n、图标
     ├── i18n/locales/{zh-CN,en}.json # 翻译文件（唯一翻译源，社区可提交）
@@ -120,9 +119,9 @@ cp .env.example .env      # 至少填 DATABASE_URL（或改用 sqlite）
 # 2) 后端
 cd server
 npm install
-npm run prisma:generate   # 按 DB_PROVIDER 生成 Prisma Client
-npm run prisma:deploy     # 应用迁移建表（空库会跑单一 init 迁移）
+npm run db:run            # 应用迁移（空库会一次建好全部表）
 npm run start:dev         # http://localhost:3001/api
+                          # （AUTO_MIGRATE=true 启动时也会自动迁移，db:run 可省）
 
 # 3) 前端（另开一个终端）
 cd web
@@ -132,7 +131,7 @@ npm run dev               # http://<本机IP>:3000
 
 接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`（用户名 + 密码，邮箱选填）、`POST /api/auth/login`（**用户名** + 密码）、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）。
 
-想直接看效果：`cd server && npm run seed`（见下方「演示数据」）。
+想直接看效果：`cd server && npm run build && npm run seed`（见下方「演示数据」）。
 
 ## 配置
 
@@ -144,10 +143,9 @@ npm run dev               # http://<本机IP>:3000
 | --- | --- | --- |
 | `NODE_ENV` | `development` | 运行环境 |
 | `DB_PROVIDER` | `mysql` | `mysql` 或 `sqlite`（“MySQL light”，无需数据库服务） |
-| `DATABASE_URL` | — | `mysql://user:pass@host:3306/db`；**不要加引号**（见下方注意） |
-| `SHADOW_DATABASE_URL` | 注释掉 | 仅开发用：`prisma migrate dev` 在 MySQL 上的影子库 |
-| `AUTO_MIGRATE` | `true` | 进程启动时自动 `prisma migrate deploy`（空库首次启动自动建表） |
-| `DB_FILE_PATH` | `file:./data/homebucket.db` | sqlite 库文件路径（Docker 内用 `file:/data/homebucket.db`） |
+| `DATABASE_URL` | — | `mysql://user:pass@host:3306/db`；**不要加引号**（见下方注意）。各项还可用 `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` 单独覆盖 |
+| `AUTO_MIGRATE` | `true` | 进程启动时在进程内执行 TypeORM 迁移（空库首次启动自动建表） |
+| `DB_FILE_PATH` | `./data/homebucket.db` | sqlite 库文件路径，相对 `server/` 解析；兼容历史的 `file:` 前缀（Docker 内用 `/data/homebucket.db`） |
 
 ### 后端 Nest
 
@@ -218,35 +216,73 @@ npm run dev               # http://<本机IP>:3000
 
 ## 数据库与迁移
 
-### 单一模型来源，两份 schema
+### 一套实体，两个 provider
 
-Prisma 的 `provider` 不能写成环境变量，所以模型只在 `server/prisma/src/models.prisma` 维护，`scripts/build-schemas.mjs` 给它拼上不同 provider 的头，生成：
+数据模型就是 `server/src/entities/*.entity.ts` 里的**手写实体类**（共 **11 个**，清单见 `server/src/entities/index.ts`），同一套实体同时驱动 MySQL 与 SQLite。数据访问通过注入的 `Repository<T>`（`@InjectRepository`）：全局 `DatabaseModule` 导出了 `TypeOrmModule.forFeature(entities)`，业务模块直接注入仓库即可，不必每个模块重复写一遍 `forFeature` 清单。
 
-- `server/prisma/mysql/schema.prisma`（`DATABASE_URL`）
-- `server/prisma/sqlite/schema.prisma`（`DB_FILE_PATH`）
+`entities/index.ts` 顶部记录的三条跨 provider 约定（改实体时务必遵守）：
 
-`npm run prisma:generate` / `prisma:migrate` / `prisma:deploy` 都会先重建这两份 schema，无需手动同步。
+| 约定 | 原因 |
+| --- | --- |
+| 显式写 `@Entity('TableName')` | TypeORM 默认命名策略是 snake_case（`ItemUnit` → `item_unit`），而现有表名是驼峰；不显式指定会直接读不到表 |
+| `@CreateDateColumn` / `@UpdateDateColumn` 不传 `precision` | `{ precision: 3 }` 会让 TypeORM 生成 `datetime(3) ... DEFAULT CURRENT_TIMESTAMP(6)`，MySQL 直接报 “Invalid default value”；`@UpdateDateColumn` 随后报 “Invalid ON UPDATE clause”。裸写法由 TypeORM 按 provider 生成合法 DDL，且 insert/update 时都会在 JS 侧赋值 |
+| 金额列挂 `decimalNumber` transformer | `mysql2` 会把 `DECIMAL` 读成字符串，SQLite 读成 number；transformer 让两边都得到 JS `number` 类型的 `price` |
 
-### 迁移已压缩为单个 init
+另外刻意不用 enum / Json / BigInt（SQLite 不支持）：枚举值统一用字符串加注释说明，JSON 用字符串存。
 
-两边的 `migrations/` 目录各只有**一个** `20261006000000_init`（含 `migration_lock.toml`），它是当前 schema 的完整快照。因为生产库此前为空，没有历史需要保留。
+SQLite 驱动是 **`better-sqlite3`**（固定 `13.x`）——TypeORM 1.x 里已经没有 `type: 'sqlite'`。它的预编译产物直接打在 npm 包内，安装时不需要编译器、也不需要访问 GitHub；镜像用 `--ignore-scripts` 安装，顺带避开了该包会隐式触发的 `node-gyp rebuild`。
 
-- **全新库 / 生产库**：直接 `npm run prisma:deploy`（或启动后端）即可，一次建好全部表。
-- **跑过旧迁移的开发库**：表还在但 `_prisma_migrations` 里记着旧的 6 条记录，`deploy` 会因“表已存在”报错。二选一对齐：
-  1. 重建（会清空数据，之后 `npm run seed` 重新灌）：
-     `npx prisma migrate reset --schema prisma/mysql/schema.prisma --skip-seed`
-  2. 只对齐记录、不丢数据：在库中 `DELETE FROM _prisma_migrations;`，再
-     `npx prisma migrate resolve --applied 20261006000000_init --schema prisma/mysql/schema.prisma`
+### 迁移：两个目录、四个文件
+
+MySQL 与 SQLite 的 DDL 差别很大（自增、类型名、ALTER 语法、时间默认值都不一样），一套迁移脚本不可能两边都跑通，所以实体共享、迁移各存一份：
+
+| Provider | 目录 | 迁移 |
+| --- | --- | --- |
+| MySQL | `server/src/database/migrations/mysql/` | `Init`、`NormalizeFromPrisma`、`RenamePrismaFkIndexes` |
+| SQLite | `server/src/database/migrations/sqlite/` | `Init` |
+
+npm 脚本（取代原来的 `prisma:*`）：
+
+| 脚本 | 作用 |
+| --- | --- |
+| `npm run db:generate` | 依据实体 `migration:generate`，需要带上目标路径：`npm run db:generate -- src/database/migrations/mysql/AddThing` |
+| `npm run db:run` | `migration:run` |
+| `npm run db:revert` | `migration:revert`（一次回退一个迁移，注意下方警告） |
+| `npm run db:show` | `migration:show`（`migrations` 表内容） |
+| `npm run db:baseline` | 把已有 Prisma 时代的库登记为已执行（见下方升级一节） |
+| `npm run seed` | 演示数据 |
+
+`db:generate` / `db:run` / `db:revert` / `db:show` 用 `typeorm-ts-node-commonjs` 加 `-d src/database/data-source.ts`，跑的是 `src/`。`db:baseline` 与 `seed` 跑的是编译产物 `dist/`，所以必须先 `npm run build`——这也正是它们能在“只有生产依赖”的运行期镜像里直接用的原因。
+
+迁移是按 provider 分开的，所以生成时要把路径写到对应目录下（`src/database/migrations/mysql/...` 或 `.../sqlite/...`）。
+
+> **⚠️ `db:revert` 不能用来“撤销 `db:baseline`”。** baseline 只是往 `migrations` 表插了一条记录——TypeORM 并不知道 `Init` 从没真正执行过，所以 revert 会去执行 `Init.down()`，而它期望的是 TypeORM 命名的外键。在老库上这会以 `Can't DROP ... FK_<hash>; check that column/key exists` 失败；由于 `Init.down()` 先删外键、`DROP TABLE` 放在最后，它会在删除任何表之前就中断，所以表和 数据都还在。要回到 Prisma 时代的结构，请用备份 dump 恢复。而在**全新安装**的库上（`Init` 真的执行过），revert `Init` 是真正的拆除动作，**会删表**，这是迁移的正常语义。
+
+### 升级已有的 Prisma 时代数据库
+
+这是唯一需要留意的运维变更。老库的表都在（Prisma 建的），但没有 TypeORM 的 `migrations` 记录表，直接 `migration:run` 会试图重新建表并失败。
+
+1. `npm run db:baseline` —— 建出 TypeORM 的 `migrations` 表并把 `Init` 登记为“已执行”，**不跑任何 DDL**（表本来就在）。它对没有任何业务表的库会拒绝执行（那是全新安装，直接跑迁移即可），并且刻意把增量迁移留作待执行。
+2. `npm run db:run` —— 应用 `NormalizeFromPrisma` 与 `RenamePrismaFkIndexes`。
+
+这两个增量迁移只对 Prisma 时代的老库有意义：
+
+- **`NormalizeFromPrisma`** 会在全新安装的库上**自动跳过**（先探测 Prisma 命名的外键），否则执行：把 `Item.price` / `Template.price` 的 `decimal(65,30)` 收紧成 `decimal(12,2)`；把 `createdAt` / `updatedAt` 的 `datetime(3)` 放宽成 `datetime(6)`；并给 `updatedAt` 列补上数据库默认值与 `ON UPDATE`。
+- **`RenamePrismaFkIndexes`** 把 13 个 Prisma 命名的外键支撑索引（`<表>_<列>_fkey`）改名为 TypeORM 的 `FK_<hash>`，让后续 `migration:generate` 不再产生漂移。MySQL 不允许删除这些索引（外键需要它们），所以是改名而不是删除。
+
+Prisma 的 `_prisma_migrations` 表**刻意保留不动**：已经没有代码读它，确认无误后可以手动删掉。整条升级路径（baseline，再跑两个增量迁移）不会丢数据，完成后库结构与全新安装一致。
+
+**全新安装**没有任何额外步骤：空库会在首次启动时或 `npm run db:run` 时由 `Init` 一次建好全部表。
 
 ### 启动即迁移
 
-后端启动时（`AUTO_MIGRATE=true`，默认开）先执行 `prisma migrate deploy`：
+后端启动时（`AUTO_MIGRATE=true`，默认开）会先**在进程内**执行 TypeORM 的迁移器（`src/database/auto-migrate.ts`，在 Nest 创建之前），不再 shell out 到 Prisma CLI——这正是运行期镜像能只带生产依赖的原因：
 
 - 空库首次启动自动建表，不会再出现“表不存在导致启动失败”；
-- 幂等，已应用的迁移不会重复执行；
+- 幂等，已应用的迁移不会重复执行（二次启动会打印 `[migrate] provider=… 没有待执行的迁移`）；
 - 失败只打 `[migrate]` 错误日志、不阻断进程，`/health` 会显示 `degraded`；数据库连不上也不中断启动。
 
-想自己控制节奏：`AUTO_MIGRATE=false`，手动 `cd server && npm run prisma:deploy`。
+想自己控制节奏：`AUTO_MIGRATE=false`，手动 `cd server && npm run db:run`。
 
 **空库首次启动**还会按 `DEFAULT_ADMIN_*` 自动创建管理员（`AUTO_CREATE_ADMIN=false` 可关），日志会打印账号，登录后请尽快改密码。
 
@@ -255,31 +291,31 @@ Prisma 的 `provider` 不能写成环境变量，所以模型只在 `server/pris
 ```bash
 # .env
 DB_PROVIDER=sqlite
-DB_FILE_PATH="file:./data/homebucket.db"   # 实际不加引号
+DB_FILE_PATH=./data/homebucket.db   # 相对路径按 server/ 解析；兼容历史的 "file:" 前缀
 ```
 
-然后 `npm run prisma:generate && npm run prisma:deploy`，库文件落在 `server/prisma/sqlite/data/`（已 gitignore）。
+然后 `npm run db:run`（或直接启动后端）即可。用默认路径时库文件落在 `server/data/homebucket.db`（已 gitignore）；Docker 里请用 `DB_FILE_PATH=/data/homebucket.db`。
 
 ## Docker（单容器）
 
-多阶段构建：`base → server-build → web-build → runtime`，按需 `COPY`（不使用 `COPY . .`），`.dockerignore` 排除 `node_modules` / `dist` / `.output` / `.nuxt`。运行期一个容器同时起 Nest（`:3001`）与 Nuxt（`:3000`），前端通过代理访问后端。
+多阶段构建：`base → server-build → server-prod-deps → web-build → runtime`，按需 `COPY`（不使用 `COPY . .`），`.dockerignore` 排除 `node_modules` / `dist` / `.output` / `.nuxt`。运行期一个容器同时起 Nest（`:3001`）与 Nuxt（`:3000`），前端通过代理访问后端。
 
 ```bash
-docker build \
-  --build-arg DB_PROVIDER=mysql \
-  --build-arg NODE_IMAGE=docker.1ms.run/library/node:22-bookworm-slim \
+DOCKER_BUILDKIT=1 docker build \
+  --build-arg NODE_IMAGE=docker.1ms.run/library/node:24-bookworm-slim \
   --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
-  --build-arg APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn \
   -t homebucket .
 
 docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 homebucket
 ```
 
 - 容器内数据统一放 `/data`（sqlite 库文件 + 上传图片），`VOLUME ["/data"]`，挂卷即可持久化；通常只需暴露 3000。
-- 数据库迁移由后端进程启动时自动完成。
-- 基础镜像装了 `openssl`（Prisma 查询引擎依赖），且在 `prisma generate` 之前装好。装它走的 apt 源默认换成清华（`APT_MIRROR`），只为这一层提速。
-- **运行期刻意不裁剪 devDependencies**：启动自动迁移依赖 `prisma` CLI（`server/src/prisma/auto-migrate.ts` 会 `require.resolve('prisma/build/index.js')`），`--omit=dev` 会让迁移被静默跳过。前端 `.output` 自包含，运行期不带 `web/node_modules`。
-- `NODE_IMAGE` / `NPM_REGISTRY` / `APT_MIRROR` 都是加速用构建参数，本地默认走官方源即可不传；`APT_MIRROR` 用 `http://`（slim 镜像里没有 `ca-certificates`，`https` 会让 `apt-get update` 证书校验失败）。
+- 数据库迁移由后端进程启动时自动完成（TypeORM 迁移器，进程内执行）。
+- 基础镜像为 `node:24-bookworm-slim`。原来的 `openssl` apt 层**已删除**（它当年只为 Prisma 查询引擎而存在），随之去掉的还有 `APT_MIRROR` 构建参数与 apt 源改写。
+- `DB_PROVIDER` **构建参数已删除**：镜像与 provider 无关——`mysql2` 与 `better-sqlite3` 都是生产依赖，驱动由运行期的 `DB_PROVIDER` 环境变量决定。`prisma generate` 构建步骤也不存在了。
+- npm 安装使用 BuildKit 缓存挂载（`# syntax=docker/dockerfile:1`、`RUN --mount=type=cache,target=/root/.npm`），因此需要启用 BuildKit 的 Docker；旧版环境请设 `DOCKER_BUILDKIT=1`（或升级 Docker）。
+- 运行期阶段拷贝的是**只含生产依赖**的 `node_modules`：单独的 `server-prod-deps` 阶段执行 `npm ci --omit=dev --ignore-scripts`。对 `better-sqlite3` 安全，因为它的预编译 binding 直接从包里加载；`--ignore-scripts` 同时避开 slim 镜像里没有工具链的隐式 `node-gyp rebuild`。前端 `.output` 自包含，运行期不带 `web/node_modules`。
+- `NODE_IMAGE` / `NPM_REGISTRY` 都是加速用构建参数，本地默认走官方源即可不传。
 
 ## CI（GitLab + kaniko）
 
@@ -288,19 +324,17 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 - **整个 job 在容器内执行**：使用 kaniko executor（debug）镜像，不需要 docker daemon / dind，也不需要 privileged runner。
 - **不做 typecheck、不做独立 build 校验 job**：编译发生在 `docker build` 内部（`nest build` / `nuxt build`），失败即 job 失败。
 - **零 artifacts**：构建结果只以镜像形式推送到**项目的容器注册表**（`$CI_REGISTRY_IMAGE`）。
-- **tag 策略**：始终推 `sha-<short>`；推送默认分支额外推 `latest`；打 tag 额外推版本号。
-- **触发**：push 默认分支 / 打 tag / 页面 Run pipeline / API。
+- **tag 策略**：始终推 `sha-<short>`；推送默认分支额外推 `latest`；打 tag 额外推版本号；其它分支额外推分支名 slug。
+- **触发**：push 任意分支 / 打 tag / 页面 Run pipeline / API。
 
 加速域名（可在 CI/CD Variables 覆盖）：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `NODE_IMAGE` | `docker.1ms.run/library/node:22-bookworm-slim` | 基础镜像（Docker Hub 加速） |
+| `NODE_IMAGE` | `docker.1ms.run/library/node:24-bookworm-slim` | 基础镜像（Docker Hub 加速） |
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | npm 源 |
-| `APT_MIRROR` | `http://mirrors.tuna.tsinghua.edu.cn` | Debian apt 源（装 openssl 提速）；用 `http://` |
-| `DB_PROVIDER` | `mysql` | 打进镜像的 Prisma schema |
 
-kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:debug` 加速（`docker.m.daocloud.io` 是 Docker Hub 的加速域名，没有这个仓库，会报「不在白名单」）。首次运行会创建 `$CI_REGISTRY_IMAGE/cache` 作为构建缓存；若注册表禁用了子仓库，去掉脚本里的 `--cache=true --cache-repo ...` 两行即可。
+kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:debug` 加速（`docker.m.daocloud.io` 是 Docker Hub 的加速域名，没有这个仓库，会报「不在白名单」）。构建使用 `--cache=true --cache-repo "$CI_REGISTRY_IMAGE/cache"`，外加 `--snapshot-mode=redo` 与 `--use-new-run`（针对 `node_modules` 海量文件加速快照）；若注册表禁用了子仓库，去掉 `--cache` 两行即可。注意当前这个 kaniko 版本会解析但**忽略** BuildKit 的 `--mount=type=cache`，所以 npm 缓存挂载只在本机 BuildKit 构建时才有收益。
 
 ## 跨域是怎么解决的
 
@@ -317,6 +351,7 @@ kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:d
 - 需要登录态的数据都在客户端加载（`onMounted` / `useAsyncData(..., { server: false })`），SSR 只渲染外壳，避免 SSR 阶段没有 cookie 时的 401。
 - 未登录直接 302 到登录页（鉴权中间件在服务端也执行）。
 - `npm run typecheck`（`nuxt typecheck`，vue-tsc），当前零错误。
+- Nuxt 为 **4.6.0**，`vue-router` 为 `^5.3.1`（此前固定 `^4.5.0`，而 Nuxt 已要求 5.x，`node_modules` 里因此存在两份副本）；`nuxt.config.ts` 增加 `sourcemap: { server: false }`，生产构建不再输出服务端 `.map` 文件。`/api/**` 代理 `routeRules` 与 `icon` / `colorMode` / `i18n` 配置均未改动。
 
 ### 布局模式
 
@@ -419,7 +454,7 @@ POST {DATA_COLLECTION_ENDPOINT}/observations
 ## 演示数据（Mock）
 
 ```bash
-cd server && npm run seed
+cd server && npm run build && npm run seed   # seed 跑的是 dist/，需先构建
 ```
 
 会清空并重建演示账号自己的数据（不影响其它用户），生成一个适合看效果的样板：
@@ -433,10 +468,10 @@ cd server && npm run seed
 
 ## 已验证
 
-- **Nuxt 4**：Nuxt 4.5.2 + @nuxt/ui 4.11 + @nuxtjs/i18n 10.6 + Tailwind 4.3 + vue-tsc；应用代码迁到 `web/app/`；`nuxt typecheck` 零错误、`nuxt build` 通过、全部页面 200、`/api` 代理正常。
+- **Nuxt 4.6**：Nuxt 4.6.0 + @nuxt/ui 4.11.3 + @nuxtjs/i18n 10.6.0 + Tailwind 4.3.3 + vue-router 5.3.1 + vue-tsc；应用代码在 `web/app/`；`nuxt typecheck` 零错误、`nuxt build` 通过、`/api` 代理正常。
 - **接口端到端**：家庭隔离与角色（跨家庭 403、非 owner 403）、邀请链接注册即入家庭、位置树拖拽 move + 闭环校验、同一物品多 SN 分布不同位置、SN / 条码重复校验、仪表盘统计、统一搜索、CSV（UTF-8 BOM、含 SN@位置）、扫码优先级、模板建物品、通知器 9 种、校验错误结构。测试数据已清理。
 - **后端**：`nest build` 通过；注册 / 登录 / me 正常，重复注册 409、错误密码与伪造 token 401、参数校验 400；`MAX_UPLOAD_SIZE=1kb` 时 2KB 请求体返回 413；三种日志格式与 `LOG_ACCESS=false` 均生效。
-- **启动即迁移**：空 sqlite 库启动 → 自动建库建表并直接注册成功；二次启动输出 `No pending migrations to apply`；`AUTO_MIGRATE=false` 时跳过。
-- **迁移压缩**：单 `init` 迁移在全新 sqlite 库上 `migrate deploy` 成功、`migrate status` 为 up to date；`migrate diff --from-migrations --to-schema-datamodel` 输出 `No difference detected`。
-- **Docker**：镜像构建成功，单容器同时起前后端，`0.0.0.0:3000` 可访问、`/api` 代理通、后端连上 dev MySQL（`db:true`）；`docker build --check` 无告警。
+- **启动即迁移**：空 sqlite 库启动 → 自动建库建表并直接注册成功；二次启动输出 `[migrate] provider=sqlite 没有待执行的迁移`；`AUTO_MIGRATE=false` 时跳过。
+- **Prisma 老库升级**：`db:baseline` 在不改动任何表的前提下登记 `Init` 并保留增量迁移待执行，随后 `db:run` 应用 `NormalizeFromPrisma` + `RenamePrismaFkIndexes`；该路径先做了演练、再实际执行，无数据丢失，完成后库结构与全新安装一致。
+- **Docker**：镜像用 BuildKit 构建成功，单容器同时起前后端，`0.0.0.0:3000` 可访问、`/api` 代理通、后端连上 dev MySQL（`db:true`）；`docker build --check` 无告警。
 - **CI**：kaniko 流水线为单 job、容器内执行、无 artifacts；加速域名与镜像路径已按环境配置（尚未在真实 GitLab runner 上跑过）。

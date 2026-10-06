@@ -8,6 +8,8 @@ dist/
 .nitro/
 .cache/
 .temp/
+# TS 增量编译信息（incremental: true 的副产物）
+*.tsbuildinfo
 
 # 本项目用 npm 管理依赖，忽略 pnpm 产物
 pnpm-lock.yaml
@@ -21,9 +23,8 @@ pnpm-workspace.yaml
 # sqlite 数据文件（MySQL light）
 *.db
 *.db-journal
-server/prisma/*/data/
 
-# 本地数据目录（上传的文件、sqlite 默认位置）
+# 本地数据目录（上传的文件、sqlite 默认位置、迁移前的 dump 备份）
 server/data/
 
 # 日志 / 编辑器
@@ -32,3 +33,5 @@ npm-debug.log*
 .DS_Store
 .idea/*
 !.idea/.gitkeep
+# AI 编码工具的工作目录（里面是嵌套 git worktree，提交进来会破坏仓库）
+.codebuddy/

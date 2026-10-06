@@ -1,0 +1,34 @@
+import type { ObjectLiteral, Repository } from 'typeorm';
+
+/**
+ * 统计"一批父记录各自有多少个子记录"。
+ *
+ * 为什么需要这个工具：Prisma 有 `_count: { select: { units: true } }` 这种写法，
+ * 而 TypeORM 1.x **删除了** `loadRelationCountAndMap`（0.3.x 还有），
+ * 官方也没有直接替代品。这里用一次 GROUP BY 聚合来顶替，避免退化成 N+1 查询。
+ *
+ * 用法：
+ *   const counts = await countByForeignKey(itemUnitRepo, 'itemId', items.map((i) => i.id));
+ *   counts.get(item.id) ?? 0
+ *
+ * @param repo        子表的 Repository
+ * @param foreignKey  子表上指向父表的列名（实体属性名）
+ * @param ids         父记录 id 列表
+ */
+export async function countByForeignKey<T extends ObjectLiteral>(
+  repo: Repository<T>,
+  foreignKey: keyof T & string,
+  ids: number[],
+): Promise<Map<number, number>> {
+  if (ids.length === 0) return new Map();
+
+  const rows = await repo
+    .createQueryBuilder('row')
+    .select(`row.${foreignKey}`, 'parentId')
+    .addSelect('COUNT(*)', 'total')
+    .where(`row.${foreignKey} IN (:...ids)`, { ids })
+    .groupBy(`row.${foreignKey}`)
+    .getRawMany<{ parentId: number | string; total: number | string }>();
+
+  return new Map(rows.map((row) => [Number(row.parentId), Number(row.total)]));
+}

@@ -2,6 +2,8 @@ import { Type } from 'class-transformer';
 import { IsArray, IsInt, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
 
 export class CreateTemplateDto {
+  // `!` 只是类型层面的定值断言：TS 6 默认打开 strictPropertyInitialization，
+  // 而编译产物（无初始值的字段声明）与 `name: string` 完全一致，运行时行为不变
   @IsString()
   @Length(1, 120)
   name: string;

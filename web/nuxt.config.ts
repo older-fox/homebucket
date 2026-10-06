@@ -32,6 +32,10 @@ export default defineNuxtConfig({
   ssr: true,
   css: ['~/assets/css/main.css'],
 
+  // 不产出服务端 sourcemap：默认 sourcemap.server 为 true，会在 .output/server 下生成近百个 .map
+  // （体积约占服务端产物大头，生产环境也不需要）。client 保持默认（构建时为 false）。
+  sourcemap: { server: false },
+
   // 深浅色：跟随系统，用户可手动切换并记住（html 上加 .dark 类）
   colorMode: {
     preference: 'system',

@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { config as loadEnv } from 'dotenv';
 
 // 环境变量统一放在仓库根目录的 .env，server / web 共用；
-// 这里必须在 Nest 启动前加载，Prisma 客户端初始化时需要 DATABASE_URL / DB_FILE_PATH。
+// 必须在 Nest 启动前加载：TypeORM 建数据源时需要 DATABASE_URL / DB_FILE_PATH。
 loadEnv({ path: resolve(process.cwd(), '../.env') });
 
 import { json, urlencoded } from 'express';
@@ -16,12 +16,20 @@ import { AppLogger } from './logger/app.logger';
 import { env } from './config/env';
 import { bootstrapAdmin } from './config/bootstrap-admin';
 import { FamiliesService } from './families/families.service';
-import { PrismaService } from './prisma/prisma.service';
-import { autoMigrate } from './prisma/auto-migrate';
+import { runMigrations } from './database/auto-migrate';
+import { DataSource } from 'typeorm';
 
 async function bootstrap() {
-  // 启动即建表：空库 / 首次启动也不会因为表不存在而失败
-  if (env.autoMigrate) autoMigrate();
+  // 启动即建表：空库 / 首次启动也不会因为表不存在而失败。
+  // 放在 NestFactory.create 之前，这样后面的 bootstrapAdmin 才能安全查表。
+  // 迁移失败不阻断进程，交给 /health 报 degraded（与改造前行为一致）。
+  if (env.autoMigrate) {
+    try {
+      await runMigrations();
+    } catch (error) {
+      console.error(`[migrate] 迁移失败：${(error as Error).message}`);
+    }
+  }
 
   // bodyParser 交给下面手动注册，以便套用 MAX_UPLOAD_SIZE
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -68,7 +76,7 @@ async function bootstrap() {
 
   // 空库首次启动：按配置创建默认管理员（AUTO_CREATE_ADMIN / DEFAULT_ADMIN_*）
   try {
-    await bootstrapAdmin(app.get(PrismaService), app.get(FamiliesService), logger);
+    await bootstrapAdmin(app.get(DataSource), app.get(FamiliesService), logger);
   } catch (error) {
     logger.error(`默认管理员初始化失败：${(error as Error).message}`, undefined, 'Bootstrap');
   }

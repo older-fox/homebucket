@@ -1,18 +1,43 @@
-// 演示/测试数据填充（可重复执行）：npm run seed
+#!/usr/bin/env node
+// 演示/测试数据填充（可重复执行）：npm run build && npm run seed
 // 数据全部归属 .env 中 DEFAULT_ADMIN_* 指定的账号；只清理该账号自己的旧数据，不影响其它用户。
-import { randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+//
+// ⚠️ 需要先 `npm run build`：本脚本跑的是编译产物（dist/），和 scripts/db-baseline.mjs 同一套路。
+//    这样它既能用在开发机，也能直接用在只装了生产依赖的容器里（不必带 ts-node 与源码）。
+//    加载顺序有讲究：**必须先 loadEnv 再 require dist**，因为 data-source.js 在模块顶层
+//    就会读 process.env 组装连接串并 new DataSource(...)。
+import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PrismaClient } from '@prisma/client';
 import { config as loadEnv } from 'dotenv';
 import { hash } from 'bcryptjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv({ path: resolve(root, '../.env') });
 
-const prisma = new PrismaClient();
+const require = createRequire(import.meta.url);
+// DataSource 用 dist 里的 default 导出（唯一导出，见 data-source.ts 的说明）
+const dataSource = require(resolve(root, 'dist/database/data-source.js')).default;
+// 实体清单同样从编译产物取，保证和运行时是同一份
+const {
+  Attachment,
+  Family,
+  FamilyInvite,
+  FamilyMember,
+  Item,
+  ItemUnit,
+  Location,
+  NotificationChannel,
+  Tag,
+  Template,
+  User,
+} = require(resolve(root, 'dist/entities/index.js'));
+// where 里的 in / is null / not null 一律用 TypeORM 操作符：
+// 1.x 的 invalidWhereValuesBehavior 默认 "throw"，裸 null / undefined 会直接抛错
+const { In, IsNull, Not } = require('typeorm');
+// 共享 helper：qrToken / 邀请 token 用的就是短随机串，别在这里再抄一遍 randomBytes
+const { shortToken } = require(resolve(root, 'dist/common/id.js'));
 
 const ADMIN = {
   email: (process.env.DEFAULT_ADMIN_EMAIL || 'admin@example.com').trim().toLowerCase(),
@@ -22,7 +47,7 @@ const ADMIN = {
 const PARTNER = { email: 'family@homebucket.local', username: 'family', password: 'homebucket123' };
 const KID = { email: 'kid@homebucket.local', username: 'kid', password: 'homebucket123' };
 
-const token = (bytes = 9) => randomBytes(bytes).toString('hex');
+// 随机串统一走 common/id.ts 的 shortToken（它就是原来的 randomBytes(bytes).toString('hex')）
 const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 const uploadDir = resolve(
   root,
@@ -360,45 +385,50 @@ function svgTile(text, color) {
 /** 生成本地占位图（自托管，不请求外部图片） */
 async function createImage(familyId, userId, label, index) {
   const safe = label.replace(/[^\w\u4e00-\u9fa5-]/g, '').slice(0, 24) || 'img';
-  const key = `seed/${index}-${safe}-${token(3)}.svg`;
+  const key = `seed/${index}-${safe}-${shortToken(3)}.svg`;
   const content = svgTile(label, PALETTE[index % PALETTE.length]);
   mkdirSync(resolve(uploadDir, 'seed'), { recursive: true });
   writeFileSync(resolve(uploadDir, key), content);
 
-  return prisma.attachment.create({
-    data: {
+  const attachments = dataSource.getRepository(Attachment);
+  return attachments.save(
+    attachments.create({
       familyId,
       key,
       mime: 'image/svg+xml',
       size: Buffer.byteLength(content),
       uploadedById: userId,
-    },
-    select: { id: true },
-  });
+    }),
+  );
 }
 
 async function cleanupUser(email) {
-  const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  const userRepo = dataSource.getRepository(User);
+  const user = await userRepo.findOne({ where: { email }, select: { id: true } });
   if (!user) return;
 
-  const owned = await prisma.family.findMany({ where: { ownerId: user.id }, select: { id: true } });
+  // 只删这个账号**自己拥有**的家庭：家庭下面的位置/物品/标签/通知器等靠外键
+  // ON DELETE CASCADE 一并清掉，不会碰到别人当 owner 的家庭
+  const familyRepo = dataSource.getRepository(Family);
+  const owned = await familyRepo.find({ where: { ownerId: user.id }, select: { id: true } });
   if (owned.length) {
-    await prisma.family.deleteMany({ where: { id: { in: owned.map((family) => family.id) } } });
+    await familyRepo.delete({ id: In(owned.map((family) => family.id)) });
   }
-  await prisma.familyMember.deleteMany({ where: { userId: user.id } });
-  await prisma.user.update({ where: { id: user.id }, data: { defaultFamilyId: null } });
-  await prisma.user.delete({ where: { id: user.id } });
+  await dataSource.getRepository(FamilyMember).delete({ userId: user.id });
+  // 先把自己参与的其它家庭的默认归属清掉（User.defaultFamilyId 外键是 SET NULL，删家庭时也会置空）
+  await userRepo.update(user.id, { defaultFamilyId: null });
+  await userRepo.delete({ id: user.id });
   console.log(`  · 清理旧账号 ${email}`);
 }
 
 async function buildTree(familyId, nodes, parentId = null, map = new Map(), path = '') {
   let index = 0;
+  const locationRepo = dataSource.getRepository(Location);
 
   for (const [name, description, children] of nodes) {
-    const location = await prisma.location.create({
-      data: { familyId, parentId, name, description, sortIndex: index, qrToken: token() },
-      select: { id: true },
-    });
+    const location = await locationRepo.save(
+      locationRepo.create({ familyId, parentId, name, description, sortIndex: index, qrToken: shortToken() }),
+    );
     index += 1;
     const fullPath = path ? `${path}/${name}` : name;
     map.set(fullPath, location.id);
@@ -410,70 +440,85 @@ async function buildTree(familyId, nodes, parentId = null, map = new Map(), path
 
 // ---------------------------------------------------------------- 主流程
 async function main() {
-  // 表可能刚被清空：先确保数据库结构是最新的
+  await dataSource.initialize();
+
+  // 表可能刚被清空：先把迁移跑到最新。
+  // 原来的 `prisma migrate deploy` 等价物就是 dataSource.runMigrations()（同样幂等），
+  // 从 Prisma 老库迁过来的、表已存在但缺 migrations 记录的情况，先跑 npm run db:baseline
   console.log('确保数据库结构最新…');
-  execFileSync(process.execPath, [resolve(root, 'scripts/prisma.mjs'), 'migrate', 'deploy'], {
-    cwd: root,
-    stdio: 'pipe',
-  });
+  await dataSource.runMigrations();
+
+  const userRepo = dataSource.getRepository(User);
+  const familyRepo = dataSource.getRepository(Family);
+  const memberRepo = dataSource.getRepository(FamilyMember);
+  const inviteRepo = dataSource.getRepository(FamilyInvite);
+  const locationRepo = dataSource.getRepository(Location);
+  const itemRepo = dataSource.getRepository(Item);
+  const unitRepo = dataSource.getRepository(ItemUnit);
+  const tagRepo = dataSource.getRepository(Tag);
+  const templateRepo = dataSource.getRepository(Template);
+  const channelRepo = dataSource.getRepository(NotificationChannel);
 
   console.log('清理旧数据…');
   for (const email of [ADMIN.email, PARTNER.email, KID.email]) await cleanupUser(email);
 
   console.log('创建账号…');
   const passwordHash = await hash(ADMIN.password, 10);
-  const demo = await prisma.user.create({
-    data: { email: ADMIN.email, username: ADMIN.username, passwordHash, locale: 'zh-CN' },
-  });
-  const partner = await prisma.user.create({
-    data: {
+  const demo = await userRepo.save(
+    userRepo.create({ email: ADMIN.email, username: ADMIN.username, passwordHash, locale: 'zh-CN' }),
+  );
+  const partner = await userRepo.save(
+    userRepo.create({
       email: PARTNER.email,
       username: PARTNER.username,
       passwordHash: await hash(PARTNER.password, 10),
       locale: 'zh-CN',
-    },
-  });
-  const kid = await prisma.user.create({
-    data: {
+    }),
+  );
+  const kid = await userRepo.save(
+    userRepo.create({
       email: KID.email,
       username: KID.username,
       passwordHash: await hash(KID.password, 10),
       locale: 'zh-CN',
-    },
-  });
+    }),
+  );
 
-  const personal = await prisma.family.create({
-    data: {
+  // 个人家庭。原来 Prisma 的 `members: { create: ... }` 是嵌套写，TypeORM 没有对应写法，
+  // 改成"先建家庭、再单独插成员行"，最终数据完全一致
+  const personal = await familyRepo.save(
+    familyRepo.create({
       name: `${ADMIN.username} 的家`,
       isPersonal: true,
       currency: 'CNY',
       locale: 'zh-CN',
       timeZone: 'Asia/Shanghai',
       ownerId: demo.id,
-      members: { create: { userId: demo.id, role: 'owner' } },
-    },
-  });
-  await prisma.user.update({ where: { id: demo.id }, data: { defaultFamilyId: personal.id } });
+    }),
+  );
+  await memberRepo.save(memberRepo.create({ familyId: personal.id, userId: demo.id, role: 'owner' }));
+  await userRepo.update(demo.id, { defaultFamilyId: personal.id });
 
-  const shared = await prisma.family.create({
-    data: {
+  const shared = await familyRepo.save(
+    familyRepo.create({
       name: '样板间',
       isPersonal: false,
       currency: 'CNY',
       locale: 'zh-CN',
       timeZone: 'Asia/Shanghai',
       ownerId: demo.id,
-      members: {
-        create: [
-          { userId: demo.id, role: 'owner' },
-          { userId: partner.id, role: 'admin' },
-          { userId: kid.id, role: 'member' },
-        ],
-      },
-    },
-  });
+    }),
+  );
+  // 三个成员一次性 create 成数组再 save，等价于原来的 members.create: [...]
+  await memberRepo.save(
+    memberRepo.create([
+      { familyId: shared.id, userId: demo.id, role: 'owner' },
+      { familyId: shared.id, userId: partner.id, role: 'admin' },
+      { familyId: shared.id, userId: kid.id, role: 'member' },
+    ]),
+  );
   for (const user of [demo, partner, kid]) {
-    await prisma.user.update({ where: { id: user.id }, data: { defaultFamilyId: shared.id } });
+    await userRepo.update(user.id, { defaultFamilyId: shared.id });
   }
 
   console.log('创建位置树…');
@@ -490,8 +535,9 @@ async function main() {
   console.log('创建标签…');
   const tags = new Map();
   for (const [name, color] of TAGS) {
-    const tag = await prisma.tag.create({ data: { familyId: shared.id, name, color }, select: { id: true } });
-    tags.set(name, tag.id);
+    // 存 Tag 实体而不是 id：后面多对多要直接挂实体数组（TypeORM 没有 connect 写法）
+    const tag = await tagRepo.save(tagRepo.create({ familyId: shared.id, name, color }));
+    tags.set(name, tag);
   }
 
   console.log('创建物品与占位图片…');
@@ -511,37 +557,39 @@ async function main() {
       const withImage = itemCount % 4 === 0; // 约 1/4 物品带本地占位图
       const image = withImage ? await createImage(shared.id, demo.id, name, imageIndex++) : null;
 
-      const item = await prisma.item.create({
-        data: {
-          familyId: shared.id,
-          name,
-          description,
-          quantity,
-          price,
-          model,
-          manufacturer,
-          barcode: BARCODES[name] ?? null,
-          locationId: place ?? null,
-          coverImageId: image?.id ?? null,
-          qrToken: token(),
-          createdAt: daysAgo((itemCount * 2) % 180),
-          tags: tagNames?.length
-            ? { connect: tagNames.filter((tag) => tags.has(tag)).map((tag) => ({ id: tags.get(tag) })) }
-            : undefined,
-        },
-        select: { id: true },
+      const item = itemRepo.create({
+        familyId: shared.id,
+        name,
+        description,
+        quantity,
+        price,
+        model,
+        manufacturer,
+        barcode: BARCODES[name] ?? null,
+        locationId: place ?? null,
+        coverImageId: image?.id ?? null,
+        qrToken: shortToken(),
+        // 原来就显式铺开 createdAt（让时间线有分布）。TypeORM 只在**没赋值**时才用
+        // @CreateDateColumn 的默认值，显式传入会被原样写入
+        createdAt: daysAgo((itemCount * 2) % 180),
       });
+      // 标签是多对多：没有嵌套 connect，必须把 Tag 实体数组挂到关系上再 save，
+      // TypeORM 会自己写 _ItemTags 连接表
+      if (tagNames?.length) {
+        item.tags = tagNames.filter((tag) => tags.has(tag)).map((tag) => tags.get(tag));
+      }
+      const saved = await itemRepo.save(item);
 
       for (const [sn, unitPath] of UNITS[name] ?? []) {
-        await prisma.itemUnit.create({
-          data: {
+        await unitRepo.save(
+          unitRepo.create({
             familyId: shared.id,
-            itemId: item.id,
+            itemId: saved.id,
             sn,
             locationId: locationId(unitPath) ?? place ?? null,
             note: unitPath,
-          },
-        });
+          }),
+        );
         unitCount += 1;
       }
 
@@ -551,39 +599,45 @@ async function main() {
 
   console.log('创建模板…');
   for (const [name, description, quantity, price, model, manufacturer, place, tagNames] of TEMPLATES) {
-    await prisma.template.create({
-      data: {
-        familyId: shared.id,
-        name,
-        description,
-        quantity,
-        price,
-        model,
-        manufacturer,
-        barcode: TEMPLATE_BARCODES[name] ?? null,
-        defaultLocationId: locationId(place),
-        tags: tagNames?.length
-          ? { connect: tagNames.filter((t) => tags.has(t)).map((t) => ({ id: tags.get(t) })) }
-          : undefined,
-      },
+    const template = templateRepo.create({
+      familyId: shared.id,
+      name,
+      description,
+      quantity,
+      price,
+      model,
+      manufacturer,
+      barcode: TEMPLATE_BARCODES[name] ?? null,
+      defaultLocationId: locationId(place),
     });
+    if (tagNames?.length) {
+      template.tags = tagNames.filter((t) => tags.has(t)).map((t) => tags.get(t));
+    }
+    await templateRepo.save(template);
   }
 
   console.log('创建通知器与邀请链接…');
   for (const [type, name, events, config] of NOTIFIERS) {
-    await prisma.notificationChannel.create({
-      data: { familyId: shared.id, type, name, enabled: false, events, config: JSON.stringify(config) },
-    });
+    await channelRepo.save(
+      channelRepo.create({
+        familyId: shared.id,
+        type,
+        name,
+        enabled: false,
+        events,
+        config: JSON.stringify(config),
+      }),
+    );
   }
   for (const days of [30, null, 7]) {
-    await prisma.familyInvite.create({
-      data: {
+    await inviteRepo.save(
+      inviteRepo.create({
         familyId: shared.id,
         createdById: demo.id,
-        token: token(16),
+        token: shortToken(16),
         expiresAt: days ? daysAgo(-days) : null,
-      },
-    });
+      }),
+    );
   }
 
   console.log('给位置配图…');
@@ -591,21 +645,22 @@ async function main() {
     const id = locationId(name);
     if (!id) continue;
     const image = await createImage(shared.id, demo.id, name, imageIndex++);
-    await prisma.location.update({ where: { id }, data: { imageId: image.id } });
+    await locationRepo.update(id, { imageId: image.id });
   }
 
   const counts = {
-    用户: await prisma.user.count(),
-    家庭: await prisma.family.count(),
-    位置: await prisma.location.count({ where: { familyId: shared.id } }),
-    标签: await prisma.tag.count({ where: { familyId: shared.id } }),
+    用户: await userRepo.count(),
+    家庭: await familyRepo.count(),
+    位置: await locationRepo.count({ where: { familyId: shared.id } }),
+    标签: await tagRepo.count({ where: { familyId: shared.id } }),
     物品: itemCount,
-    带条码: await prisma.item.count({ where: { familyId: shared.id, barcode: { not: null } } }),
-    带图片: await prisma.item.count({ where: { familyId: shared.id, coverImageId: { not: null } } }),
+    // 原来的 `{ not: null }`，TypeORM 里必须写成 Not(IsNull())，直接写 null 会被 where 校验抛错
+    带条码: await itemRepo.count({ where: { familyId: shared.id, barcode: Not(IsNull()) } }),
+    带图片: await itemRepo.count({ where: { familyId: shared.id, coverImageId: Not(IsNull()) } }),
     序列号: unitCount,
-    模板: await prisma.template.count({ where: { familyId: shared.id } }),
-    通知器: await prisma.notificationChannel.count({ where: { familyId: shared.id } }),
-    邀请: await prisma.familyInvite.count({ where: { familyId: shared.id } }),
+    模板: await templateRepo.count({ where: { familyId: shared.id } }),
+    通知器: await channelRepo.count({ where: { familyId: shared.id } }),
+    邀请: await inviteRepo.count({ where: { familyId: shared.id } }),
   };
   if (missingLocation) console.error(`  ! 有 ${missingLocation} 组物品没匹配到位置，已落到无位置`);
 
@@ -621,4 +676,7 @@ main()
     console.error('填充失败：', error);
     process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    // 原来的 prisma.$disconnect() 对应 dataSource.destroy()；initialize 失败时无需销毁
+    if (dataSource.isInitialized) await dataSource.destroy();
+  });

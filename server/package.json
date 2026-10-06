@@ -2,52 +2,56 @@
   "name": "homebucket-server",
   "version": "0.0.1",
   "private": true,
-  "description": "Homebucket backend (NestJS + Prisma)",
+  "description": "Homebucket backend (NestJS + TypeORM)",
   "scripts": {
     "build": "nest build",
-    "format": "prettier --write \"src/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "prisma:build": "node scripts/build-schemas.mjs",
-    "prisma:generate": "node scripts/prisma.mjs generate",
-    "prisma:migrate": "node scripts/prisma.mjs migrate dev",
-    "prisma:deploy": "node scripts/prisma.mjs migrate deploy",
-    "prisma:studio": "node scripts/prisma.mjs studio",
-    "prisma:diff": "node scripts/prisma.mjs migrate diff",
+    "db:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
+    "db:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
+    "db:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
+    "db:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
+    "db:baseline": "node scripts/db-baseline.mjs",
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
-    "@nestjs/core": "^11.0.0",
-    "@nestjs/jwt": "^11.0.0",
-    "@nestjs/platform-express": "^11.0.0",
-    "@prisma/client": "^6.0.0",
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/jwt": "^12.0.2",
+    "@nestjs/platform-express": "^12.1.2",
+    "@nestjs/typeorm": "^12.0.2",
     "bcryptjs": "^3.0.0",
+    "better-sqlite3": "^13.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "dotenv": "^17.0.0",
+    "express": "^5.2.1",
     "multer": "^2.4.0",
+    "mysql2": "^3.24.5",
     "nodemailer": "^10.0.14",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.2",
+    "typeorm": "^1.1.1"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.0",
-    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/cli": "^12.0.8",
+    "@nestjs/schematics": "^12.0.6",
     "@types/express": "^5.0.0",
     "@types/multer": "^2.3.0",
-    "@types/node": "^22.10.0",
+    "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
     "@types/qrcode": "^1.5.6",
-    "prisma": "^6.0.0",
-    "typescript": "^5.7.0"
+    "ts-node": "^10.9.2",
+    "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "better-sqlite3": "$better-sqlite3"
   },
   "allowScripts": {
-    "prisma@6.19.3": true,
-    "@prisma/client@6.19.3": true,
-    "@prisma/engines@6.19.3": true
+    "better-sqlite3@13.0.3": true
   }
 }
