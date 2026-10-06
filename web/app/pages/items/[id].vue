@@ -37,6 +37,10 @@
         <span class="label">{{ t('item.barcode') }}</span>
         <span class="value hb-mono hb-break">{{ item.barcode }}</span>
       </div>
+      <div v-if="item.traceCode" class="meta-item">
+        <span class="label">{{ t('item.traceCode') }}</span>
+        <span class="value hb-mono hb-break">{{ item.traceCode }}</span>
+      </div>
       <div class="meta-item">
         <span class="label">{{ t('item.tags') }}</span>
         <span class="value">
@@ -84,6 +88,7 @@ interface ItemDetail {
   images: { id: number; url: string }[];
   qrToken: string;
   barcode: string | null;
+  traceCode: string | null;
   units: { id: number; sn: string | null; locationId: number | null; location: { id: number; name: string } | null }[];
 }
 

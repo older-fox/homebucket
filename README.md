@@ -26,7 +26,7 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 | --- | --- |
 | **Family** | The data boundary. Registering creates a personal household; accepting an invite adds more. Every query is hard-scoped by `familyId`; only the household owner can manage members and invite links. |
 | **Location** | An arbitrarily deep tree (entrance / living room / bedroom / storeroom / garage …). Supports drag-and-drop ordering and cross-level moves, plus photos and QR codes. |
-| **Item** | The basic ledger entry: name, description, quantity, unit price, model, manufacturer, location, tags, photos, product barcode. |
+| **Item** | The basic ledger entry: name, description, quantity, unit price, model, manufacturer, location, tags, photos, product barcode, and an optional system trace code. |
 | **Item unit (SN)** | Items that need per-piece tracking can register multiple SNs — **each SN can sit in a different location**. |
 | **Tag** | A cross-location classification, shown as bookmark-style pills. |
 | **Template** | Preset data for frequently added items, applied in one tap. A template can also be bound to a product barcode so scanning it applies the template. |
@@ -352,8 +352,8 @@ Pages declare their scrolling mode via `definePageMeta`, and the shell switches 
 | `/locations` | Desktop: tree on the left, content on the right (**ordering and cross-level moves are decided server-side**, with cycle prevention and sortIndex requantization). Mobile: the tree takes the whole screen and tapping a node opens the drill-down route |
 | `/locations/[id]` | Mobile location detail (portrait layout): sub-locations, items directly here, and serial numbers, each paginated |
 | `/items` | Inventory overview and quick add. Desktop is a table (sticky header, scrolls inside the panel); mobile is a card list (icon tile + title/location/model/tags + amount) with **swipe to edit/delete**. Unified search covers name / model / SN / barcode / location / tags; CSV export |
-| `/items/[id]` | Item detail: photos, tags, location, **each SN can be in a different location**, QR code, source template |
-| `/items/new` | Create an item; "apply template" at the top (or scan a template barcode to apply it); the product barcode field comes first and can be filled by scanning |
+| `/items/[id]` | Item detail: photos, tags, location, **each SN can be in a different location**, product barcode, trace code, QR code, source template |
+| `/items/new` | Create an item; "apply template" at the top (or scan a template barcode to apply it); the product barcode field comes first and can be filled by scanning, and a system trace code can be generated when there is no barcode |
 | `/templates` | Template management (including product barcodes), search and "create item from template" |
 | `/settings` | Household management (members / invite links / roles), system settings (household name, currency, language, time zone), notifiers |
 | `/search` | Unified search: items + locations + tags + serial numbers |
@@ -363,13 +363,14 @@ Pages declare their scrolling mode via `definePageMeta`, and the shell switches 
 - **Tag filtering on the item page**: there is no tag picker anymore; arriving from a tag bookmark (`?tagId=`) shows a one-tap removable filter chip.
 - **Mobile**: bottom tab bar (scan in the middle as the primary entry), drawer menu, safe-area support, touch targets ≥44px, native keyboard types in forms.
 
-## Product barcodes & scan priority
+## Product barcodes, trace codes & scan priority
 
 - Items can carry a "product barcode" (EAN/UPC and friends), **unique within a household**; duplicates are rejected (`item.barcodeTaken`).
 - When creating an item, **barcode comes first**: the field is at the top of the form and has a "scan to fill" button that jumps to the scan page and brings the code back (`/items/new?barcode=...`).
-- Scan resolution priority: **product barcode → item/location QR → SN**; responses carry `matchedBy` so the UI can tell the user how it matched.
+- **System trace code**: when an item has no manufacturer barcode, the create form offers a "Generate trace code" button. The code is minted server-side as `HB-XXXX-XXXX` (an alphabet without the easily confused `I/L/O/U`), is **unique within the household**, and is **immutable** — `UpdateItemDto` deliberately does not accept the field, so the only way to get a new one is to delete and recreate the item. Generate it with `POST /items/trace-code`.
+- Scan resolution priority: **product barcode → trace code → template / item / location QR → SN**; responses carry `matchedBy` (`barcode` / `traceCode` / `qrcode` / `sn`) so the UI can tell the user how it matched.
 - When a scanned code is unknown, the scan page offers "create an item with this barcode" and has a "scan to create" mode.
-- The inventory unified search (`q`) and the CSV export both include the barcode column.
+- The inventory unified search (`q`), the item list and the CSV export all include the barcode and trace-code columns.
 
 ## Barcode data collection
 

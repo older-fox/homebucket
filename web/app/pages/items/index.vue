@@ -80,7 +80,7 @@
                 {{ item.name }}
                 <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
               </td>
-              <td class="hb-mono muted">{{ item.barcode || '—' }}</td>
+              <td class="hb-mono muted">{{ item.barcode || item.traceCode || '—' }}</td>
               <td class="num hb-num">{{ item.quantity }}</td>
               <td>{{ item.model || '—' }}</td>
               <td>{{ item.location?.name || t('item.noLocation') }}</td>
@@ -165,7 +165,7 @@
                   <span class="hb-chip tiny hb-num">×{{ item.quantity }}</span>
                   <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
                   <!-- 条码只在没有标签时占位，避免和标签挤成两行 -->
-                  <span v-if="item.barcode && !item.tags.length" class="hb-chip tiny hb-mono">{{ item.barcode }}</span>
+                  <span v-if="(item.barcode || item.traceCode) && !item.tags.length" class="hb-chip tiny hb-mono">{{ item.barcode || item.traceCode }}</span>
                   <span
                     v-for="tag in item.tags.slice(0, 2)"
                     :key="tag.id"
@@ -202,6 +202,7 @@ interface Item {
   price: number;
   model: string | null;
   barcode: string | null;
+  traceCode: string | null;
   location: { id: number; name: string } | null;
   tags: { id: number; name: string; color: string }[];
   unitCount: number;

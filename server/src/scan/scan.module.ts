@@ -12,8 +12,9 @@ export class ScanService {
   /**
    * 扫码解析优先级：
    *   1. 商品条码（EAN/UPC）—— 优先级最高，直接命中物品
-   *   2. 物品二维码 / 位置二维码
-   *   3. SN 序列号
+   *   2. 系统追溯码（HB-XXXX-XXXX）
+   *   3. 模板条码 / 物品二维码 / 位置二维码
+   *   4. SN 序列号
    */
   async resolve(familyId: number, code: string) {
     const byBarcode = await this.prisma.item.findFirst({
@@ -27,6 +28,21 @@ export class ScanService {
         name: byBarcode.name,
         barcode: byBarcode.barcode,
         matchedBy: 'barcode' as const,
+      };
+    }
+
+    // 追溯码统一大写存储；这里也归一化，避免手输小写时 MySQL/SQLite 行为不一致
+    const byTraceCode = await this.prisma.item.findFirst({
+      where: { familyId, traceCode: code.trim().toUpperCase() },
+      select: { id: true, name: true, traceCode: true },
+    });
+    if (byTraceCode) {
+      return {
+        type: 'item' as const,
+        id: byTraceCode.id,
+        name: byTraceCode.name,
+        traceCode: byTraceCode.traceCode,
+        matchedBy: 'traceCode' as const,
       };
     }
 

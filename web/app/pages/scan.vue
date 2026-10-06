@@ -113,20 +113,63 @@
 </template>
 
 <script setup lang="ts">
-import { BrowserMultiFormatReader } from '@zxing/browser';
+import {
+  BrowserDatamatrixCodeReader,
+  BrowserMultiFormatOneDReader,
+  BrowserQRCodeReader,
+} from '@zxing/browser';
 
 type Mode = 'camera' | 'upload' | 'manual';
 
+/** 只用到基类的这两个方法；具体实现由 @zxing/browser 的各读码器提供 */
+interface CanvasReader {
+  decodeFromCanvas(canvas: HTMLCanvasElement): { getText(): string };
+  decodeFromImageUrl(source: string): Promise<{ getText(): string }>;
+}
+
 /**
- * 扫码识别器：不带 hints 的 MultiFormatReader 会同时挂上
- * 一维码（EAN/UPC/Code128…）与二维码（QR/DataMatrix/Aztec/PDF417）的 reader，
- * 所以二维码和商品条形码都会被尝试识别。
- * 注意：别再 `import ... from '@zxing/library'` —— 它的 CJS 入口在 Nitro 的
- * ESM 运行时里解析不了（ERR_UNSUPPORTED_DIR_IMPORT），会让 /scan 直接 500。
+ * 只挂「确实用得上」的读码器：
+ *   · QR 二维码
+ *   · Data Matrix（小件电子标签上常见）
+ *   · 常见一维码（EAN-13/8、UPC-A/E、Code128/39/93、ITF、Codabar）
+ *
+ * 刻意不含 MaxiCode / PDF417 / Aztec：家庭收纳几乎用不到，每帧白试一遍既费 CPU，
+ * 又会因为 @zxing/library 0.23.0 的异常继承 bug（NotFoundException / ChecksumException
+ * 直接继承 Exception 而不是 ReaderException，导致 MultiFormatReader 里
+ * `ex instanceof ReaderException` 永远为 false）把控制台刷满 warn。
+ * 这里改成各读码器逐个识别、异常自己接住，ZXing 内部就不会再打日志。
+ *
+ * 注意：别 `import ... from '@zxing/library'` —— 它的 CJS 入口在 Nitro 的 ESM 运行时里
+ * 解析不了（ERR_UNSUPPORTED_DIR_IMPORT），会让 /scan 直接 500。
  */
-function createReader() {
-  // 每帧之间留一点间隔，降低手机端 CPU 占用
-  return new BrowserMultiFormatReader(undefined, { delayBetweenScanAttempts: 120 });
+function createReaders(): CanvasReader[] {
+  return [new BrowserQRCodeReader(), new BrowserMultiFormatOneDReader(), new BrowserDatamatrixCodeReader()];
+}
+
+/** 依次用各读码器识别取景框画面，命中即返回文本；都没命中返回 null */
+function decodeCanvas(target: HTMLCanvasElement): string | null {
+  for (const each of readers) {
+    try {
+      const result = each.decodeFromCanvas(target);
+      if (result) return result.getText();
+    } catch {
+      // 这个读码器没命中，换下一个
+    }
+  }
+  return null;
+}
+
+/** 图片识别同理：各读码器逐个试，都没命中返回 null */
+async function decodeImageSource(url: string): Promise<string | null> {
+  for (const each of readers) {
+    try {
+      const result = await each.decodeFromImageUrl(url);
+      if (result) return result.getText();
+    } catch {
+      // 这个读码器没命中，换下一个
+    }
+  }
+  return null;
 }
 
 const { t } = useI18n();
@@ -184,7 +227,7 @@ const devices = ref<MediaDeviceInfo[]>([]);
 const deviceIndex = ref(0);
 
 const video = ref<HTMLVideoElement>();
-let reader: BrowserMultiFormatReader | null = null;
+let readers: CanvasReader[] = [];
 let stream: MediaStream | null = null;
 /** 定时对「取景框」区域做裁剪识别的定时器 */
 let timer: number | null = null;
@@ -244,17 +287,17 @@ async function switchMode(mode: Mode) {
   }
 }
 
-function onScanResult(result?: { getText(): string }) {
-  if (!result || handled) return;
+function onScanResult(text: string) {
+  if (handled) return;
   handled = true;
-  void onDetected(result.getText());
+  void onDetected(text);
 }
 
 async function startCamera() {
   if (!video.value || scanning.value) return;
   error.value = '';
   handled = false;
-  reader = reader ?? createReader();
+  if (!readers.length) readers = createReaders();
 
   try {
     const deviceId = devices.value[deviceIndex.value]?.deviceId;
@@ -293,7 +336,7 @@ async function startCamera() {
  */
 function decodeFrame() {
   const el = video.value;
-  if (!el || !canvas || !reader || handled) return;
+  if (!el || !canvas || !readers.length || handled) return;
 
   const vw = el.videoWidth;
   const vh = el.videoHeight;
@@ -312,12 +355,8 @@ function decodeFrame() {
   if (!ctx) return;
   ctx.drawImage(el, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
 
-  try {
-    const result = reader.decodeFromCanvas(canvas);
-    if (result) onScanResult(result);
-  } catch {
-    // 这一帧没识别到（NotFoundException / ChecksumException 等）属正常，继续下一帧
-  }
+  const text = decodeCanvas(canvas);
+  if (text) onScanResult(text);
 }
 
 function stopCamera() {
@@ -357,17 +396,20 @@ async function decodeImage(event: Event) {
   }
 
   preview.value = URL.createObjectURL(file);
+  if (!readers.length) readers = createReaders();
   try {
-    const decodeReader = createReader();
-    const result = await decodeReader.decodeFromImageUrl(preview.value);
+    const text = await decodeImageSource(preview.value);
+    if (!text) {
+      // 所有读码器都没命中 → 图里没有可识别的二维码 / 条码
+      error.value = t('scan.imageNoCode');
+      toast.add({ title: error.value, color: 'error' });
+      return;
+    }
     handled = false;
-    await onDetected(result.getText());
-  } catch (e) {
-    // ZXing 在"图里没有码 / 码不完整 / 校验失败"时都会抛错，这里统一给出明确说明
-    const name = (e as { name?: string })?.name ?? '';
-    error.value = ['NotFoundException', 'ChecksumException', 'FormatException'].includes(name)
-      ? t('scan.imageNoCode')
-      : t('scan.imageUnreadable');
+    await onDetected(text);
+  } catch {
+    // 连图片本身都读不了（不是合法图片等）
+    error.value = t('scan.imageUnreadable');
     toast.add({ title: error.value, color: 'error' });
   }
 }
@@ -414,11 +456,13 @@ async function lookup(code: string) {
       type: string;
       id: number;
       itemId?: number;
-      matchedBy?: 'barcode' | 'qrcode' | 'sn';
+      matchedBy?: 'barcode' | 'traceCode' | 'qrcode' | 'sn';
     }>(`/scan/${encodeURIComponent(value)}`);
 
     if (result.matchedBy === 'barcode') {
       toast.add({ title: t('scan.matchedByBarcode'), color: 'success' });
+    } else if (result.matchedBy === 'traceCode') {
+      toast.add({ title: t('scan.matchedByTraceCode'), color: 'success' });
     }
 
     if (result.type === 'location') {

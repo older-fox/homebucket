@@ -34,6 +34,16 @@ export class ItemsController {
     return this.items.exportCsv(family.id, query);
   }
 
+  /**
+   * 生成一个家庭内唯一的系统追溯码（物品没有厂家条码时使用）。
+   * 客户端拿到后随创建请求提交；创建后不可修改。
+   */
+  @FamilyScoped()
+  @Post('trace-code')
+  async mintTraceCode(@CurrentFamily() family: FamilyContext) {
+    return { traceCode: await this.items.mintTraceCode(family.id) };
+  }
+
   @FamilyScoped()
   @Get(':id')
   detail(@CurrentFamily() family: FamilyContext, @Param('id', ParseIntPipe) id: number) {

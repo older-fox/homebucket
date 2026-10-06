@@ -41,6 +41,47 @@
       {{ t('item.barcodeUnknown') }}
     </p>
 
+    <!-- 没有厂家条码的物品：可以生成一个系统追溯码（家庭内唯一，创建后不可修改） -->
+    <UFormField v-if="showTraceCode" :label="t('item.traceCode')" :hint="t('item.traceCodeHint')">
+      <div class="barcode-row">
+        <UInput
+          :model-value="form.traceCode"
+          :placeholder="t('item.traceCodePlaceholder')"
+          icon="i-lucide-hash"
+          size="xl"
+          class="barcode-input hb-mono"
+          readonly
+        />
+        <UButton
+          v-if="!form.traceCode && !itemId"
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-sparkles"
+          size="xl"
+          class="hb-tap"
+          :loading="generatingTrace"
+          @click="generateTraceCode"
+        >
+          <span class="hide-sm">{{ t('item.traceCodeGenerate') }}</span>
+        </UButton>
+        <UButton
+          v-else-if="form.traceCode"
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-copy"
+          size="xl"
+          class="hb-tap"
+          :aria-label="t('common.copy')"
+          @click="copyTraceCode"
+        />
+      </div>
+    </UFormField>
+
+    <p v-if="form.traceCode" class="barcode-note hb-muted">
+      <UIcon name="i-lucide-lock" />
+      {{ t('item.traceCodeImmutable') }}
+    </p>
+
     <!-- 新增时可套用模板：选中后自动预填各字段，物品会记录 templateId -->
     <div v-if="!itemId" class="template-bar">
       <UIcon name="i-lucide-layers" class="template-icon" />
@@ -168,6 +209,8 @@ interface ItemDetail {
   price: number;
   model: string | null;
   manufacturer: string | null;
+  barcode: string | null;
+  traceCode: string | null;
   location: { id: number } | null;
   tags: { id: number }[];
   images: { id: number; url: string }[];
@@ -191,6 +234,7 @@ const checkingBarcode = ref(false);
 const barcodeChecked = ref(false);
 const filledFromLibrary = ref(false);
 const foundLocal = ref<{ id: number; name: string } | null>(null);
+const generatingTrace = ref(false);
 const selectedTemplateId = ref<number | undefined>(props.templateId ?? undefined);
 const templateName = ref<string | null>(null);
 
@@ -206,6 +250,7 @@ const form = reactive<{
   model: string;
   manufacturer: string;
   barcode: string;
+  traceCode: string;
   locationId: number | null;
   tagIds: number[];
   imageIds: number[];
@@ -219,12 +264,16 @@ const form = reactive<{
   model: '',
   manufacturer: '',
   barcode: '',
+  traceCode: '',
   locationId: null,
   tagIds: [],
   imageIds: [],
   coverImageId: null,
   units: [],
 });
+
+/** 有厂家条码就不再提示生成追溯码；但已经生成过的始终显示（它不可撤销） */
+const showTraceCode = computed(() => !form.barcode.trim() || !!form.traceCode);
 
 const coverOptions = computed(() => [
   { label: t('item.cover'), value: null },
@@ -243,6 +292,8 @@ onMounted(async () => {
       price: item.price,
       model: item.model ?? '',
       manufacturer: item.manufacturer ?? '',
+      barcode: item.barcode ?? '',
+      traceCode: item.traceCode ?? '',
       locationId: item.location?.id ?? null,
       tagIds: item.tags.map((tag) => tag.id),
       imageIds: item.images.map((image) => image.id),
@@ -267,6 +318,31 @@ onMounted(async () => {
 /** 去扫码页，扫到的条码会带回本表单（?barcode=） */
 function scanBarcode() {
   navigateTo('/scan?new=1');
+}
+
+/**
+ * 让服务端铸造一个家庭内唯一的追溯码。
+ * 生成后随创建请求提交；物品一旦创建，追溯码不可再修改（更新接口不接受该字段）。
+ */
+async function generateTraceCode() {
+  generatingTrace.value = true;
+  try {
+    const result = await api.post<{ traceCode: string }>('/items/trace-code', {});
+    form.traceCode = result.traceCode;
+  } catch (error) {
+    toast.add({ title: (error as { message?: string }).message ?? t('errors.unknown'), color: 'error' });
+  } finally {
+    generatingTrace.value = false;
+  }
+}
+
+async function copyTraceCode() {
+  try {
+    await navigator.clipboard.writeText(form.traceCode);
+    toast.add({ title: t('common.copied'), color: 'success' });
+  } catch {
+    toast.add({ title: form.traceCode, color: 'info' });
+  }
 }
 
 /**
@@ -389,6 +465,8 @@ async function submit() {
       const created = await api.post<{ id: number }>('/items', {
         ...payload,
         templateId: selectedTemplateId.value ?? undefined,
+        // 追溯码只在创建时提交；编辑时更新接口不接受该字段（不可变更）
+        traceCode: form.traceCode || undefined,
         units: form.units
           .filter((unit) => unit.sn.trim())
           .map((unit) => ({ sn: unit.sn.trim(), locationId: unit.locationId ?? undefined })),

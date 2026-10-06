@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CollectionService } from '../collection/collection.module';
-import { shortToken } from '../common/id';
+import { shortToken, traceCode } from '../common/id';
 import type { CreateItemDto, ItemUnitDto, QueryItemsDto, UpdateItemDto } from './dto';
 
 type AttachmentLike = { key: string; url: string | null } | null;
@@ -38,6 +38,7 @@ export class ItemsService {
           model: true,
           manufacturer: true,
           barcode: true,
+          traceCode: true,
           qrToken: true,
           createdAt: true,
           location: { select: { id: true, name: true } },
@@ -95,6 +96,7 @@ export class ItemsService {
   async create(familyId: number, dto: CreateItemDto) {
     await this.assertRelations(familyId, dto);
     await this.assertBarcodeAvailable(familyId, dto.barcode);
+    await this.assertTraceCodeAvailable(familyId, dto.traceCode);
     const item = await this.prisma.item.create({
       data: {
         familyId,
@@ -105,6 +107,7 @@ export class ItemsService {
         model: dto.model,
         manufacturer: dto.manufacturer,
         barcode: dto.barcode?.trim() || null,
+        traceCode: dto.traceCode?.trim().toUpperCase() || null,
         locationId: dto.locationId,
         templateId: dto.templateId,
         coverImageId: dto.coverImageId,
@@ -236,6 +239,7 @@ export class ItemsService {
       '型号',
       '制造商',
       '商品条码',
+      '追溯码',
       '位置',
       '标签',
       '序列号/条码',
@@ -252,6 +256,7 @@ export class ItemsService {
         row.model ?? '',
         row.manufacturer ?? '',
         row.barcode ?? '',
+        row.traceCode ?? '',
         row.location?.name ?? '',
         row.tags.map((tag) => tag.name).join(' / '),
         row.units
@@ -283,6 +288,7 @@ export class ItemsService {
       where.OR = [
         { name: { contains: q } },
         { barcode: { contains: q } },
+        { traceCode: { contains: q } },
         { model: { contains: q } },
         { manufacturer: { contains: q } },
         { description: { contains: q } },
@@ -317,6 +323,46 @@ export class ItemsService {
       throw new ConflictException({
         code: 'item.barcodeTaken',
         message: '该商品条码已被本家庭的其他物品使用',
+      });
+    }
+  }
+
+  /**
+   * 生成一个家庭内唯一的追溯码。
+   * 随机空间是 32^8 ≈ 1.1e12，碰撞概率极低；仍然循环重试几次并最终靠唯一索引兜底。
+   */
+  async mintTraceCode(familyId: number): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = traceCode();
+      const exists = await this.prisma.item.findFirst({
+        where: { familyId, traceCode: candidate },
+        select: { id: true },
+      });
+      if (!exists) return candidate;
+    }
+    throw new ConflictException({
+      code: 'item.traceCodeFailed',
+      message: '生成追溯码失败，请重试',
+    });
+  }
+
+  /** 追溯码在同一个家庭内唯一 */
+  private async assertTraceCodeAvailable(
+    familyId: number,
+    value?: string,
+    exceptItemId?: number,
+  ) {
+    const code = value?.trim().toUpperCase();
+    if (!code) return;
+
+    const exists = await this.prisma.item.findFirst({
+      where: { familyId, traceCode: code, id: exceptItemId ? { not: exceptItemId } : undefined },
+      select: { id: true },
+    });
+    if (exists) {
+      throw new ConflictException({
+        code: 'item.traceCodeTaken',
+        message: '该追溯码已被本家庭的其他物品使用',
       });
     }
   }

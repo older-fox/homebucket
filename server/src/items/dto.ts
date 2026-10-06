@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   Length,
+  Matches,
   Max,
   Min,
   ValidateNested,
@@ -58,6 +59,15 @@ export class CreateItemDto {
   @IsString()
   @Length(4, 64)
   barcode?: string;
+
+  /**
+   * 系统追溯码：只能由 `POST /items/trace-code` 生成后原样提交，格式固定。
+   * 更新接口（UpdateItemDto）故意不含该字段 —— 配合全局 whitelist 即"创建后不可变更"。
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^HB-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/, { message: '追溯码格式不正确' })
+  traceCode?: string;
 
   @IsOptional()
   @IsInt()

@@ -162,6 +162,8 @@ model Item {
   manufacturer String?
   /// 商品条码（EAN-13 / UPC 等），家庭内唯一；扫码解析优先级最高
   barcode      String?
+  /// 系统追溯码：物品没有厂家条码时由用户生成，家庭内唯一且创建后不可变更
+  traceCode    String?
   locationId   Int?
   templateId   Int?
   coverImageId Int?
@@ -178,6 +180,7 @@ model Item {
   tags       Tag[]        @relation("ItemTags")
 
   @@unique([familyId, barcode])
+  @@unique([familyId, traceCode])
   @@index([familyId, createdAt])
   @@index([familyId, locationId])
   @@index([familyId, name])
