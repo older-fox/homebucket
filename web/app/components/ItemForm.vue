@@ -487,13 +487,28 @@ async function submit() {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 720px;
+  /* 不要在这里加 max-width：本组件在物品详情页是整页宽度的卡片之一，
+     在新建物品页也是页面主体。之前这里的 max-width: 720px 会让表单比同页
+     其它区块（meta 卡片、序列号区块）窄 400+px，宽屏下右边缘明显缺一块。
+     宽度由外层容器（.page 的 --hb-page-max）统一约束即可。 */
 }
 
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) 而不是 1fr：1fr 等价于 minmax(auto, 1fr)，
+     内部是 w-full 的输入框时容易被内容撑破列宽 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+/* 宽屏：数量/单价/型号/制造商 这四个短字段排成一行。
+   表单现在占满页面容器（最宽 1200px），如果仍然只分两列，
+   每个输入框会被拉到 ~550px 宽，短字段留一大片空白反而难看；
+   加宽应该用来"多放几列"，而不是"把输入框拉长" */
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .units {
@@ -518,8 +533,13 @@ async function submit() {
   flex: 1 1 40%;
 }
 
-.unit-location {
+/* ⚠️ 必须用 :deep()：LocationPicker 的根节点是 USelect 的 <button>，
+   而 Vue 的 scoped 属性（data-v-*）不会落到这个子组件根上，
+   所以 `.unit-location { ... }` 这种直接写法是**死规则**（实测不匹配）。
+   不修的话位置选择器没有 flex 尺寸，宽度由位置名称长度决定，行布局会随数据抖动。 */
+.units :deep(.unit-location) {
   flex: 1 1 60%;
+  min-width: 0;
 }
 
 .barcode-row {
@@ -575,7 +595,10 @@ async function submit() {
   flex-shrink: 0;
 }
 
-.template-select {
+/* 同 .unit-location：USelect 根节点拿不到 scoped 属性，
+   直接写 .template-select 是死规则，会导致模板下拉框被挤在左侧 ~89px、
+   整条虚线栏留一大片空白。必须用 :deep() 才能把 flex: 1 作用上去。 */
+.template-bar :deep(.template-select) {
   flex: 1;
   min-width: 0;
 }
@@ -628,8 +651,10 @@ async function submit() {
     flex-wrap: wrap;
   }
 
-  .unit-sn,
-  .unit-location {
+  /* 同 UnitEditor：只让 SN 独占一行，位置选择器由上面的
+     `.units :deep(.unit-location) { flex: 1 1 60% }` grow 填满剩余空间。
+     不能写成 `.unit-location { ... }`，那对 LocationPicker 是死规则。 */
+  .unit-sn {
     flex: 1 1 100%;
   }
 }

@@ -158,7 +158,7 @@ onMounted(async () => {
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
   padding: 14px 16px;
-  margin-bottom: 18px;
+  margin-bottom: var(--hb-gap-lg);
 }
 
 .meta-item {
@@ -177,12 +177,14 @@ onMounted(async () => {
   font-weight: var(--hb-fw-semibold);
 }
 
+/* 区块之间统一的垂直节奏：与 meta 卡片使用同一个间距 token，
+   避免出现 18px / 22px 这种各写各的边距 */
 .block {
-  margin-bottom: 22px;
+  margin-bottom: var(--hb-gap-lg);
 }
 
 h2 {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-size: var(--hb-fs-h3);
   font-weight: var(--hb-fw-semibold);
 }
