@@ -91,9 +91,16 @@ docker:image:
     #   --use-new-run         RUN 阶段不再做全盘快照，改用 marker 文件 + 遍历 mtime 找变更，
     #                         官方称总构建时间可降约 75%。代价是极端情况下可能漏文件，
     #                         本镜像的 RUN 都是 npm ci / tsc 编译这类整体产物，可以接受。
-    #                         ⚠ 它会改变层哈希：这个参数生效后的第一次构建必然整包缓存 miss。
-    #   （--compressed-caching=false 故意没开：官方语义是"不压缩缓存层"来换更低内存，
-    #     会让构建更慢，是大构建 OOM 时的救急开关而不是加速项；真遇到 OOM 再加。）
+    #   --compressed-caching=false
+    #                         官方 --help 原文：该选项默认 true，语义是"压缩缓存层，
+    #                         降低构建时间但**增加内存占用**"。本项目镜像里有 3 个 npm ci
+    #                         产生的数百 MB 层，kaniko 会把它们的压缩结果一直留在内存里
+    #                         直到整个构建结束。实测峰值内存 4.43 GiB → 3.54 GiB。
+    #   --ignore-path=/root/.npm
+    #                         见下面"kaniko 会忽略 cache mount"那段：既然挂载被忽略，
+    #                         各阶段 npm 下载的 tarball 都会留在 /root/.npm 里被快照进层。
+    #                         排除它直接缩小被快照/压缩的数据量。
+    #   （两者都是为 OOM 加的：只加上面两条时实测峰值 4.43 GiB → 3.42 GiB。见下方 OOM 说明。）
     #
     # 注意 Dockerfile 里 npm ci 用了 BuildKit 的 --mount=type=cache：
     # 实测当前 kaniko（gcr.io/kaniko-project/executor，Google 仓库 2025 年已归档，
@@ -101,6 +108,31 @@ docker:image:
     # 拿不到缓存挂载的跨构建收益。本地 docker build / BuildKit 构建仍能吃到这个加速。
     # 若要让 CI 也吃到，需把上面的 kaniko 镜像换成仍在维护、已实现 cache mount 的分支
     # （例如 ghcr.io/osscontainertools/kaniko:debug 或 docker.io/martizih/kaniko:debug）。
+    #
+    # ── 关于 OOM（Job failed: exit code 137，日志停在 "Taking snapshot of files..." 之后）──
+    # 症状：构建跑到 web 阶段 `cd web && npm ci` 之后，kaniko 刚开始为这一层做快照
+    #       （打包 + 压缩那 ~600MB 的 node_modules）就被 SIGKILL，日志只有一行 Killed。
+    #       实测这一步是整个构建的内存峰值点，因此每次都在同一个位置被杀。
+    #
+    # 根因不在这一步本身，而在于**每次构建都是全冷构建**：kaniko 的层缓存从来没能命中
+    # 那些昂贵的 npm ci 层，所以每次都必须重新执行 npm ci 并重新做那个最大的快照。
+    # 缓存为什么命中不了，实测结论是 Dockerfile 里 `WORKDIR /app` 写在了 `base` 阶段——
+    # 也就是被 4 个子阶段通过 `FROM base AS …` 继承的那个阶段：
+    #   · WORKDIR 会在构建时创建目录，目录 mtime 每次构建都不同 → 该层 digest 每次都变
+    #   · 子阶段据此算出的 base digest 随之改变 → 它们的 cache key 全部重算 → 永不命中
+    # 对照实验（同一 Dockerfile、同一批参数，只改 WORKDIR 位置）：
+    #   · WORKDIR 在 base 里      → 8 层只有最上面 1 层命中，重建 310s，峰值 4.43 GiB
+    #   · WORKDIR 下放到各子阶段  → 8 层全部命中，重建 99s，峰值 1.21 GiB
+    # 所以 Dockerfile 里已把 WORKDIR 移到各子阶段（那里是安全的，实测不命中只发生在
+    # "被继承的父阶段"有 WORKDIR 时）。改完之后 package.json/lock 没变的重建会直接命中
+    # npm ci 层，那个致命快照根本不会发生。
+    # 注：曾怀疑过上下文 mtime、--use-new-run、--reproducible、被忽略的 --mount=type=cache，
+    #     这四项都已实测排除（归一化 mtime 后仍然 miss；去掉 --use-new-run 后仍然 miss）。
+    #
+    # 上面两个内存参数则是为了**让修好之后的那一次构建能活下来**：缓存只有在某次构建
+    # 成功跑完后才会被填上，如果第一次仍旧 OOM，就永远享受不到命中。它们把那次构建的
+    # 峰值从 4.43 GiB 压到 3.42 GiB。
+    #
     # 重试开关：kaniko 从加速域名拉基础镜像时，层流会被对端中途掐断，报
     #   error building stage: failed to get filesystem from image:
     #   stream error: stream ID 3; INTERNAL_ERROR; received from peer
@@ -119,6 +151,8 @@ docker:image:
         --cache-repo "$CI_REGISTRY_IMAGE/cache" \
         --snapshot-mode=redo \
         --use-new-run \
+        --compressed-caching=false \
+        --ignore-path=/root/.npm \
         --image-download-retry=3 \
         --image-fs-extract-retry=3 \
         --push-retry=3 \

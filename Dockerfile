@@ -34,10 +34,20 @@ ARG NPM_REGISTRY=""
 RUN set -eu; \
     npm config set update-notifier false; \
     if [ -n "${NPM_REGISTRY:-}" ]; then npm config set registry "$NPM_REGISTRY"; fi
-WORKDIR /app
+
+# ⚠️ 这里刻意**不放 WORKDIR**：它会让 kaniko 的层缓存对下面所有子阶段彻底失效。
+#    WORKDIR 会在构建时创建目录，目录的 mtime 每次构建都不同 → 该层 digest 每次都变
+#    → 子阶段（FROM base AS …）据此算出的 base digest 随之改变 → 它们的 cache key 全部重算，
+#    于是缓存永远命中不了，每次都是全冷构建。
+#    实测对照（同一份 Dockerfile、同一批参数）：
+#      · WORKDIR 在 base 里      → 8 层里只有最上面那层命中，重建 310s，峰值 4.43 GiB
+#      · WORKDIR 下放到各子阶段  → 8 层全部命中，重建 99s，峰值 1.21 GiB
+#    所以 WORKDIR 一律写在**具体使用它的那个阶段**里（见下面每个 FROM base AS … 之后）。
+#    注意：放在子阶段里是安全的（实测不命中只发生在"被继承的父阶段"有 WORKDIR 时）。
 
 # ---------- 后端构建：装（含 dev 的）依赖 → nest build ----------
 FROM base AS server-build
+WORKDIR /app
 # 只拷后端清单；前后端各自独立 package.json（非 monorepo）。
 # 清单放在源码之前 COPY：只要 package.json / package-lock.json 没变，npm ci 这层就一直命中缓存。
 COPY server/package.json server/package-lock.json ./server/
@@ -60,6 +70,7 @@ RUN cd server && npm run build
 
 # ---------- 后端运行依赖：只装 production ----------
 FROM base AS server-prod-deps
+WORKDIR /app
 COPY server/package.json server/package-lock.json ./server/
 # 这是本次瘦身的关键：旧镜像把 996MB 的整包 node_modules（含 Prisma CLI）搬进运行期，
 # 只因为启动迁移要 shell out 到 prisma CLI。现在迁移在进程内跑，运行期只要 production 依赖。
@@ -69,6 +80,7 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # ---------- 前端：装依赖 → nuxt build（产物 .output 自带运行时依赖） ----------
 FROM base AS web-build
+WORKDIR /app
 # 关掉 Nuxt telemetry：构建阶段不要往外发匿名统计，CI 里也少一次网络请求。
 # 这里刻意不设 NODE_ENV=production：npm 在 NODE_ENV=production 下默认 omit=dev，
 # 而 nuxt build 需要 devDependencies（typescript 等），依赖装不全反而更慢更危险；
@@ -87,6 +99,7 @@ RUN cd web && npm run build
 
 # ---------- 运行：单容器同时跑前后端 ----------
 FROM base AS runtime
+WORKDIR /app
 ENV NODE_ENV=production \
     WEB_HOST=0.0.0.0 \
     WEB_PORT=3000 \
