@@ -27,7 +27,14 @@
     <div class="row add">
       <UInput v-model="draft.sn" :placeholder="t('item.sn')" size="lg" class="sn" />
       <LocationPicker v-model="draft.locationId" class="location" />
-      <UButton icon="i-lucide-plus" class="hb-tap" :loading="adding" @click="add">{{ t('common.add') }}</UButton>
+      <!-- size="lg" 与同排的 SN 输入框对齐；add-btn 负责阻止自己被输入框挤扁（见样式里的说明） -->
+      <UButton
+        size="lg"
+        icon="i-lucide-plus"
+        class="add-btn hb-tap"
+        :loading="adding"
+        @click="add"
+      >{{ t('common.add') }}</UButton>
     </div>
   </div>
 </template>
@@ -120,6 +127,8 @@ async function remove(unitId: number) {
 
 .sn {
   flex: 1 1 40%;
+  /* 允许被压缩：行内空间不够时应该由输入框让位，而不是把按钮挤扁 */
+  min-width: 0;
 }
 
 /* ⚠️ 必须用 :deep()：LocationPicker 的根是 USelect 的 <button>，
@@ -130,6 +139,20 @@ async function remove(unitId: number) {
 .unit-editor :deep(.location) {
   flex: 1 1 60%;
   min-width: 0;
+}
+
+/*
+ * 添加按钮：禁止被压缩。
+ *
+ * 这个行里 SN(40%) + 位置(60%) 的 flex-basis 已经占满整行，如果按钮还允许收缩，
+ * 它会被压到 ~61px，标签「添加」换行成两行，按钮高度变成 63px —— 而同排输入框
+ * 只有 41px，视觉上就是个突兀的大方块。加上 flex-shrink: 0 后按钮保持自然宽度
+ * （标签单行，37px→配 size="lg" 后 41px 与输入框齐平），空间不足时由两个输入框
+ * 各自收缩让位。
+ */
+.row.add .add-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .add {
