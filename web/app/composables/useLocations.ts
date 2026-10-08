@@ -93,6 +93,18 @@ export function useLocations() {
     contentsMap.value = {};
   }
 
+  /**
+   * 退出登录 / 切换账号时整体清空。
+   * 位置树与各位置内容都是家庭维度的数据，留着会被下一个账号看到。
+   */
+  function reset() {
+    tree.value = [];
+    treeLoaded.value = false;
+    treePending.value = false;
+    contentsMap.value = {};
+    pendingIds.value = {};
+  }
+
   const isContentsPending = (id: number) => pendingIds.value[id] === true;
 
   return {
@@ -106,6 +118,7 @@ export function useLocations() {
     invalidateTree,
     invalidateContents,
     invalidateAllContents,
+    reset,
     isContentsPending,
   };
 }
