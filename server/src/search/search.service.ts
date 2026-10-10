@@ -67,10 +67,14 @@ export class SearchService {
 
     // 原 `_count: { items/children }`：Item.locationId / Location.parentId 都是外键列，
     // 直接用聚合查询（见 common/relation-count.ts）
-    const [locationItemCounts, locationChildCounts, tagItemCounts] = await Promise.all([
+    const [locationItemCounts, locationChildCounts, tagItemCounts, takenOutUnitCounts] = await Promise.all([
       countByForeignKey(this.items, 'locationId', locations.map((row) => row.id)),
       countByForeignKey(this.locations, 'parentId', locations.map((row) => row.id)),
       this.countTagItems(tags.map((row) => row.id)),
+      // 按件追踪的物品只有「部分取走」时 item.takenOutAt 仍为 null，前端胶囊需要件数才知道要显示什么
+      countByForeignKey(this.units, 'itemId', items.map((row) => row.id), (qb) =>
+        qb.andWhere('row.takenOutAt IS NOT NULL'),
+      ),
     ]);
 
     return {
@@ -87,8 +91,9 @@ export class SearchService {
         manufacturer: item.manufacturer,
         location: item.location ? { id: item.location.id, name: item.location.name } : null,
         tags: item.tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color })),
-        // 搜索结果同样带上取走状态（这里不数件数，保持搜索响应轻量）
+        // 搜索结果同样带上取走状态，语义与物品列表一致（整件看 takenOutAt、按件看件数）
         takenOutAt: item.takenOutAt,
+        takenOutUnitCount: takenOutUnitCounts.get(item.id) ?? 0,
       })),
       locations: locations.map((location) => ({
         id: location.id,

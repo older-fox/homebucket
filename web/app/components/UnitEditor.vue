@@ -13,6 +13,8 @@
         class="location"
         @update:model-value="(value: number | null) => saveLocation(unit, value)"
       />
+      <!-- 该序列号件当前的取走状态；没取走时组件自身不渲染 -->
+      <TakenOutChip :taken-out-at="unit.takenOutAt" />
       <UButton
         color="neutral"
         variant="ghost"
@@ -45,6 +47,7 @@ interface Unit {
   sn: string | null;
   locationId: number | null;
   location: { id: number; name: string } | null;
+  takenOutAt: string | null;
 }
 
 const props = defineProps<{ itemId: number; units: Unit[] }>();

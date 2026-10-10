@@ -116,6 +116,7 @@
                 <span class="hb-list-meta">
                   <span class="hb-chip tiny hb-num">×{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</span>
                   <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                  <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
                 </span>
               </span>
               <span class="hb-list-side hb-num">{{ money(item.price * item.quantity) }}</span>
@@ -138,6 +139,7 @@
                   <td class="strong">
                     {{ item.name }}
                     <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                    <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
                   </td>
                   <td class="num hb-num">{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</td>
                   <td class="hb-muted">{{ item.location?.name || t('item.noLocation') }}</td>
@@ -164,7 +166,10 @@
             <li v-for="unit in pagedUnits" :key="unit.id" class="hb-list-row" @click="navigateTo(`/items/${unit.itemId}`)">
               <span class="hb-list-main">
                 <span class="hb-list-title hb-mono">{{ unit.sn || '—' }}</span>
-                <span class="hb-list-sub">{{ unit.itemName }} · {{ unit.locationName || t('item.noLocation') }}</span>
+                <span class="hb-list-sub">
+                  {{ unit.itemName }} · {{ unit.locationName || t('item.noLocation') }}
+                  <TakenOutChip :taken-out-at="unit.takenOutAt" />
+                </span>
               </span>
               <UIcon name="i-lucide-chevron-right" class="hb-list-chev" />
             </li>
@@ -181,7 +186,7 @@
               </thead>
               <tbody>
                 <tr v-for="unit in pagedUnits" :key="unit.id" class="clickable" @click="navigateTo(`/items/${unit.itemId}`)">
-                  <td class="hb-mono">{{ unit.sn || '—' }}</td>
+                  <td class="hb-mono">{{ unit.sn || '—' }} <TakenOutChip :taken-out-at="unit.takenOutAt" /></td>
                   <td>{{ unit.itemName }}</td>
                   <td class="hb-muted">{{ unit.locationName || t('item.noLocation') }}</td>
                 </tr>
@@ -222,8 +227,20 @@ interface Contents {
     model: string | null;
     location: { id: number; name: string } | null;
     unitCount: number;
+    /** 整件追踪：非空 = 整件已取走 */
+    takenOutAt: string | null;
+    /** 按件追踪：正被拿走的件数 */
+    takenOutUnitCount: number;
   }[];
-  itemUnits: { id: number; sn: string | null; itemId: number; itemName: string; locationName: string | null }[];
+  itemUnits: {
+    id: number;
+    sn: string | null;
+    itemId: number;
+    itemName: string;
+    locationName: string | null;
+    /** 非空 = 这一件正被拿走 */
+    takenOutAt: string | null;
+  }[];
 }
 
 const props = withDefaults(defineProps<{ id: number; mobile?: boolean; back?: boolean }>(), {

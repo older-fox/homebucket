@@ -167,6 +167,8 @@
     "fromTemplateLabel": "Use a template",
     "noImages": "No photos yet",
     "noUnits": "No serial numbers registered",
+    "takenOut": "Taken out",
+    "takenOutUnits": "{count} taken out",
     "searchPlaceholder": "Search by name, model or location",
     "searchBySn": "Search by SN / barcode",
     "searchPlaceholderAll": "Search name, model, SN/barcode, location or tag",

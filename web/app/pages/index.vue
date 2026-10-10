@@ -69,6 +69,7 @@
               <UIcon name="i-lucide-map-pin" class="inline-icon" />
               <span class="hb-truncate">{{ item.location?.name || t('item.noLocation') }}</span>
               <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+              <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
             </p>
           </div>
           <div class="hb-list-side">
@@ -154,6 +155,10 @@ interface DashboardItem {
   location: { id: number; name: string } | null;
   tags: { id: number; name: string; color: string }[];
   unitCount: number;
+  /** 整件追踪：非空 = 整件已取走 */
+  takenOutAt: string | null;
+  /** 按件追踪：正被拿走的件数 */
+  takenOutUnitCount: number;
 }
 
 interface Dashboard {

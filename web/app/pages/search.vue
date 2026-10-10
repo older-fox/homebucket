@@ -29,6 +29,7 @@
                 <span class="hb-list-sub">
                   {{ item.location?.name || t('item.noLocation') }}
                   <template v-if="item.model"> · {{ item.model }}</template>
+                  <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
                 </span>
               </div>
               <span class="hb-list-side hb-num">{{ money(item.price) }}</span>
@@ -44,6 +45,7 @@
                 <span class="hb-list-title hb-mono">{{ unit.sn }}</span>
                 <span class="hb-list-sub">
                   {{ unit.item?.name }} · {{ unit.location?.name || t('item.noLocation') }}
+                  <TakenOutChip :taken-out-at="unit.takenOutAt" />
                 </span>
               </div>
               <UIcon name="i-lucide-chevron-right" class="hb-list-chev" />
@@ -96,8 +98,8 @@
 <script setup lang="ts">
 interface SearchResults {
   query: string;
-  items: { id: number; name: string; price: number; model: string | null; location: { id: number; name: string } | null }[];
-  units: { id: number; sn: string | null; itemId: number; item: { name: string } | null; location: { id: number; name: string } | null }[];
+  items: { id: number; name: string; price: number; model: string | null; takenOutAt: string | null; takenOutUnitCount: number; location: { id: number; name: string } | null }[];
+  units: { id: number; sn: string | null; itemId: number; item: { name: string } | null; takenOutAt: string | null; location: { id: number; name: string } | null }[];
   locations: { id: number; name: string; itemCount: number; childCount: number }[];
   tags: { id: number; name: string; color: string; itemCount: number }[];
 }

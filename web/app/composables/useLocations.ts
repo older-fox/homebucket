@@ -17,8 +17,20 @@ export interface LocationContents {
     model: string | null;
     location: { id: number; name: string } | null;
     unitCount: number;
+    /** 整件追踪：非空 = 整件已取走 */
+    takenOutAt: string | null;
+    /** 按件追踪：正被拿走的件数 */
+    takenOutUnitCount: number;
   }[];
-  itemUnits: { id: number; sn: string | null; itemId: number; itemName: string; locationName: string | null }[];
+  itemUnits: {
+    id: number;
+    sn: string | null;
+    itemId: number;
+    itemName: string;
+    locationName: string | null;
+    /** 非空 = 这一件正被拿走 */
+    takenOutAt: string | null;
+  }[];
 }
 
 /**

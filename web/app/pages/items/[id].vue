@@ -53,6 +53,8 @@
     </div>
 
     <div class="stock-actions">
+      <!-- 当前取走状态（整件追踪看 takenOutAt，按件追踪看 takenOutUnitCount）；没取走时组件自身不渲染 -->
+      <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
       <UButton color="primary" variant="soft" icon="i-lucide-minus" @click="openAdjust('consume')">
         {{ t('item.consume') }}
       </UButton>
@@ -137,7 +139,15 @@ interface ItemDetail {
   qrToken: string;
   barcode: string | null;
   traceCode: string | null;
-  units: { id: number; sn: string | null; locationId: number | null; location: { id: number; name: string } | null }[];
+  takenOutAt: string | null;
+  takenOutUnitCount: number;
+  units: {
+    id: number;
+    sn: string | null;
+    locationId: number | null;
+    location: { id: number; name: string } | null;
+    takenOutAt: string | null;
+  }[];
 }
 
 const { t } = useI18n();
@@ -319,6 +329,7 @@ h2 {
 .stock-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-bottom: var(--hb-gap-lg);
 }

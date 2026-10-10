@@ -522,6 +522,13 @@ samp {
   font-size: 11px;
 }
 
+/* 「已取走」状态胶囊（列表、详情、搜索结果共用）：用警告色描边与在库状态区分 */
+.hb-chip.out {
+  border-color: var(--hb-warning);
+  background: var(--hb-surface-2);
+  color: var(--hb-warning);
+}
+
 /* 列表行右侧的次要文字（如数量 ×N） */
 .hb-list-note {
   font-size: var(--hb-fs-xs);

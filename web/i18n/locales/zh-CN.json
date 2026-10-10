@@ -167,6 +167,8 @@
     "fromTemplateLabel": "套用模板",
     "noImages": "还没有照片",
     "noUnits": "没有登记序列号",
+    "takenOut": "已取走",
+    "takenOutUnits": "已取走 {count} 件",
     "searchPlaceholder": "按名称、型号、位置搜索",
     "searchBySn": "按 SN / 条码搜索",
     "searchPlaceholderAll": "搜索名称、型号、SN/条码、位置、标签",

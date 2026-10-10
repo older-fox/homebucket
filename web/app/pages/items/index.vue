@@ -79,6 +79,7 @@
               <td class="strong">
                 {{ item.name }}
                 <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
               </td>
               <td class="hb-mono muted">{{ item.barcode || item.traceCode || '—' }}</td>
               <td class="num hb-num">{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</td>
@@ -164,6 +165,7 @@
                 <div class="hb-list-meta">
                   <span class="hb-chip tiny hb-num">×{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</span>
                   <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                  <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
                   <!-- 条码只在没有标签时占位，避免和标签挤成两行 -->
                   <span v-if="(item.barcode || item.traceCode) && !item.tags.length" class="hb-chip tiny hb-mono">{{ item.barcode || item.traceCode }}</span>
                   <span
@@ -208,6 +210,10 @@ interface Item {
   location: { id: number; name: string } | null;
   tags: { id: number; name: string; color: string }[];
   unitCount: number;
+  /** 整件追踪：非空 = 整件已取走 */
+  takenOutAt: string | null;
+  /** 按件追踪：正被拿走的件数 */
+  takenOutUnitCount: number;
 }
 
 const { t } = useI18n();
