@@ -15,8 +15,11 @@ export interface FamilySummary {
 /** 家庭列表 + 当前家庭（存在 cookie 的 hb_family 里，useApi 会自动带上 X-Family-Id） */
 export function useFamily() {
   const api = useApi();
-  // 这两个组合式函数在 setup 阶段取好（不能在事件回调里现取：那时没有 Nuxt 上下文）
-  const route = useRoute();
+  // 这里能用 useRouter() 但**不能**用 useRoute()：useFamily 会被 auth.global.ts 里的
+  // 全局中间件调用（先确定登录态与家庭列表），而 Nuxt 4 明确禁止在中间件里 useRoute()，
+  // 每次导航都会报 NUXT_E2005（中间件里拿到的路由还不是即将进入的那条）。
+  // useRouter() 没有这个限制，真正需要路径的只有 switchTo()，那时再读 currentRoute 即可。
+  const router = useRouter();
   const locations = useLocations();
   const families = useState<FamilySummary[]>('hb_families', () => []);
   /**
@@ -53,7 +56,7 @@ export function useFamily() {
     // 位置树与各位置内容同样只属于一个家庭
     locations.reset();
 
-    if (route.path === '/') {
+    if (router.currentRoute.value.path === '/') {
       // 已经在首页时，navigateTo('/') 属于「重复导航」，vue-router 会直接忽略它：
       // 页面不会重新执行 setup，被清掉的 dashboard 缓存也就没人去重新拉 ——
       // 表现就是切了家庭还要手动刷新整页。这里显式重新取一次数。

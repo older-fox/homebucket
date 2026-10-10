@@ -11,6 +11,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import {
   MAX_PACK_LEVELS,
@@ -118,3 +119,46 @@ test('前端 hasPackaging：最小单位名或任一层级存在即为启用', (
   assert.equal(web.hasPackaging(null, []), false);
   assert.equal(web.hasPackaging('', [level('坏', 1)]), false, '非法层级不算启用包装');
 });
+
+test('档位列表 choices()：下标 0 是最小单位，之后依次是各包装层级', () => {
+  // 档位的 value 必须是下标而不是名字：reka 的 SelectItem 对空字符串 value 直接抛错
+  // （空串被它保留表示"清空选择"），而「最小单位」这一档本来就没有名字。
+  assert.deepEqual(web.choices(undefined), [null], '没配包装时只有「最小单位」一档');
+  assert.deepEqual(web.choices('not-an-array'), [null]);
+  assert.deepEqual(web.choices(SHOP), [null, level('箱', 24), level('提', 6)]);
+  assert.deepEqual(
+    web.choices([level('坏', 1), level(' 箱 ', 24), level('半箱', 2.5)]),
+    [null, level('箱', 24)],
+    '非法层级不在选项里（沿用 levels() 的过滤）',
+  );
+
+  // 下标 → factor 的映射必须与分解口径一致，否则「按箱用掉」的换算会错
+  const list = web.choices(SHOP);
+  assert.equal(list[0] ?? 1, 1, '下标 0 = 最小单位，按 1 倍换算');
+  assert.equal(list[1].factor, 24);
+  assert.equal(list[2].factor, 6);
+});
+
+test('源码护栏：USelect 的选项值不要用空字符串（reka 会直接抛错）', () => {
+  const root = new URL('../../web/app/', import.meta.url);
+  const offenders = [];
+  for (const entry of readdirSync(root, { recursive: true })) {
+    const file = String(entry);
+    if (!file.endsWith('.vue') && !file.endsWith('.ts')) continue;
+    const source = readFileSync(new URL(file, root), 'utf8');
+    if (!source.includes('<USelect')) continue;
+    if (/value:\s*''/.test(source)) offenders.push(file);
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些文件的 USelect 选项用了空字符串 value（reka 的 SelectItem 会抛错）：${offenders.join(', ')}`,
+  );
+
+  const dialog = readFileSync(
+    new URL('../../web/app/components/StockAdjustDialog.vue', import.meta.url),
+    'utf8',
+  );
+  assert.match(dialog, /choices\(/, '盘点/消耗弹窗的档位应来自 useUnits().choices()，不要自己拼 value');
+});
+

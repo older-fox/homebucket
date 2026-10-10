@@ -4,7 +4,7 @@
       <div class="sa">
         <label class="sa-field">
           <span class="sa-label">{{ t('item.adjustLevel') }}</span>
-          <USelect v-model="level" :items="levelOptions" />
+          <USelect v-model="levelIndex" :items="levelOptions" />
         </label>
 
         <label class="sa-field">
@@ -52,22 +52,37 @@ const emit = defineEmits<{ 'update:open': [boolean]; done: [] }>();
 const { t } = useI18n();
 const api = useApi();
 const toast = useToast();
-const { levels } = useUnits();
+const { choices } = useUnits();
 
 const amount = ref(1);
 const note = ref('');
-/** '' 表示按最小单位 */
-const level = ref('');
+/**
+ * 选项下标：0 = 最小单位，1..n = 各级包装。
+ *
+ * 这里既不能用空字符串也不能用名字当 value：reka 的 SelectItem 对空字符串直接抛错
+ * 「A <SelectItem /> must have a value prop that is not an empty string」
+ * （空字符串被它保留表示「清空选择」）；而用哨兵字符串又可能与用户自定的级别名重名。
+ * 用下标就没有这个问题，提交时再翻译回级别名。
+ */
+const levelIndex = ref(0);
 const saving = ref(false);
 
 const title = computed(() => t(props.mode === 'consume' ? 'item.consume' : 'item.restock'));
 
-const levelOptions = computed(() => [
-  { label: props.baseUnit || t('item.baseUnit'), value: '' },
-  ...levels(props.packLevels).map((item) => ({ label: item.name, value: item.name })),
-]);
+/** 档位列表：下标 0 = 最小单位，1..n = 各级包装（顺序与换算都由 choices() 保证） */
+const levelChoices = computed(() => choices(props.packLevels));
 
-const factor = computed(() => (level.value ? levels(props.packLevels).find((l) => l.name === level.value)?.factor ?? 1 : 1));
+const levelOptions = computed(() =>
+  levelChoices.value.map((level, index) => ({
+    label: level?.name ?? (props.baseUnit || t('item.baseUnit')),
+    value: index,
+  })),
+);
+
+/** 当前选中的包装级别；下标 0（按最小单位）时没有对应级别 */
+const selectedLevel = computed(() => levelChoices.value[levelIndex.value] ?? null);
+
+const factor = computed(() => selectedLevel.value?.factor ?? 1);
 const preview = computed(() => {
   const total = Math.max(1, Math.floor(amount.value || 1)) * factor.value;
   const unit = props.baseUnit ?? '';
@@ -80,7 +95,7 @@ watch(
     if (open) {
       amount.value = 1;
       note.value = '';
-      level.value = '';
+      levelIndex.value = 0;
     }
   },
 );
@@ -90,7 +105,7 @@ async function submit() {
   saving.value = true;
   try {
     await api.post(`/items/${props.itemId}/${props.mode}`, {
-      level: level.value || undefined,
+      level: selectedLevel.value?.name,
       amount: Math.max(1, Math.floor(amount.value || 1)),
       note: note.value.trim() || undefined,
     });

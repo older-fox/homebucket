@@ -30,6 +30,18 @@ export function useUnits() {
   }
 
   /**
+   * 「选一个计量档位」用的有序列表：下标 0 是最小单位（没有对应层级，值为 null），
+   * 之后依次是各级包装。
+   *
+   * 为什么档位的 value 要用下标而不是名字：reka 的 SelectItem 不接受空字符串 value
+   * （空串被它保留表示「清空选择」，直接抛错），而「最小单位」这一档本来就没有名字，
+   * 只能编一个哨兵串 —— 但那又可能与用户自定的级别名撞车。用下标从结构上就没这问题。
+   */
+  function choices(raw: unknown): (PackLevel | null)[] {
+    return [null, ...levels(raw)];
+  }
+
+  /**
    * 数量收敛到非负整数。
    * 注意不能只写 Math.max(0, Math.floor(value))：Math.max(0, NaN) 还是 NaN，
    * 一个 NaN 会一路乘进总数里（输入框清空、传进字符串时都可能出现）。
@@ -76,5 +88,5 @@ export function useUnits() {
     return chunks.join(' ');
   }
 
-  return { levels, hasPackaging, decompose, compose, format };
+  return { levels, choices, hasPackaging, decompose, compose, format };
 }
