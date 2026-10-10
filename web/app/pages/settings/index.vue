@@ -102,7 +102,7 @@
                   {{ invite.expiresAt ? date(invite.expiresAt) : t('settings.inviteNever') }}
                 </span>
               </div>
-              <UButton size="sm" color="neutral" variant="soft" icon="i-lucide-copy" class="hb-tap" @click="copy(inviteUrl(invite.token))">
+              <UButton size="sm" color="neutral" variant="soft" icon="i-lucide-copy" class="hb-tap" @click="copyInvite(inviteUrl(invite.token))">
                 {{ t('common.copy') }}
               </UButton>
               <UButton v-if="isOwner" size="sm" color="error" variant="ghost" icon="i-lucide-ban" class="hb-tap" @click="revokeInvite(invite.id)">
@@ -258,6 +258,7 @@ const EVENTS = ['invite_created', 'member_joined', 'item_created', 'item_updated
 const { t } = useI18n();
 const api = useApi();
 const toast = useToast();
+const { copy } = useClipboard();
 const { money, date } = useFormat();
 const { families, current, load, switchTo, refresh: refreshFamilies } = useFamily();
 
@@ -417,13 +418,9 @@ function inviteUrl(token: string) {
   return `${window.location.origin}/invite/${token}`;
 }
 
-async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.add({ title: t('common.copied'), color: 'success' });
-  } catch {
-    window.prompt(t('common.copy'), text);
-  }
+// 邀请链接比较长，失败时用系统输入框让人可以手动选中
+function copyInvite(text: string) {
+  return copy(text, { fallback: 'prompt' });
 }
 
 function openNotifier(notifier: Notifier | null) {

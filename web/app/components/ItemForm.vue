@@ -246,6 +246,7 @@ const emit = defineEmits<{ saved: [number] }>();
 const { t } = useI18n();
 const api = useApi();
 const toast = useToast();
+const { copy } = useClipboard();
 const { currency } = useFormat();
 
 const saving = ref(false);
@@ -364,13 +365,9 @@ async function generateTraceCode() {
   }
 }
 
-async function copyTraceCode() {
-  try {
-    await navigator.clipboard.writeText(form.traceCode);
-    toast.add({ title: t('common.copied'), color: 'success' });
-  } catch {
-    toast.add({ title: form.traceCode, color: 'info' });
-  }
+// 剪贴板逻辑（含"没权限时把内容弹出来"的兜底）统一在 useClipboard 里
+function copyTraceCode() {
+  return copy(form.traceCode);
 }
 
 /**

@@ -123,6 +123,7 @@ const { t } = useI18n();
 const { money, relative } = useFormat();
 const { format: formatUnits } = useUnits();
 const toast = useToast();
+const { copy } = useClipboard();
 const {
   open,
   status,
@@ -339,14 +340,9 @@ const goTemplate = () => {
 };
 const retry = () => lookup(code.value);
 
-async function copyCode() {
-  try {
-    await navigator.clipboard.writeText(code.value);
-    toast.add({ title: t('common.copied'), color: 'success' });
-  } catch {
-    // 没有剪贴板权限时把内容显示出来，至少能手动抄
-    toast.add({ title: code.value, color: 'info' });
-  }
+// 没有剪贴板权限时 useClipboard 会把内容弹成 info toast，至少能手动抄
+function copyCode() {
+  return copy(code.value);
 }
 </script>
 
