@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Length, Max, Min, IsBoolean } from 'class-validator';
+import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 import { IsOptionalNotNull } from '../common/validation';
 
 export class CreateFamilyDto {
@@ -41,10 +41,4 @@ export class CreateInviteDto {
 export class UpdateMemberDto {
   @IsString()
   role: string; // admin | member
-}
-
-export class JoinFamilyDto {
-  @IsOptional()
-  @IsBoolean()
-  switchDefault?: boolean;
 }

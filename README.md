@@ -144,7 +144,7 @@ cd server && npm run typecheck && npm test && npm run db:check-drift
 cd web    && npm run typecheck
 ```
 
-`npm test` is a [node:test](https://nodejs.org/api/test.html) suite (43 assertions, no test dependencies); `db:check-drift` migrates a throwaway SQLite file and fails if `schema:log` is not empty, which catches "entity changed but no migration written".
+`npm test` is a [node:test](https://nodejs.org/api/test.html) suite (49 assertions, no test dependencies); `db:check-drift` migrates a throwaway SQLite file and fails if `schema:log` is not empty, which catches "entity changed but no migration written".
 
 Endpoints: `GET /api` (info), `GET /api/health` (health check), `POST /api/auth/register` (username + password, email optional), `POST /api/auth/login` (**username** + password), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
 
@@ -510,7 +510,7 @@ Everything in this section was run against this repository; the first group is a
 **Automated (`npm run typecheck`, `npm test`, `npm run db:check-drift`, `nuxt build`)**
 
 - **Types**: `tsc --noEmit` (server) and `nuxt typecheck` (web, via `vue-tsc`) are both clean, and both are wired into the CI `check` stage.
-- **Tests**: 43 `node:test` assertions in `server/test/` — config parsing (`env`), packaging arithmetic and **server↔web parity** (`server/src/items/packaging.ts` vs `web/app/composables/useUnits.ts`), trace-code/short-token contracts, and the i18n coverage contract. Two real bugs were found by writing them: `@Length` reports the constraint name `isLength` (the locale said `length`, so users saw the raw string `isLength`), and `Math.max(0, Math.floor(x))` does not clamp `NaN` (it propagated into totals on both sides).
+- **Tests**: 49 `node:test` assertions in `server/test/` — config parsing (`env`), packaging arithmetic and **server↔web parity** (`server/src/items/packaging.ts` vs `web/app/composables/useUnits.ts`), trace-code/short-token contracts, the i18n coverage contract, and the take-out/put-back rules (which target types may be taken out, that putting something back must clear the timestamp, and which history action is recorded). Two real bugs were found by writing them: `@Length` reports the constraint name `isLength` (the locale said `length`, so users saw the raw string `isLength`), and `Math.max(0, Math.floor(x))` does not clamp `NaN` (it propagated into totals on both sides).
 - **Schema drift**: `npm run db:check-drift` migrates a throwaway SQLite file and requires `schema:log` to be empty — it fails if an entity was changed without a matching migration.
 - **Builds**: `nest build` and `nuxt build` both pass; `nuxt build` alone would *not* catch web type errors (vite/esbuild do not typecheck), which is why the typecheck job exists separately.
 

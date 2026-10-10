@@ -2,13 +2,9 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from 
 import { CurrentFamily, CurrentUser, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { actorOf } from '../activity/activity.service';
 import { CreateLocationDto, MoveLocationDto, UpdateLocationDto } from './dto';
 import { LocationsService } from './locations.service';
-
-/** 操作人：id + 用户名快照 */
-function actorOf(user: AuthUser) {
-  return { id: user.id, name: user.username };
-}
 
 /**
  * 位置域的 HTTP 入口：只负责路由与参数绑定，业务逻辑全部在 LocationsService。

@@ -2,13 +2,9 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from 
 import { CurrentFamily, CurrentUser, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { actorOf } from '../activity/activity.service';
 import { CreateTemplateDto, UpdateTemplateDto, UseTemplateDto } from './dto';
 import { TemplatesService } from './templates.service';
-
-/** 操作人：id + 用户名快照 */
-function actorOf(user: AuthUser) {
-  return { id: user.id, name: user.username };
-}
 
 /** 模板 HTTP 层：只做路由与参数绑定，业务逻辑全在 TemplatesService */
 @Controller('templates')

@@ -24,8 +24,3 @@ export const FamilyScoped = () => applyDecorators(UseGuards(JwtAuthGuard, Family
 
 /** 仅登录（不要求家庭上下文） */
 export const Authed = () => applyDecorators(UseGuards(JwtAuthGuard));
-
-export const FamilyRoles = {
-  isOwner: (ctx?: FamilyContext) => ctx?.role === 'owner',
-  canManage: (ctx?: FamilyContext) => ctx?.role === 'owner' || ctx?.role === 'admin',
-};

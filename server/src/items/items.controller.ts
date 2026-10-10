@@ -13,15 +13,10 @@ import {
 import { CurrentFamily, CurrentUser, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
-import { ActivityService, type ActivityActor } from '../activity/activity.service';
+import { ActivityService, actorOf } from '../activity/activity.service';
 import { ActivityQueryDto } from '../activity/dto';
 import { ItemsService } from './items.service';
 import { CreateItemDto, AdjustStockDto, ItemUnitDto, QueryItemsDto, UnpackDto, UpdateItemDto } from './dto';
-
-/** 操作人：id + 用户名快照（用户名只在 AuthUser 上） */
-function actorOf(user: AuthUser): ActivityActor {
-  return { id: user.id, name: user.username };
-}
 
 @Controller('items')
 export class ItemsController {

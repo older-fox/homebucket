@@ -33,6 +33,16 @@ export interface ActivityActor {
 }
 
 /**
+ * 把登录用户转成活动记录里的操作人快照。
+ *
+ * 用户名只在 AuthUser 上（活动记录要留"当时的"用户名），所以每个控制器都得做这一次转换；
+ * 原来四个控制器各写了一份同名私有函数，统一到这里，参数用结构化类型以免 common ← activity 的循环依赖。
+ */
+export function actorOf(user: { id: number; username: string }): ActivityActor {
+  return { id: user.id, name: user.username };
+}
+
+/**
  * 字段级差异的一项。
  * from/to 在**写入时**就已解析成可直接展示的值（位置名、标签名数组、数量……）；
  * `null` 分别表示"新增时无旧值"和"删除时无新值"。

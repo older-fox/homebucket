@@ -9,6 +9,7 @@ import { Template } from '../entities/template.entity';
 import { Attachment } from '../entities/attachment.entity';
 import { ActivityService, type ActivityActor } from '../activity/activity.service';
 import { parsePackLevels } from '../items/packaging';
+import { isTakeable, nextTakenOutAt, notTakeableMessage, takeOutAction } from './take-out';
 import { mediaUrl } from '../common/media';
 import { env } from '../config/env';
 
@@ -109,14 +110,14 @@ export class ScanService {
     if (!target) {
       throw new NotFoundException({ code: 'scan.notFound', message: '没有找到对应的物品或位置' });
     }
-    if (target.type !== 'item' && target.type !== 'unit') {
+    if (!isTakeable(target.type)) {
       throw new BadRequestException({
         code: 'scan.notTakeable',
-        message: target.type === 'location' ? '位置不能取走' : '模板不能取走',
+        message: notTakeableMessage(target.type),
       });
     }
 
-    const takenOutAt = takenOut ? new Date() : null;
+    const takenOutAt = nextTakenOutAt(takenOut);
     // 上面已把模板/位置拦掉，这里收窄成 'item' | 'unit'；在下面的闭包里 TS 不会保留对
     // target.type 的属性收窄，所以先取到局部常量
     const targetType = target.type;
@@ -137,7 +138,7 @@ export class ScanService {
           targetId: target.id,
           itemId: targetType === 'item' ? target.id : (target.itemId ?? null),
           itemName: target.name,
-          action: takenOut ? 'item.take_out' : 'item.put_back',
+          action: takeOutAction(takenOut),
         },
         manager,
       );

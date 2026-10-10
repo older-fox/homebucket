@@ -2,12 +2,8 @@ import { Controller, Get, Header, HttpCode, HttpStatus, Param, ParseIntPipe, Pos
 import { CurrentFamily, CurrentUser, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
+import { actorOf } from '../activity/activity.service';
 import { ScanService } from './scan.service';
-
-/** 操作人：id + 用户名快照 */
-function actorOf(user: AuthUser) {
-  return { id: user.id, name: user.username };
-}
 
 /** 扫码/二维码入口（职责：只声明路由与响应头，解析逻辑在 ScanService） */
 @Controller()
