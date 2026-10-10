@@ -29,12 +29,22 @@ export function useUnits() {
     return Boolean(baseUnit) || levels(packLevels).length > 0;
   }
 
+  /**
+   * 数量收敛到非负整数。
+   * 注意不能只写 Math.max(0, Math.floor(value))：Math.max(0, NaN) 还是 NaN，
+   * 一个 NaN 会一路乘进总数里（输入框清空、传进字符串时都可能出现）。
+   */
+  function toCount(value: unknown): number {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
   /** 把最小单位总数拆成各级 + 余数 */
   function decompose(
     qty: number,
     packLevels: unknown,
   ): { parts: UnitPart[]; base: number } {
-    let rest = Math.max(0, Math.floor(qty || 0));
+    let rest = toCount(qty);
     const parts: UnitPart[] = [];
     for (const level of levels(packLevels)) {
       const count = Math.floor(rest / level.factor);
@@ -46,9 +56,9 @@ export function useUnits() {
 
   /** 各级数量 + 最小单位数量 → 最小单位总数 */
   function compose(counts: Record<string, number>, base: number, packLevels: unknown): number {
-    let total = Math.max(0, Math.floor(base || 0));
+    let total = toCount(base);
     for (const level of levels(packLevels)) {
-      total += Math.max(0, Math.floor(counts[level.name] || 0)) * level.factor;
+      total += toCount(counts[level.name]) * level.factor;
     }
     return total;
   }

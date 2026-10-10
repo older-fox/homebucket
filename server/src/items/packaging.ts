@@ -77,9 +77,18 @@ export function factorOf(levelName: string | null | undefined, levels: PackLevel
   return levels.find((level) => level.name === levelName)?.factor ?? 1;
 }
 
+/**
+ * 数量收敛到非负整数（与 web 侧 useUnits.toCount 同义）。
+ * 不能只写 Math.max(0, Math.floor(qty))：Math.max(0, NaN) 仍是 NaN，会一路污染结果。
+ */
+function toCount(value: unknown): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /** 把最小单位总数拆成各级 + 余数（最小单位） */
 export function decompose(qty: number, levels: PackLevel[]): { parts: DecomposedPart[]; base: number } {
-  let rest = Math.max(0, Math.floor(qty));
+  let rest = toCount(qty);
   const parts: DecomposedPart[] = [];
   for (const level of levels) {
     const count = Math.floor(rest / level.factor);
