@@ -87,6 +87,8 @@ export class SearchService {
         manufacturer: item.manufacturer,
         location: item.location ? { id: item.location.id, name: item.location.name } : null,
         tags: item.tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color })),
+        // 搜索结果同样带上取走状态（这里不数件数，保持搜索响应轻量）
+        takenOutAt: item.takenOutAt,
       })),
       locations: locations.map((location) => ({
         id: location.id,
@@ -108,6 +110,7 @@ export class SearchService {
         itemId: unit.itemId,
         item: { name: unit.item.name },
         location: unit.location ? { id: unit.location.id, name: unit.location.name } : null,
+        takenOutAt: unit.takenOutAt,
       })),
     };
   }

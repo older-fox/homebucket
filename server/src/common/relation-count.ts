@@ -1,4 +1,4 @@
-import type { ObjectLiteral, Repository } from 'typeorm';
+import type { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 
 /**
  * 统计"一批父记录各自有多少个子记录"。
@@ -11,22 +11,32 @@ import type { ObjectLiteral, Repository } from 'typeorm';
  *   const counts = await countByForeignKey(itemUnitRepo, 'itemId', items.map((i) => i.id));
  *   counts.get(item.id) ?? 0
  *
+ *   // 带条件：只数"当前处于取走状态"的 SN
+ *   const out = await countByForeignKey(itemUnitRepo, 'itemId', ids, (qb) =>
+ *     qb.andWhere('row.takenOutAt IS NOT NULL'),
+ *   );
+ *
  * @param repo        子表的 Repository
  * @param foreignKey  子表上指向父表的列名（实体属性名）
  * @param ids         父记录 id 列表
+ * @param refine      追加条件（可选）。查询别名固定是 `row`，只应调用 andWhere 之类的追加方法
  */
 export async function countByForeignKey<T extends ObjectLiteral>(
   repo: Repository<T>,
   foreignKey: keyof T & string,
   ids: number[],
+  refine?: (qb: SelectQueryBuilder<T>) => SelectQueryBuilder<T>,
 ): Promise<Map<number, number>> {
   if (ids.length === 0) return new Map();
 
-  const rows = await repo
+  let builder = repo
     .createQueryBuilder('row')
     .select(`row.${foreignKey}`, 'parentId')
     .addSelect('COUNT(*)', 'total')
-    .where(`row.${foreignKey} IN (:...ids)`, { ids })
+    .where(`row.${foreignKey} IN (:...ids)`, { ids });
+  if (refine) builder = refine(builder);
+
+  const rows = await builder
     .groupBy(`row.${foreignKey}`)
     .getRawMany<{ parentId: number | string; total: number | string }>();
 

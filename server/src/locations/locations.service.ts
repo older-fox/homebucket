@@ -119,6 +119,10 @@ export class LocationsService {
     // 原先由 `_count: { select: { units: true } }` 提供；TypeORM 1.x 删了
     // loadRelationCountAndMap，改用一次 GROUP BY 聚合（见 common/relation-count.ts）
     const unitCounts = await countByForeignKey(this.units, 'itemId', itemRows.map((row) => row.id));
+    // 位置详情也要显示"已取走"：按件追踪的物品取走的是 unit，单独数一次（见 relation-count.ts）
+    const outUnitCounts = await countByForeignKey(this.units, 'itemId', itemRows.map((row) => row.id), (qb) =>
+      qb.andWhere('row.takenOutAt IS NOT NULL'),
+    );
     const nodes = await this.toNodes(locationRows);
 
     return {
@@ -144,6 +148,8 @@ export class LocationsService {
         location: row.location ? { id: row.location.id, name: row.location.name } : null,
         tags: row.tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color })),
         unitCount: unitCounts.get(row.id) ?? 0,
+        takenOutAt: row.takenOutAt,
+        takenOutUnitCount: outUnitCounts.get(row.id) ?? 0,
       })),
       itemUnits: unitRows.map((row) => ({
         id: row.id,
@@ -152,6 +158,7 @@ export class LocationsService {
         itemName: row.item.name,
         locationId: row.locationId,
         locationName: row.location?.name ?? null,
+        takenOutAt: row.takenOutAt,
       })),
     };
   }

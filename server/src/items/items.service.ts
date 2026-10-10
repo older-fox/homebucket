@@ -54,7 +54,13 @@ export class ItemsService {
 
     // 原先由 Prisma 的 `_count: { select: { units: true } }` 提供；TypeORM 1.x 删了
     // loadRelationCountAndMap，这里用一次聚合查询替代（见 common/relation-count.ts）
-    const unitCounts = await countByForeignKey(this.units, 'itemId', rows.map((row) => row.id));
+    const ids = rows.map((row) => row.id);
+    const [unitCounts, outCounts] = await Promise.all([
+      countByForeignKey(this.units, 'itemId', ids),
+      // 「已取走」当前状态：有 SN 的物品按件追踪，取走的是 unit 而不是 item，
+      // 所以列表除了 item.takenOutAt 还要带上"有几件正被拿走"，两条聚合并行发出
+      countByForeignKey(this.units, 'itemId', ids, (qb) => qb.andWhere('row.takenOutAt IS NOT NULL')),
+    ]);
 
     return {
       // 库存列表不返回缩略图，只给结构化数据
@@ -74,6 +80,9 @@ export class ItemsService {
         location: row.location ? { id: row.location.id, name: row.location.name } : null,
         tags: row.tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color })),
         unitCount: unitCounts.get(row.id) ?? 0,
+        // 整件追踪（无 SN）时取走的是物品本身；takenOutAt 非空 = 当前已拿走使用
+        takenOutAt: row.takenOutAt,
+        takenOutUnitCount: outCounts.get(row.id) ?? 0,
       })),
       total,
       page,
@@ -115,6 +124,9 @@ export class ItemsService {
       coverImageId: item.coverImageId,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
+      // 当前取走状态：整件追踪看 item.takenOutAt，按件追踪看每个 unit 的 takenOutAt
+      takenOutAt: item.takenOutAt,
+      takenOutUnitCount: item.units.filter((unit) => unit.takenOutAt).length,
       location: item.location ? { id: item.location.id, name: item.location.name } : null,
       template: item.template ? { id: item.template.id, name: item.template.name } : null,
       tags: item.tags,
@@ -123,6 +135,7 @@ export class ItemsService {
         sn: unit.sn,
         locationId: unit.locationId,
         note: unit.note,
+        takenOutAt: unit.takenOutAt,
         location: unit.location ? { id: unit.location.id, name: unit.location.name } : null,
       })),
       coverImageUrl: mediaUrl(item.coverImage),
@@ -623,12 +636,21 @@ export class ItemsService {
       '位置',
       '标签',
       '序列号/条码',
+      '取走状态',
       '描述',
       '创建时间',
     ];
 
-    const lines = rows.map((row) =>
-      [
+    const lines = rows.map((row) => {
+      const outUnitCount = row.units.filter((unit) => unit.takenOutAt).length;
+      // 整件追踪看 item.takenOutAt；按件追踪看有多少件正被拿走
+      const takenOut = row.takenOutAt
+        ? `已取走（${row.takenOutAt.toISOString()}）`
+        : outUnitCount > 0
+          ? `部分取走（${outUnitCount}/${row.units.length}）`
+          : '在库';
+
+      return [
         row.name,
         String(row.quantity),
         formatBreakdown(row.quantity, parsePackLevels(row.packLevels), row.baseUnit),
@@ -641,14 +663,19 @@ export class ItemsService {
         row.location?.name ?? '',
         row.tags.map((tag) => tag.name).join(' / '),
         row.units
-          .map((unit) => (unit.location ? `${unit.sn ?? ''}@${unit.location.name}` : (unit.sn ?? '')))
+          .map((unit) => {
+            const label = unit.location ? `${unit.sn ?? ''}@${unit.location.name}` : (unit.sn ?? '');
+            // 序列号列顺带标出正在被拿走的那几件，导出后也能一眼看出状态
+            return unit.takenOutAt ? `${label}（已取走）` : label;
+          })
           .join(' | '),
+        takenOut,
         row.description ?? '',
         row.createdAt.toISOString(),
       ]
         .map(csvCell)
-        .join(','),
-    );
+        .join(',');
+    });
 
     // BOM 让 Excel 正确识别 UTF-8
     return `\uFEFF${[header.map(csvCell).join(','), ...lines].join('\r\n')}\r\n`;

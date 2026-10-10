@@ -110,6 +110,8 @@ export class CollectionService {
       baseUnit: item.baseUnit,
       packLevels: parsePackLevels(item.packLevels),
       location: item.location ? { id: item.location.id, name: item.location.name } : null,
+      // 扫码提示「本地已有」时也能看出这件东西是否正被拿走
+      takenOutAt: item.takenOutAt,
     };
   }
 

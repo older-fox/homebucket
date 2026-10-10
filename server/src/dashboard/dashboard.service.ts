@@ -46,8 +46,10 @@ export class DashboardService {
     // Prisma 的 `_count` 在 TypeORM 1.x 没有等价物（loadRelationCountAndMap 已删除），
     // 单外键计数一律走 common/relation-count.ts 的聚合查询；标签是隐式多对多，
     // 没有外键列可用，单独用一次 join + GROUP BY 顶替（见 tagItemCounts）。
-    const [unitCounts, childCounts, itemCountsByLocation, itemCountsByTag] = await Promise.all([
+    const [unitCounts, outUnitCounts, childCounts, itemCountsByLocation, itemCountsByTag] = await Promise.all([
       countByForeignKey(this.units, 'itemId', recentItemIds),
+      // 首页也要能看到"已取走"：按件追踪的物品取走的是 unit，这里单独数一次
+      countByForeignKey(this.units, 'itemId', recentItemIds, (qb) => qb.andWhere('row.takenOutAt IS NOT NULL')),
       countByForeignKey(this.locations, 'parentId', locationIds),
       countByForeignKey(this.items, 'locationId', locationIds),
       this.tagItemCounts(tagIds),
@@ -78,6 +80,8 @@ export class DashboardService {
         location: item.location ? { id: item.location.id, name: item.location.name } : null,
         tags: item.tags.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color })),
         unitCount: unitCounts.get(item.id) ?? 0,
+        takenOutAt: item.takenOutAt,
+        takenOutUnitCount: outUnitCounts.get(item.id) ?? 0,
       })),
       locations: locations.map((location) => ({
         id: location.id,
