@@ -21,6 +21,7 @@ const require = createRequire(import.meta.url);
 const dataSource = require(resolve(root, 'dist/database/data-source.js')).default;
 // 实体清单同样从编译产物取，保证和运行时是同一份
 const {
+  ActivityLog,
   Attachment,
   Family,
   FamilyInvite,
@@ -562,6 +563,10 @@ async function main() {
   let unitCount = 0;
   let missingLocation = 0;
 
+  // 取走示例要用到的两类样本：不按件追踪的（取走做在物品级）与带 SN 的（做在 SN 级）
+  const plainItemSamples = [];
+  const unitItemSamples = [];
+
   for (const [group, rows] of Object.entries(CATALOG)) {
     const place = locationId(group);
     if (!place) {
@@ -599,8 +604,9 @@ async function main() {
       }
       const saved = await itemRepo.save(item);
 
+      let firstUnit = null;
       for (const [sn, unitPath] of UNITS[name] ?? []) {
-        await unitRepo.save(
+        firstUnit = await unitRepo.save(
           unitRepo.create({
             familyId: shared.id,
             itemId: saved.id,
@@ -612,8 +618,54 @@ async function main() {
         unitCount += 1;
       }
 
+      if (firstUnit) unitItemSamples.push({ item: saved, unit: firstUnit });
+      else plainItemSamples.push(saved);
+
       itemCount += 1;
     }
+  }
+
+  // —— 取走示例 ——
+  // 让首页/列表/搜索里的「已取走」角标与历史时间线在演示数据里也有内容。
+  // seed 直接写仓库、不走 ActivityService，所以 takenOutAt 与对应的 ActivityLog 必须一起写，
+  // 否则会出现「有角标、没历史」或反之的不一致。时间戳显式传（@CreateDateColumn 只在没赋值时才用默认值）。
+  console.log('铺取走示例…');
+  const activityRepo = dataSource.getRepository(ActivityLog);
+  const takeOutSamples = [
+    { target: plainItemSamples[3], days: 0 },   // 今天刚取走
+    { target: plainItemSamples[17], days: 9 },  // 借出去有一阵了
+  ].filter((s) => s.target);
+  for (const { target, days } of takeOutSamples) {
+    const at = daysAgo(days);
+    await itemRepo.update(target.id, { takenOutAt: at });
+    await activityRepo.insert({
+      familyId: shared.id,
+      actorId: demo.id,
+      actorName: demo.username,
+      targetType: 'item',
+      targetId: target.id,
+      itemId: target.id,
+      itemName: target.name,
+      action: 'item.take_out',
+      createdAt: at,
+    });
+  }
+  // 一条 SN 级取走：单件外借，物品本身还在家里
+  const unitSample = unitItemSamples.find((s) => s.unit);
+  if (unitSample) {
+    const at = daysAgo(3);
+    await unitRepo.update(unitSample.unit.id, { takenOutAt: at });
+    await activityRepo.insert({
+      familyId: shared.id,
+      actorId: demo.id,
+      actorName: demo.username,
+      targetType: 'unit',
+      targetId: unitSample.unit.id,
+      itemId: unitSample.item.id,
+      itemName: unitSample.item.name,
+      action: 'item.take_out',
+      createdAt: at,
+    });
   }
 
   console.log('创建模板…');

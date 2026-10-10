@@ -499,6 +499,7 @@ This wipes and rebuilds only the demo accounts' data (other users are untouched)
 - Log in with **username + password** (email is only a record field): the main account comes from `.env` `DEFAULT_ADMIN_*` (defaults `admin` / `admin`) and owns the "Sample Home" household
 - A shared member: `family@homebucket.local` / `homebucket123` (a regular member, handy for testing multi-household and permissions)
 - Content: 41 locations (three-level tree), 17 tags, 147 items (about ¥59,924 total), 20 serial numbers across 12 items (including one item whose SNs sit in different locations), 14 templates, 4 disabled notifiers, 3 invite links
+- Take-out examples: two items are left "taken out" (one today, one nine days ago) and one serial number is out on its own, each with the matching history entry — so the orange chips, the item detail sheet and the timeline all have something to show on a fresh demo. The seed writes repositories directly, so it updates `takenOutAt` and inserts the `item.take_out` log row itself to keep the two consistent
 - Images: the script **generates 43 SVG placeholders locally** (37 item covers + 6 location photos) into `UPLOAD_DIR`, requesting no external images
 - Item creation times are spread over ~180 days so "recently added" looks natural
 - Idempotent and repeatable; the script is `server/scripts/seed.mjs`
