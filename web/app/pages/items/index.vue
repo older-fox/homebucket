@@ -53,7 +53,7 @@
     <!-- 桌面：固定面板，内容在面板内滚动 -->
     <div v-if="!isMobile" class="hb-pane desktop-only">
       <div class="hb-pane-body">
-        <div v-if="pending" class="pad">
+        <div v-if="pending || !hydrated" class="pad">
           <ListSkeleton :rows="8" :line-height="38" />
         </div>
 
@@ -137,7 +137,7 @@
           </UButton>
         </div>
 
-        <ListSkeleton v-if="pending" :rows="6" card />
+        <ListSkeleton v-if="pending || !hydrated" :rows="6" card />
 
         <EmptyState v-else-if="!items.length" :text="t('item.empty')" icon="i-lucide-package">
           <UButton size="sm" @click="navigateTo('/items/new')">{{ t('item.new') }}</UButton>
@@ -223,6 +223,8 @@ const toast = useToast();
 const { money } = useFormat();
 const { format: formatUnits } = useUnits();
 const isMobile = useBreakpoint();
+// server: false 的请求只在客户端发，SSR 与客户端首渲染的分支必须靠它对齐（见 useHydrated）
+const hydrated = useHydrated();
 
 const page = ref(1);
 const pageSize = 50;

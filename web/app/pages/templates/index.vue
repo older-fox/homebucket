@@ -33,7 +33,7 @@
       <UButton v-if="q" color="neutral" variant="ghost" size="lg" icon="i-lucide-x" class="hb-tap" @click="q = ''" />
     </div>
 
-    <div v-if="pending" class="hb-skeleton skeleton" />
+    <div v-if="pending || !hydrated" class="hb-skeleton skeleton" />
     <EmptyState v-else-if="!templates.length" :text="t('template.empty')" icon="i-lucide-layers">
       <UButton size="sm" @click="openCreate">{{ t('template.new') }}</UButton>
     </EmptyState>
@@ -193,6 +193,8 @@ const { data, pending, refresh } = await useAsyncData('templates', () => api.get
   server: false,
   default: () => [],
 });
+// server: false 的请求只在客户端发，SSR 与客户端首渲染的分支必须靠它对齐（见 useHydrated）
+const hydrated = useHydrated();
 const templates = computed(() => data.value ?? []);
 
 const formOpen = ref(false);

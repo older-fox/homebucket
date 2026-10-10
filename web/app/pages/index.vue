@@ -31,7 +31,7 @@
         </span>
         <div class="stat-body">
           <p class="stat-label">{{ t(`dashboard.${card.key}`) }}</p>
-          <p v-if="pending" class="hb-skeleton stat-skeleton" />
+          <p v-if="pending || !hydrated" class="hb-skeleton stat-skeleton" />
           <p v-else class="stat-value hb-num">{{ card.value }}</p>
         </div>
       </article>
@@ -47,7 +47,7 @@
         <NuxtLink to="/items" class="link">{{ t('common.more') }}</NuxtLink>
       </div>
 
-      <ListSkeleton v-if="pending" :rows="3" card :line-height="52" />
+      <ListSkeleton v-if="pending || !hydrated" :rows="3" card :line-height="52" />
 
       <EmptyState v-else-if="!data?.recentItems?.length" :text="t('dashboard.noRecent')" icon="i-lucide-package-open">
         <UButton size="sm" @click="navigateTo('/items/new')">{{ t('dashboard.quickAddItem') }}</UButton>
@@ -91,7 +91,7 @@
           <NuxtLink to="/locations" class="link">{{ t('common.more') }}</NuxtLink>
         </div>
 
-        <div v-if="pending" class="hb-skeleton panel-skeleton" />
+        <div v-if="pending || !hydrated" class="hb-skeleton panel-skeleton" />
         <EmptyState
           v-else-if="!data?.locations?.length"
           :text="t('dashboard.noLocations')"
@@ -123,7 +123,7 @@
           <NuxtLink to="/items" class="link">{{ t('common.more') }}</NuxtLink>
         </div>
 
-        <div v-if="pending" class="hb-skeleton panel-skeleton" />
+        <div v-if="pending || !hydrated" class="hb-skeleton panel-skeleton" />
         <EmptyState v-else-if="!data?.tags?.length" :text="t('dashboard.noTags')" icon="i-lucide-tag" />
         <div v-else class="tags">
           <button
@@ -183,6 +183,8 @@ onMounted(load);
 
 const keyword = ref('');
 
+// server: false 的请求只在客户端发，SSR 与客户端首渲染的分支必须靠它对齐（见 useHydrated）
+const hydrated = useHydrated();
 const { data, pending } = await useAsyncData('dashboard', () => api.get<Dashboard>('/dashboard'), {
   server: false,
   default: () => null,
