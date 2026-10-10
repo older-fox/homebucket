@@ -104,7 +104,7 @@ Once you own enough things, "where did I put this?" becomes a recurring question
         ├── middleware/auth.global.ts
         ├── composables/             # useApi useAuth useFamily useFormat useNav useSiteConfig
         │                            # useBreakpoint useLocations useTreeExpansion
-        │                            # useUnits useHydrated useScanSheet
+        │                            # useUnits useHydrated useScanSheet useClipboard
         ├── components/              # SearchBox SwipeRow ListPager ListSkeleton
         │                            # LocationTree LocationDetail LocationDialogs
         │                            # ItemForm UnitEditor TagPicker LocationPicker
