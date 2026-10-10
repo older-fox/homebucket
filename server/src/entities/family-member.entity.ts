@@ -1,8 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, Unique } from 'typeorm';
 import { Family } from './family.entity';
 import { User } from './user.entity';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 家庭成员（用户 ↔ 家庭 的多对多连接表，带角色）。

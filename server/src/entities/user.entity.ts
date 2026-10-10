@@ -13,8 +13,7 @@ import { FamilyMember } from './family-member.entity';
 import { FamilyInvite } from './family-invite.entity';
 import { Attachment } from './attachment.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 账号。

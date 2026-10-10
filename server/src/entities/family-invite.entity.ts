@@ -2,8 +2,7 @@ import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, Primary
 import { Family } from './family.entity';
 import { User } from './user.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 家庭邀请链接。

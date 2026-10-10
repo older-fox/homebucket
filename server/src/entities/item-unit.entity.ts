@@ -13,8 +13,7 @@ import { Family } from './family.entity';
 import { Item } from './item.entity';
 import { Location } from './location.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 物品的单件实体（序列号）。

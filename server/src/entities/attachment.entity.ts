@@ -15,8 +15,7 @@ import { Item } from './item.entity';
 import { Location } from './location.entity';
 import { Template } from './template.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 上传的图片 / 文件。

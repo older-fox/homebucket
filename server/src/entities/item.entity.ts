@@ -20,11 +20,7 @@ import { Template } from './template.entity';
 import { ItemUnit } from './item-unit.entity';
 import { Tag } from './tag.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
-/** DECIMAL(12,2) 上限 9,999,999,999.99，家庭记账足够，且比原先的 (65,30) 省一大截 */
-const MONEY_PRECISION = 12;
-const MONEY_SCALE = 2;
+import { MONEY_PRECISION, MONEY_SCALE, STRING_LENGTH } from './column-spec';
 
 /**
  * 物品（台账主体）。

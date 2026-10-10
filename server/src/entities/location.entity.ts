@@ -15,8 +15,7 @@ import { Item } from './item.entity';
 import { ItemUnit } from './item-unit.entity';
 import { Template } from './template.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 位置（自引用树）。

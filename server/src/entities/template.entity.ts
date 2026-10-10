@@ -19,11 +19,7 @@ import { Location } from './location.entity';
 import { Item } from './item.entity';
 import { Tag } from './tag.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
-/** 与 Item.price 保持一致，见 item.entity.ts 的说明 */
-const MONEY_PRECISION = 12;
-const MONEY_SCALE = 2;
+import { MONEY_PRECISION, MONEY_SCALE, STRING_LENGTH } from './column-spec';
 
 /**
  * 物品模板：常买常放的东西存一份预设，新建物品时一键套用。

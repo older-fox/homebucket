@@ -2,8 +2,7 @@ import { Column, CreateDateColumn, Entity, JoinColumn, ManyToMany, ManyToOne, Pr
 import { Family } from './family.entity';
 import { Item } from './item.entity';
 import { Template } from './template.entity';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 标签：跨位置的分类维度，前端展示成书签式的胶囊。

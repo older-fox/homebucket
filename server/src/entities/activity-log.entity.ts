@@ -8,8 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Family } from './family.entity';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 操作历史（审计日志）。

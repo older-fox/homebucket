@@ -20,8 +20,7 @@ import { Attachment } from './attachment.entity';
 import { NotificationChannel } from './notification-channel.entity';
 import { ActivityLog } from './activity-log.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 家庭（数据边界）。

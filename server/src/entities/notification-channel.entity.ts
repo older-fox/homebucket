@@ -9,8 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Family } from './family.entity';
-
-const STRING_LENGTH = 191;
+import { STRING_LENGTH } from './column-spec';
 
 /**
  * 通知渠道（每个家庭自己配）。
