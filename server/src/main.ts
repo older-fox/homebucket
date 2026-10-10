@@ -9,6 +9,7 @@ import { json, urlencoded } from 'express';
 import { mkdirSync } from 'node:fs';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { flattenValidationErrors } from './common/validation';
+import { mediaUrlPrefix } from './common/media';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
@@ -48,7 +49,8 @@ async function bootstrap() {
   // 本地存储模式下，上传的文件由后端直接提供（/api/media/<key>，走前端同源代理）
   if (env.storageDriver === 'local') {
     mkdirSync(env.uploadDir, { recursive: true });
-    app.useStaticAssets(env.uploadDir, { prefix: '/api/media/', index: false, fallthrough: true });
+    // 前缀与 media.ts 的 mediaUrl() 同源推导，改 API_PREFIX 时两边不会走散
+    app.useStaticAssets(env.uploadDir, { prefix: mediaUrlPrefix(), index: false, fallthrough: true });
     logger.log(`uploads dir: ${env.uploadDir}`, 'Bootstrap');
   }
 

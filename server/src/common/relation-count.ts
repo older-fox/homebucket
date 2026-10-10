@@ -1,5 +1,12 @@
 import type { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 
+/** 聚合结果行 → Map<父 id, 计数>。两个 provider 都可能把 COUNT / 主键读成字符串，统一成 number */
+function toCountMap(
+  rows: { parentId: number | string; total: number | string }[],
+): Map<number, number> {
+  return new Map(rows.map((row) => [Number(row.parentId), Number(row.total)]));
+}
+
 /**
  * 统计"一批父记录各自有多少个子记录"。
  *
@@ -40,5 +47,38 @@ export async function countByForeignKey<T extends ObjectLiteral>(
     .groupBy(`row.${foreignKey}`)
     .getRawMany<{ parentId: number | string; total: number | string }>();
 
-  return new Map(rows.map((row) => [Number(row.parentId), Number(row.total)]));
+  return toCountMap(rows);
+}
+
+/**
+ * 统计"一批父记录各自关联了多少个子记录"，用于**子表没有外键列**的关系。
+ *
+ * `countByForeignKey` 是按子表上的外键列分组的，而隐式多对多（如 Item ↔ Tag 的连接表
+ * _ItemTags）根本没有对应实体、拿不到列名。这里改为 innerJoin 关系属性再 GROUP BY
+ * 父表主键 —— 同样是"一次聚合替代 N+1"，而不是每个父记录查一次。
+ *
+ * 用法：
+ *   const counts = await countByJoin(this.tags, { relation: 'items', ids: tagIds });
+ *   counts.get(tag.id) ?? 0
+ *
+ * 约定：子实体必须有 `id` 主键列（`COUNT(child.id)` 数的是非空子行），父表主键默认 'id'。
+ * relation / parentKey 都是代码里写死的字面量，不接受外部输入（会拼进 SQL）。
+ */
+export async function countByJoin<T extends ObjectLiteral>(
+  repo: Repository<T>,
+  options: { relation: string; ids: number[]; parentKey?: string },
+): Promise<Map<number, number>> {
+  const { relation, ids, parentKey = 'id' } = options;
+  if (ids.length === 0) return new Map();
+
+  const rows = await repo
+    .createQueryBuilder('parent')
+    .innerJoin(`parent.${relation}`, 'child')
+    .select(`parent.${parentKey}`, 'parentId')
+    .addSelect('COUNT(child.id)', 'total')
+    .where(`parent.${parentKey} IN (:...ids)`, { ids })
+    .groupBy(`parent.${parentKey}`)
+    .getRawMany<{ parentId: number | string; total: number | string }>();
+
+  return toCountMap(rows);
 }

@@ -1,11 +1,11 @@
-// 为什么需要上面这行：本项目跑的是 TypeScript 6，@types 只在被 import 时才加载，
-// 而没有任何源文件 import 'multer'，所以 @types/multer 的全局 `Express.Multer` 增强不会自动生效。
-// 这里显式引用一次即可保留 `Express.Multer.File` 这个原始注解（不加就得自己手写结构类型）。
-import { randomBytes } from 'node:crypto';
+// `Express.Multer.File` 来自 @types/multer 的全局命名空间增强；
+// 本项目没有任何源文件 import 'multer'（运行时由 @nestjs/platform-express 的
+// FileInterceptor 自己 require），所以靠 tsconfig.json 的 "types": [..., "multer"] 加载它。
 import { extname } from 'node:path';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
+import { shortToken } from '../common/id';
 import { mediaUrl } from '../common/media';
 import { Attachment } from '../entities/attachment.entity';
 import { STORAGE_DRIVER, type StorageDriver } from './storage';
@@ -39,7 +39,7 @@ export class UploadsService {
 
     const now = new Date();
     const ext = extname(file.originalname || '') || EXT_BY_MIME[file.mimetype] || '';
-    const key = `${familyId}/${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}/${randomBytes(8).toString('hex')}${ext}`;
+    const key = `${familyId}/${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}/${shortToken(8)}${ext}`;
 
     const { url } = await this.storage.put(key, file.buffer, file.mimetype);
 

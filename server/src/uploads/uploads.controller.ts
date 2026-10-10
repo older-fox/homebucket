@@ -1,4 +1,4 @@
-// 显式加载 @types/multer（原因见 uploads.service.ts 顶部注释），保证 Express.Multer.File 可用
+// Express.Multer.File 的类型由 tsconfig 的 "types": [..., "multer"] 提供（原因见 uploads.service.ts 顶部注释）
 import {
   Controller,
   Delete,

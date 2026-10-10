@@ -6,7 +6,7 @@ import { Item } from '../entities/item.entity';
 import { ItemUnit } from '../entities/item-unit.entity';
 import { Location } from '../entities/location.entity';
 import { Tag } from '../entities/tag.entity';
-import { countByForeignKey } from '../common/relation-count';
+import { countByForeignKey, countByJoin } from '../common/relation-count';
 import { parsePackLevels } from '../items/packaging';
 
 /** 首页概览服务（职责：聚合家庭维度的统计、最近物品、位置与标签计数） */
@@ -44,15 +44,15 @@ export class DashboardService {
     const tagIds = tags.map((tag) => tag.id);
 
     // Prisma 的 `_count` 在 TypeORM 1.x 没有等价物（loadRelationCountAndMap 已删除），
-    // 单外键计数一律走 common/relation-count.ts 的聚合查询；标签是隐式多对多，
-    // 没有外键列可用，单独用一次 join + GROUP BY 顶替（见 tagItemCounts）。
+    // 计数一律走 common/relation-count.ts 的聚合查询：有外键列用 countByForeignKey，
+    // 隐式多对多（标签↔物品）用 countByJoin。
     const [unitCounts, outUnitCounts, childCounts, itemCountsByLocation, itemCountsByTag] = await Promise.all([
       countByForeignKey(this.units, 'itemId', recentItemIds),
       // 首页也要能看到"已取走"：按件追踪的物品取走的是 unit，这里单独数一次
       countByForeignKey(this.units, 'itemId', recentItemIds, (qb) => qb.andWhere('row.takenOutAt IS NOT NULL')),
       countByForeignKey(this.locations, 'parentId', locationIds),
       countByForeignKey(this.items, 'locationId', locationIds),
-      this.tagItemCounts(tagIds),
+      countByJoin(this.tags, { relation: 'items', ids: tagIds }),
     ]);
 
     // price 列挂了 decimal transformer，两个 provider 读回来都已经是 number（见 brief 地雷 6）
@@ -100,24 +100,10 @@ export class DashboardService {
   }
 
   /**
-   * 统计每个标签关联了多少物品。
-   *
-   * `countByForeignKey` 只能按"子表上的外键列"分组，而标签与物品是多对多
-   * （连接表 _ItemTags 没有对应实体），所以这里用一次 join + GROUP BY 实现，
-   * 避免退化成"每个标签查一次"的 N+1。
+   * 统计每个标签关联了多少物品：委托给 common/relation-count.ts 的 countByJoin
+   * （标签与物品是隐式多对多，连接表 _ItemTags 没有实体，只能 join 关系属性再 GROUP BY）。
    */
-  private async tagItemCounts(tagIds: number[]): Promise<Map<number, number>> {
-    if (tagIds.length === 0) return new Map();
-
-    const rows = await this.tags
-      .createQueryBuilder('tag')
-      .innerJoin('tag.items', 'item')
-      .select('tag.id', 'tagId')
-      .addSelect('COUNT(item.id)', 'total')
-      .where('tag.id IN (:...tagIds)', { tagIds })
-      .groupBy('tag.id')
-      .getRawMany<{ tagId: number | string; total: number | string }>();
-
-    return new Map(rows.map((row) => [Number(row.tagId), Number(row.total)]));
+  private tagItemCounts(tagIds: number[]): Promise<Map<number, number>> {
+    return countByJoin(this.tags, { relation: 'items', ids: tagIds });
   }
 }
