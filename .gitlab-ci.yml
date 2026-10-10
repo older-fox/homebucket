@@ -73,8 +73,9 @@ check:types:
     # 全新 SQLite 库跑完迁移后 schema:log 必须零漂移 —— 实体改了忘写迁移时只有这个探针会响。
     # MySQL 需要外部实例，CI 里跑不了，所以这里只覆盖 SQLite 一侧。
     - npm run db:check-drift
-    # 目前还没有测试文件，--if-present 让这行现在是无害的 no-op（加了 test 脚本后自动生效）
-    - npm test --if-present
+    # node:test 套件（server/test/*.test.mjs）：配置解析、包装换算与前后端一致性、追溯码、
+    # 多语言文案覆盖。零测试依赖，跑完不到 1 秒。
+    - npm test
     - cd ../web
     - npm ci --no-audit --no-fund --registry "$NPM_REGISTRY"
     - npm run typecheck
