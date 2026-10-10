@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Header, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { CurrentFamily, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
 import { ScanService } from './scan.service';
@@ -12,6 +12,27 @@ export class ScanController {
   @Get('scan/:code')
   resolve(@CurrentFamily() family: FamilyContext, @Param('code') code: string) {
     return this.scan.resolve(family.id, code);
+  }
+
+  /**
+   * 取走 / 放回用 POST 而不是 PATCH：这不是"改物品的某个字段"，
+   * 而是"针对这个码执行一次动作"，响应体带回动作后的完整目标状态。
+   *
+   * 显式声明 200：@Post 默认 201 Created，但这里没有创建任何资源，
+   * 返回的只是动作之后的当前状态。
+   */
+  @FamilyScoped()
+  @Post('scan/:code/take')
+  @HttpCode(HttpStatus.OK)
+  take(@CurrentFamily() family: FamilyContext, @Param('code') code: string) {
+    return this.scan.setTakenOut(family.id, code, true);
+  }
+
+  @FamilyScoped()
+  @Post('scan/:code/return')
+  @HttpCode(HttpStatus.OK)
+  putBack(@CurrentFamily() family: FamilyContext, @Param('code') code: string) {
+    return this.scan.setTakenOut(family.id, code, false);
   }
 
   @FamilyScoped()

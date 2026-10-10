@@ -215,6 +215,9 @@
         </div>
       </template>
     </UModal>
+
+    <!-- 码枪扫到码时的浮窗：全局只挂一份，监听也由它自己负责 -->
+    <ScanActionSheet />
   </div>
 </template>
 

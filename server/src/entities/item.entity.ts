@@ -97,6 +97,16 @@ export class Item {
   @Column({ type: 'varchar', length: STRING_LENGTH, unique: true })
   qrToken: string;
 
+  /**
+   * 取走时间：非空表示这件物品当前处于「已拿走使用」状态。
+   *
+   * 用时间戳而不是布尔值：界面上「已取走」总要附带"多久之前"，
+   * 只存 true/false 就还得再加一列时间，不如一步到位。
+   * 按件追踪的物品（有 SN）状态记在 ItemUnit 上，这里管的是"整件物品"。
+   */
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  takenOutAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

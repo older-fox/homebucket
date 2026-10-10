@@ -47,6 +47,15 @@ export class ItemUnit {
   @Column({ type: 'varchar', length: STRING_LENGTH, nullable: true })
   note: string | null;
 
+  /**
+   * 取走时间：非空表示这一个 SN 当前被拿走使用了。
+   *
+   * 状态必须按件记，不能只记在物品上：同型号的三台风扇，
+   * 可能只借出去一台，整件物品的 quantity 说明不了这件事。
+   */
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  takenOutAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
