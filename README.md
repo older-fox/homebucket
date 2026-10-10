@@ -67,14 +67,17 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 ├── server/                  # NestJS + TypeORM
 │   ├── scripts/
 │   │   ├── db-baseline.mjs          # register an existing (Prisma-era) database as "Init already applied"
+│   │   ├── check-drift.mjs          # "migrate a fresh DB, then schema:log must be empty" probe (`npm run db:check-drift`)
 │   │   └── seed.mjs                 # demo data
+│   ├── test/                        # node:test suites (`npm test`, zero test dependencies)
+│   │   └── *.test.mjs               # config · packaging (server↔web parity) · trace codes · locale coverage
 │   └── src/
 │       ├── main.ts  app.module.ts
 │       ├── config/env.ts            # all config (lazily reads process.env)
 │       ├── config/bootstrap-admin.ts# creates the admin on first boot of an empty DB
-│       ├── common/                  # family-context guard, param decorators, validation normalization
+│       ├── common/                  # family-context guard, param decorators, validation, media URLs, pagination, ids
 │       ├── logger/                  # app logger + nginx-style access log
-│       ├── entities/                # 11 entity classes (single source of truth) + index.ts + transformers
+│       ├── entities/                # 12 entity classes (single source of truth) + index.ts + transformers + column-spec.ts
 │       ├── database/                # data-source / DatabaseModule / auto-migrate / migrations/{mysql,sqlite}
 │       ├── auth/                    # register / login / me (username + password, JWT)
 │       ├── families/                # families, members, invite links
@@ -87,6 +90,7 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 │       ├── notifiers/               # notifiers (SMTP / Telegram / DingTalk …)
 │       │   └── channels/            # one file per channel (smtp / telegram / dingtalk …)
 │       ├── dashboard/  search/  scan/
+│       ├── activity/                # operation history (written by the other domains, read by the timeline page)
 │       └── ...                      # every domain is <domain>.module.ts + .controller.ts + .service.ts (+ dto.ts)
 └── web/                     # Nuxt 4 + Nuxt UI v4 + Tailwind v4
     ├── nuxt.config.ts               # listen address, /api proxy, i18n, icons
@@ -98,16 +102,20 @@ Once you own enough things, "where did I put this?" becomes a recurring question
         ├── assets/css/main.css      # Tailwind + design tokens
         ├── layouts/{default,auth}.vue
         ├── middleware/auth.global.ts
-        ├── composables/             # useApi useAuth useFamily useFormat useNav
+        ├── composables/             # useApi useAuth useFamily useFormat useNav useSiteConfig
         │                            # useBreakpoint useLocations useTreeExpansion
+        │                            # useUnits useHydrated useScanSheet
         ├── components/              # SearchBox SwipeRow ListPager ListSkeleton
         │                            # LocationTree LocationDetail LocationDialogs
         │                            # ItemForm UnitEditor TagPicker LocationPicker
-        │                            # PhotoUploader PageHeader EmptyState …
-        ├── types/location.ts
+        │                            # PackLevelsEditor StockAdjustDialog UnitQuantityInput
+        │                            # ActivityTimeline ScanActionSheet TakenOutChip
+        │                            # FamilySwitcher LocaleSwitcher AppLogo PhotoUploader
+        │                            # PageHeader EmptyState …
+        ├── types/{location,activity}.ts
         └── pages/                   # index / login / register / locations[index,[id]]
                                      # items[index,new,[id]] / templates / settings
-                                     # search / scan / invite/[token] / r/[code]
+                                     # search / scan / activity / invite/[token] / r/[code]
 ```
 
 ## Quick start
@@ -128,6 +136,15 @@ cd web
 npm install
 npm run dev               # http://<your-lan-ip>:3000
 ```
+
+Before pushing, run the same checks CI runs (they need no database and no extra tooling):
+
+```bash
+cd server && npm run typecheck && npm test && npm run db:check-drift
+cd web    && npm run typecheck
+```
+
+`npm test` is a [node:test](https://nodejs.org/api/test.html) suite (43 assertions, no test dependencies); `db:check-drift` migrates a throwaway SQLite file and fails if `schema:log` is not empty, which catches "entity changed but no migration written".
 
 Endpoints: `GET /api` (info), `GET /api/health` (health check), `POST /api/auth/register` (username + password, email optional), `POST /api/auth/login` (**username** + password), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
 
@@ -218,7 +235,7 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 
 ### One entity set, two providers
 
-The data model lives in hand-written entity classes in `server/src/entities/*.entity.ts` (**11 entities**, listed in `server/src/entities/index.ts`); that one set drives both MySQL and SQLite. Data access goes through injected `Repository<T>` (`@InjectRepository`): the global `DatabaseModule` exports `TypeOrmModule.forFeature(entities)`, so business modules inject repositories without repeating a `forFeature` list.
+The data model lives in hand-written entity classes in `server/src/entities/*.entity.ts` (**12 entities**, listed in `server/src/entities/index.ts`); that one set drives both MySQL and SQLite. Column widths and money precision live in one place, `server/src/entities/column-spec.ts` (`STRING_LENGTH`, `MONEY_PRECISION`, `MONEY_SCALE`) instead of being repeated per entity. Data access goes through injected `Repository<T>` (`@InjectRepository`): the global `DatabaseModule` exports `TypeOrmModule.forFeature(entities)`, so business modules inject repositories without repeating a `forFeature` list.
 
 Three cross-provider conventions are documented at the top of `entities/index.ts` and worth keeping in mind when editing entities:
 
@@ -232,14 +249,16 @@ Enum / Json / BigInt are avoided entirely (SQLite does not support them): choice
 
 The SQLite driver is **`better-sqlite3`** (pinned to `13.x`) — `type: 'sqlite'` no longer exists in TypeORM 1.x. Its prebuilt binaries ship inside the npm tarball, so installing needs no compiler and no GitHub access; the image installs with `--ignore-scripts`, which also avoids the implicit `node-gyp rebuild` that the package would otherwise trigger.
 
-### Migrations: two directories, four files
+### Migrations: two directories, one migration per change
 
-MySQL and SQLite DDL differ too much (auto-increment, type names, ALTER syntax, time defaults) to share one set of migrations, so the entities stay shared while each provider gets its own migration directory:
+MySQL and SQLite DDL differ too much (auto-increment, type names, ALTER syntax, time defaults) to share one set of migrations, so the entities stay shared while each provider gets its own migration directory. Both dialects use the **same timestamp and class name for `Init`** (`Init1791302382566`), and every later change is added to both directories:
 
 | Provider | Directory | Migrations |
 | --- | --- | --- |
-| MySQL | `server/src/database/migrations/mysql/` | `Init`, `NormalizeFromPrisma`, `RenamePrismaFkIndexes` |
-| SQLite | `server/src/database/migrations/sqlite/` | `Init` |
+| MySQL | `server/src/database/migrations/mysql/` | `Init`, `NormalizeFromPrisma`, `RenamePrismaFkIndexes`, `AddTakenOutAt`, `AddActivityLog`, `AddPackaging`, `DropAttachmentDimensions`, `BinaryUniqueCollation` |
+| SQLite | `server/src/database/migrations/sqlite/` | `Init`, `NormalizeFromPrisma`, `AddTakenOutAt`, `AddActivityLog`, `AddPackaging`, `DropAttachmentDimensions`, `AddForeignKeyIndexes` |
+
+The two providers need different *work* for the same logical change (SQLite cannot drop a column before 3.35, MySQL needs `ALTER TABLE … MODIFY` to change a collation), which is why the file names differ on the last few; `NormalizeFromPrisma` exists on both sides — Prisma-era SQLite data needs the same cleanup as Prisma-era MySQL data.
 
 npm scripts (replacing the old `prisma:*` ones):
 
@@ -250,27 +269,35 @@ npm scripts (replacing the old `prisma:*` ones):
 | `npm run db:revert` | `migration:revert` (one migration at a time — see the warning below) |
 | `npm run db:show` | `migration:show` (`migrations` table contents) |
 | `npm run db:baseline` | register an existing Prisma-era database (see the upgrade section below) |
+| `npm run db:check-drift` | migrate a throwaway SQLite file, then require `schema:log` to be empty |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | `node:test` suites in `server/test/` |
 | `npm run seed` | demo/seed data |
 
-`db:generate` / `db:run` / `db:revert` / `db:show` use `typeorm-ts-node-commonjs` with `-d src/database/data-source.ts`, so they run against `src/`. `db:baseline` and `seed` run against the compiled `dist/` output, so they require `npm run build` first — that is what lets them also run inside the production-dependency-only runtime image.
+`db:generate` / `db:run` / `db:revert` / `db:show` / `db:check-drift` use `typeorm-ts-node-commonjs` with `-d src/database/data-source.ts`, so they run against `src/`. `db:baseline` and `seed` run against the compiled `dist/` output, so they require `npm run build` first — that is what lets them also run inside the production-dependency-only runtime image.
 
 Migrations are provider-specific, so pass a path inside the right directory (`src/database/migrations/mysql/...` or `.../sqlite/...`) when generating.
 
-> **⚠️ `db:revert` is not "undo `db:baseline`".** `db:baseline` only inserts a bookkeeping row — TypeORM does not know that `Init` never actually ran, so a revert will execute `Init.down()`, which expects TypeORM-named foreign keys. On a baselined Prisma-era database this fails with `Can't DROP ... FK_<hash>; check that column/key exists`; because `Init.down()` drops foreign keys first and the `DROP TABLE` statements come last, it aborts *before* anything is dropped, so tables and data survive. To get back to the Prisma-era schema, restore from a dump instead. On a **fresh install** (where `Init` really did run) reverting `Init` is a genuine teardown and *will* drop the tables, which is the normal, expected behaviour.
+> **⚠️ `db:revert` is not "undo `db:baseline`".** `db:baseline` only inserts a bookkeeping row — TypeORM does not know that `Init` never actually ran, so a revert will execute `Init.down()`.
+>
+> - **MySQL** `Init.down()` drops foreign keys by name (`FK_<hash>`) before dropping tables, so on a baselined Prisma-era database it fails with `Can't DROP ... FK_<hash>; check that column/key exists`. Because the FK statements come first and the `DROP TABLE`s last, it aborts *before* dropping anything: tables and data survive. To get back to the Prisma-era schema, restore from a dump instead.
+> - **SQLite** `Init.down()` deletes the rows and then drops the tables in dependency order, guarded by `hasTable()`, so on a baselined database it will really drop the tables.
+>
+> On a **fresh install** (where `Init` really did run) reverting is a genuine teardown and *will* drop the tables — that is the normal, expected behaviour (every migration in the chain reverts cleanly; see "Verified").
 
 ### Upgrading an existing Prisma-era database
 
 This is the one operational step to be careful about. The tables already exist (they were created by Prisma) but there is no TypeORM `migrations` table, so a plain `migration:run` would try to create the tables again and fail.
 
-1. `npm run db:baseline` — creates the TypeORM `migrations` table and records `Init` as already applied **without running any DDL** (the tables are already there). It refuses to run against a database with no application tables (that is a fresh install — just run the migrations) and it deliberately leaves the increment migrations pending.
-2. `npm run db:run` — applies `NormalizeFromPrisma` and `RenamePrismaFkIndexes`.
+1. `npm run db:baseline` — creates the TypeORM `migrations` table and records `Init` as already applied **without running any DDL** (the tables are already there). It reads the table names straight out of `Init.up()` and refuses to continue unless every one of them already exists, so pointing it at the wrong database fails loudly instead of writing a bookkeeping row (an empty database is rejected too — just run the migrations). It deliberately leaves the increment migrations pending.
+2. `npm run db:run` — applies every pending increment (both current ones and, later, whatever else is in the directory).
 
-The two increment migrations only affect Prisma-era databases:
+The migrations that exist specifically because of Prisma:
 
-- **`NormalizeFromPrisma`** skips itself on a fresh install (it probes for the Prisma foreign-key naming) and otherwise narrows `decimal(65,30)` → `decimal(12,2)` on `Item.price` / `Template.price`, widens `datetime(3)` → `datetime(6)` on `createdAt` / `updatedAt`, and adds a database default plus `ON UPDATE` to the `updatedAt` columns.
-- **`RenamePrismaFkIndexes`** renames the 13 Prisma-named foreign-key backing indexes (`<Table>_<col>_fkey`) to TypeORM's `FK_<hash>` names, so future `migration:generate` runs are drift-free. MySQL cannot drop them (the foreign key needs them), which is why they are renamed rather than dropped.
+- **`NormalizeFromPrisma`** skips itself on a fresh install — on both dialects it probes the schema first (`isPrismaEraSchema()`), and `up()` *and* `down()` return early when there is nothing Prisma-era to fix, so reverting a fresh database cannot half-rewrite it. Where it does apply it narrows `decimal(65,30)` → `decimal(12,2)` on `Item.price` / `Template.price`, widens `datetime(3)` → `datetime(6)` on `createdAt` / `updatedAt`, and adds a database default plus `ON UPDATE` to the `updatedAt` columns (MySQL) or rebuilds the affected tables (SQLite).
+- **`RenamePrismaFkIndexes`** (MySQL only) renames the 13 Prisma-named foreign-key backing indexes (`<Table>_<col>_fkey`) to TypeORM's `FK_<hash>` names, so future `migration:generate` runs are drift-free. MySQL cannot drop them (the foreign key needs them), which is why they are renamed rather than dropped. SQLite needs no equivalent: `Init` rebuilds the tables and names the indexes itself.
 
-Prisma's `_prisma_migrations` table is deliberately **left in place**: nothing reads it any more, and it can be dropped manually once you are confident. The upgrade path (baseline, then the two increments) preserves existing data and leaves the schema in the same shape as a fresh install.
+Prisma's `_prisma_migrations` table is deliberately **left in place**: nothing reads it any more, and it can be dropped manually once you are confident. The upgrade path (baseline, then the increments) preserves existing data and leaves the schema in the same shape as a fresh install.
 
 For a **fresh install** there is nothing special to do: an empty database gets all its tables from `Init` on first boot or via `npm run db:run`.
 
@@ -319,11 +346,14 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 ## CI (GitLab + kaniko)
 
-`.gitlab-ci.yml` has a single job, `docker:image`:
+`.gitlab-ci.yml` has two stages, `check` then `image`:
+
+**`check:types`** (stage `check`, runs on every push / manual pipeline): a plain Node container that runs the same checks as the local loop above — `npm ci` in both packages, `npm run typecheck` in both, `npm run db:check-drift` and `npm test` on the server. It catches type errors, schema drift and contract regressions in a couple of minutes, before the (much slower) image build starts; it cannot cover MySQL, because that needs an external server (`db:check-drift` runs against a throwaway SQLite file instead).
+
+**`docker:image`** (stage `image`):
 
 - **The whole job runs inside a container**: it uses the kaniko executor (debug) image — no docker daemon / dind and no privileged runner required.
-- **No typecheck, no separate build-verification job**: compilation happens inside `docker build` (`nest build` / `nuxt build`); if it fails, the job fails.
-- **Zero artifacts**: the only output is an image pushed to the **project container registry** (`$CI_REGISTRY_IMAGE`).
+- **Zero artifacts**: the only output is an image pushed to the **project container registry** (`$CI_REGISTRY_IMAGE`). Compilation happens inside `docker build` (`nest build` / `nuxt build`); if it fails, the job fails.
 - **Tag policy**: always pushes `sha-<short>`; the default branch additionally pushes `latest`; a git tag additionally pushes the version; other branches additionally push the branch slug.
 - **Triggers**: push to any branch / tag / Run pipeline in the UI / API.
 
@@ -349,6 +379,7 @@ Once the frontend is exposed with `WEB_HOST=0.0.0.0`, browsers may reach it via 
 - Icons use the local `@iconify-json/lucide` set, with no reliance on the Iconify online service. Note that `@nuxt/icon`'s endpoint is moved to `/_nuxt_icon`; otherwise the `/api/**` proxy forwards it to Nest and every icon fails to load.
 - `@nuxt/fonts` is disabled (`ui: { fonts: false }`) in favor of a system font stack, so it runs offline / on an intranet.
 - Anything needing auth is loaded on the client (`onMounted` / `useAsyncData(..., { server: false })`); SSR only renders the shell, avoiding 401s when there is no cookie during SSR.
+- Because those requests start after hydration, "loading" states must not branch on `pending` alone: on the server `pending` is `false` (the request never started) and Nuxt renders the *empty* branch, so the client's first render would show a skeleton instead — a hydration mismatch. Use `useHydrated()` (`web/app/composables/useHydrated.ts`) and write `v-if="pending || !hydrated"`.
 - Unauthenticated visits are 302'd to the login page (the auth middleware runs on the server too).
 - `npm run typecheck` (`nuxt typecheck`, vue-tsc) currently reports zero errors.
 - Nuxt is on **4.6.0** and `vue-router` on `^5.3.1` (it was pinned at `^4.5.0` while Nuxt already required 5.x, so `node_modules` previously held two copies); `nuxt.config.ts` sets `sourcemap: { server: false }`, so the production build no longer emits server `.map` files. The `/api/**` proxy `routeRules` and the `icon` / `colorMode` / `i18n` configs are unchanged.
@@ -387,15 +418,19 @@ Pages declare their scrolling mode via `definePageMeta`, and the shell switches 
 | `/` Home | Item count / total value / location count / tag count, recently added items, location list, bookmark-style tags, search box (shares `SearchBox` with the item list) |
 | `/locations` | Desktop: tree on the left, content on the right (**ordering and cross-level moves are decided server-side**, with cycle prevention and sortIndex requantization). Mobile: the tree takes the whole screen and tapping a node opens the drill-down route |
 | `/locations/[id]` | Mobile location detail (portrait layout): sub-locations, items directly here, and serial numbers, each paginated |
-| `/items` | Inventory overview and quick add. Desktop is a table (sticky header, scrolls inside the panel); mobile is a card list (icon tile + title/location/model/tags + amount) with **swipe to edit/delete**. Unified search covers name / model / SN / barcode / location / tags; CSV export |
-| `/items/[id]` | Item detail: photos, tags, location, **each SN can be in a different location**, product barcode, trace code, QR code, source template |
+| `/items` | Inventory overview and quick add. Desktop is a table (sticky header, scrolls inside the panel); mobile is a card list (icon tile + title/location/model/tags + amount) with **swipe to edit/delete**, plus a one-tap quantity dialog. Unified search covers name / model / SN / barcode / location / tags; CSV export. Items that are currently taken out show an orange chip |
+| `/items/[id]` | Item detail: photos, tags, location, **each SN can be in a different location**, product barcode, trace code, QR code, source template, **take out / put back per item or per serial number**, and packaging levels (`1 case 1 pack 3 bottles`, stored in base units) |
 | `/items/new` | Create an item; "apply template" at the top (or scan a template barcode to apply it); the product barcode field comes first and can be filled by scanning, and a system trace code can be generated when there is no barcode |
 | `/templates` | Template management (including product barcodes), search and "create item from template" |
+| `/activity` | Operation history for the household: who changed what, with per-record field diffs, filters for items / serial numbers / locations, and the take-out / put-back events |
 | `/settings` | Household management (members / invite links / roles), system settings (household name, currency, language, time zone), notifiers |
 | `/search` | Unified search: items + locations + tags + serial numbers |
-| `/scan`, `/r/[code]` | Camera scanning (needs https/localhost), image recognition, manual input / barcode gun. On mobile the bottom scan button opens a "create / find / edit" popover |
+| `/scan`, `/r/[code]` | Camera scanning (needs https/localhost), image recognition, manual input / barcode gun. On mobile the bottom scan button opens a "create / find / edit" popover; scanning inside the app opens an action sheet that shows how the code matched and offers **take out** (in stock) or **put back with the relative time** (already taken out), or "create an item with this code" when nothing matches |
 
 - **The household is the data boundary**: registering creates a personal household; accepting an invite grants access to more, switched via `X-Family-Id`; every query is hard-scoped by `familyId`. Only the household owner can manage members and invites.
+- **Take-out is a state, not a location change**: `takenOutAt` on the item (or on a single serial number) records that something is out of the cupboard, so lists, search, the location view and the CSV export can show it, and putting it back is one tap. Location and template results can never be taken out.
+- **Packaging is a display of base units**: stock is always stored in the smallest unit; base unit + up to five levels (with a factor each) turn `53` into `2 cases 5 bottles` for display and back without loss. The same arithmetic lives on both sides (`server/src/items/packaging.ts` and `web/app/composables/useUnits.ts`) and a test asserts they agree.
+- **Every mutation is recorded**: item / serial number / location changes go through an activity service and appear on `/activity` with a field-level diff and the actor.
 - **Tag filtering on the item page**: there is no tag picker anymore; arriving from a tag bookmark (`?tagId=`) shows a one-tap removable filter chip.
 - **Mobile**: bottom tab bar (scan in the middle as the primary entry), drawer menu, safe-area support, touch targets ≥44px, native keyboard types in forms.
 
@@ -449,6 +484,8 @@ No external CDN is contacted:
 
 There is exactly one set of translation files, in `web/i18n/locales/` (primary `zh-CN`, secondary `en`). The backend does not translate: it returns machine-readable `code`s (e.g. `location.notFound`) and the frontend looks them up, falling back to the backend's Chinese `message` only when a code is missing.
 
+That contract is checked by `server/test/locale-coverage.test.mjs` (part of `npm test`), which fails when the two files drift apart, when a placeholder is lost in translation, when English text still contains CJK characters, when a `code` returned by the backend has no `api.*` entry, or when a DTO uses a class-validator constraint with no `validation.*` entry. Note that a constraint name is not the decorator name: `@Length` reports `isLength`.
+
 To add a language: copy `web/i18n/locales/en.json` → rename → translate → register it in the `locales` array of `nuxt.config.ts`. See `web/i18n/README.md`.
 
 ## Demo data
@@ -468,10 +505,21 @@ This wipes and rebuilds only the demo accounts' data (other users are untouched)
 
 ## Verified
 
-- **Nuxt 4.6**: Nuxt 4.6.0 + @nuxt/ui 4.11.3 + @nuxtjs/i18n 10.6.0 + Tailwind 4.3.3 + vue-router 5.3.1 + vue-tsc; application code lives in `web/app/`; `nuxt typecheck` reports zero errors, `nuxt build` passes and the `/api` proxy works.
-- **API end to end**: household isolation and roles (cross-household 403, non-owner 403), invite links that join on registration, location-tree moves with cycle validation, one item with SNs in different locations, duplicate SN / barcode rejection, dashboard stats, unified search, CSV (UTF-8 BOM, SN@location, no thumbnail column), scan priority, create-from-template, 9 notifier types, validation error shape. Test data was cleaned up afterwards.
-- **Backend**: `nest build` passes; register / login / me work, duplicate registration 409, wrong password and forged token 401, validation 400; with `MAX_UPLOAD_SIZE=1kb` a 2KB body returns 413; all three log formats and `LOG_ACCESS=false` behave as expected.
+Everything in this section was run against this repository; the first group is automated and repeatable, the second needed a real database or a browser and was rehearsed by hand.
+
+**Automated (`npm run typecheck`, `npm test`, `npm run db:check-drift`, `nuxt build`)**
+
+- **Types**: `tsc --noEmit` (server) and `nuxt typecheck` (web, via `vue-tsc`) are both clean, and both are wired into the CI `check` stage.
+- **Tests**: 43 `node:test` assertions in `server/test/` — config parsing (`env`), packaging arithmetic and **server↔web parity** (`server/src/items/packaging.ts` vs `web/app/composables/useUnits.ts`), trace-code/short-token contracts, and the i18n coverage contract. Two real bugs were found by writing them: `@Length` reports the constraint name `isLength` (the locale said `length`, so users saw the raw string `isLength`), and `Math.max(0, Math.floor(x))` does not clamp `NaN` (it propagated into totals on both sides).
+- **Schema drift**: `npm run db:check-drift` migrates a throwaway SQLite file and requires `schema:log` to be empty — it fails if an entity was changed without a matching migration.
+- **Builds**: `nest build` and `nuxt build` both pass; `nuxt build` alone would *not* catch web type errors (vite/esbuild do not typecheck), which is why the typecheck job exists separately.
+
+**Rehearsed by hand**
+
+- **Migration matrix**: fresh MySQL, fresh SQLite, a Prisma-era MySQL database (via `db:baseline` → `db:run`) and a Prisma-era SQLite database all end with `schema:log` reporting zero drift, and the upgrade paths kept every row (the amount columns were re-checked after the `decimal(65,30)` → `decimal(12,2)` narrowing). The MySQL side was re-checked read-only against the dev database after the last entity change.
+- **Revert**: on a fresh SQLite database the whole chain reverts cleanly — all seven migrations, `Init.down()` last — leaving only the TypeORM bookkeeping table. `db:baseline` refuses an empty database and refuses a database that is missing tables `Init` would have created, and prints the "revert is not an undo" warning described above.
+- **API end to end**: household isolation and roles (cross-household 403, non-owner 403), invite links that join on registration, location-tree moves with cycle validation, one item with SNs in different locations, duplicate SN / barcode rejection, dashboard stats, unified search, CSV (UTF-8 BOM, SN@location, no thumbnail column), scan priority, create-from-template, 9 notifier types, validation error shape, media upload → `GET /api/media/...` round-trip through the static prefix. Test data was cleaned up afterwards.
+- **Frontend runtime**: register / login / me, item CRUD with SN units, packaging editor, take-out and put-back from the scan sheet (including unknown codes offering "create an item"), the activity timeline, both locales (including the punctuation that follows the locale), and hydration mismatches on eight routes — none left. `nuxt typecheck` and `nuxt build` pass.
 - **Migrate on boot**: starting against an empty SQLite database creates the file and tables and registration succeeds immediately; a second start logs `[migrate] provider=sqlite 没有待执行的迁移`; `AUTO_MIGRATE=false` skips it.
-- **Prisma-era upgrade**: `db:baseline` records `Init` without touching any table and leaves the increment migrations pending, then `db:run` applies `NormalizeFromPrisma` + `RenamePrismaFkIndexes`; the path was rehearsed and then applied with zero data loss, and the resulting schema matches a fresh install.
 - **Docker**: the image builds with BuildKit; one container serves both apps with `0.0.0.0:3000` reachable, the `/api` proxy working and the backend connected to the dev MySQL (`db:true`); `docker build --check` reports no warnings.
-- **CI**: the kaniko pipeline is a single job that runs in-container with no artifacts; mirrors and image paths are configured for this environment (not yet exercised on a real GitLab runner).
+- **CI**: both jobs are configured for this environment (mirrors, kaniko image paths, two stages) but have not yet been exercised on a real GitLab runner — the checks themselves all pass locally, which is what the `check` stage runs.
