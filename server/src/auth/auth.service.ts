@@ -30,12 +30,19 @@ export class AuthService {
 
     // 用户名是登录凭据，必须唯一；邮箱填了也要唯一。
     // 原来是 OR 查询，这里保持同样的语义：只要 username 或 email 任一命中就冲突。
+    // 顺手把命中的那一行读出来，判断到底是哪个字段撞了：只报「用户名已被占用」会在
+    // 邮箱冲突时误导用户。前端 api.auth.emailTaken / api.auth.usernameTaken 两个
+    // 多语言 key 也据此分别命中。
     const taken = await this.users.findOne({
       where: email ? [{ username }, { email }] : [{ username }],
-      select: { id: true },
+      select: { id: true, username: true, email: true },
     });
     if (taken) {
-      throw new ConflictException({ code: 'auth.usernameTaken', message: '用户名已被占用' });
+      throw new ConflictException(
+        taken.username !== username
+          ? { code: 'auth.emailTaken', message: '邮箱已被占用' }
+          : { code: 'auth.usernameTaken', message: '用户名已被占用' },
+      );
     }
 
     // 邀请链接先校验，无效就直接报错，避免注册完才发现

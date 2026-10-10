@@ -96,10 +96,10 @@ export function useApi() {
       .map(({ field, constraints }) => {
         const label = constraints
           .map((name) => (i18n.te(`validation.${name}`) ? i18n.t(`validation.${name}`) : name))
-          .join('、');
+          .join(i18n.t('common.listSeparator'));
         return `${field}: ${label}`;
       })
-      .join('；');
+      .join(i18n.t('common.clauseSeparator'));
   }
 
   async function request<T>(path: string, options: FetchOptions = {}): Promise<T> {

@@ -325,7 +325,7 @@ async function startCamera() {
     // 权限被拒 / 被浏览器策略拦下：留在摄像头页，给出说明和「开始扫描」按钮供重试
     error.value = err.name === 'NotAllowedError' || err.name === 'SecurityError'
       ? t('scan.cameraDenied')
-      : `${t('scan.cameraFailed')}：${err.message ?? ''}`;
+      : `${t('scan.cameraFailed')}${err.message ?? ''}`;
   }
 }
 

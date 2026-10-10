@@ -115,7 +115,7 @@
 
     <p v-else-if="templateName" class="template-from">
       <UIcon name="i-lucide-layers" />
-      {{ t('item.createdFrom') }}：{{ templateName }}
+      {{ t('item.createdFrom') }}{{ templateName }}
     </p>
 
     <UFormField :label="t('item.name')" required>

@@ -52,6 +52,9 @@ const ICONS: Record<string, string> = {
   'item.delete': 'i-lucide-trash-2',
   'item.take_out': 'i-lucide-hand',
   'item.put_back': 'i-lucide-undo-2',
+  'item.consume': 'i-lucide-package-minus',
+  'item.restock': 'i-lucide-archive-restore',
+  'item.unpack': 'i-lucide-package-open',
   'unit.create': 'i-lucide-barcode',
   'unit.update': 'i-lucide-barcode',
   'unit.delete': 'i-lucide-barcode',
@@ -78,7 +81,7 @@ function fieldLabel(field: string): string {
 function fmt(value: unknown): string {
   if (value === null || value === undefined) return t('history.emptyValue');
   if (typeof value === 'boolean') return value ? t('history.yes') : t('history.no');
-  if (Array.isArray(value)) return value.length ? value.map(String).join('、') : t('history.emptyValue');
+  if (Array.isArray(value)) return value.length ? value.map(String).join(t('common.listSeparator')) : t('history.emptyValue');
   if (typeof value === 'number') return number(value);
   return String(value);
 }
@@ -91,8 +94,8 @@ function diffText(change: ActivityChange): string {
     const added = to.filter((item) => !from.includes(item));
     const removed = from.filter((item) => !to.includes(item));
     const parts: string[] = [];
-    if (added.length) parts.push(`+${added.join('、')}`);
-    if (removed.length) parts.push(`−${removed.join('、')}`);
+    if (added.length) parts.push(`+${added.join(t('common.listSeparator'))}`);
+    if (removed.length) parts.push(`−${removed.join(t('common.listSeparator'))}`);
     return parts.length ? parts.join(' ') : t('history.emptyValue');
   }
   return `${fmt(change.from)} → ${fmt(change.to)}`;
