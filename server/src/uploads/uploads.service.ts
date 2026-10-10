@@ -62,7 +62,7 @@ export class UploadsService {
     const row = await this.attachments.findOne({ where: { id, familyId } });
     if (!row) throw new NotFoundException({ code: 'upload.notFound', message: '文件不存在' });
 
-    // 显式映射：原来的 select 只取这几列，整行加载不能把 width/height 等字段吐出去
+    // 显式映射：只暴露这几列，整行加载会把 storageKey 等内部字段一并吐出去
     return {
       id: row.id,
       key: row.key,

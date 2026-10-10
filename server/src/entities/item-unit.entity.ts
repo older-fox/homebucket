@@ -12,6 +12,7 @@ import {
 import { Family } from './family.entity';
 import { Item } from './item.entity';
 import { Location } from './location.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 
@@ -35,12 +36,14 @@ export class ItemUnit {
   @Column({ type: 'int' })
   familyId: number;
 
+  @ForeignKeyIndex('IDX_ItemUnit_itemId')
   @Column({ type: 'int' })
   itemId: number;
 
   @Column({ type: 'varchar', length: STRING_LENGTH, nullable: true })
   sn: string | null;
 
+  @ForeignKeyIndex('IDX_ItemUnit_locationId')
   @Column({ type: 'int', nullable: true })
   locationId: number | null;
 

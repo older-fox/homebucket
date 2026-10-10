@@ -18,6 +18,7 @@ import { Attachment } from './attachment.entity';
 import { Location } from './location.entity';
 import { Item } from './item.entity';
 import { Tag } from './tag.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 /** 与 Item.price 保持一致，见 item.entity.ts 的说明 */
@@ -50,6 +51,7 @@ export class Template {
   @Column({ type: 'varchar', length: STRING_LENGTH, nullable: true })
   barcode: string | null;
 
+  @ForeignKeyIndex('IDX_Template_imageId')
   @Column({ type: 'int', nullable: true })
   imageId: number | null;
 
@@ -80,6 +82,7 @@ export class Template {
   manufacturer: string | null;
 
   /** 套用模板时预选的存放位置 */
+  @ForeignKeyIndex('IDX_Template_defaultLocationId')
   @Column({ type: 'int', nullable: true })
   defaultLocationId: number | null;
 

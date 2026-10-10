@@ -12,6 +12,7 @@ import { Family } from './family.entity';
 import { FamilyMember } from './family-member.entity';
 import { FamilyInvite } from './family-invite.entity';
 import { Attachment } from './attachment.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 
@@ -39,6 +40,7 @@ export class User {
   locale: string;
 
   /** 用户当前选中的家庭；登录后前端会带上，用于解析家庭上下文 */
+  @ForeignKeyIndex('IDX_User_defaultFamilyId')
   @Column({ type: 'int', nullable: true })
   defaultFamilyId: number | null;
 

@@ -19,6 +19,7 @@ import { Template } from './template.entity';
 import { Attachment } from './attachment.entity';
 import { NotificationChannel } from './notification-channel.entity';
 import { ActivityLog } from './activity-log.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 
@@ -51,6 +52,7 @@ export class Family {
   @Column({ type: 'boolean', default: false })
   isPersonal: boolean;
 
+  @ForeignKeyIndex('IDX_Family_ownerId')
   @Column({ type: 'int' })
   ownerId: number;
 

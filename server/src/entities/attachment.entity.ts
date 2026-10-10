@@ -14,6 +14,7 @@ import { User } from './user.entity';
 import { Item } from './item.entity';
 import { Location } from './location.entity';
 import { Template } from './template.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 
@@ -23,7 +24,6 @@ const STRING_LENGTH = 191;
  * 两种存储模式共用这张表：
  *   · local —— url 为空，前端用 `/api/media/<key>` 取（由后端静态托管）
  *   · s3    —— url 存完整可访问地址
- * 宽高是可选的，图片有、其他文件没有。
  */
 @Entity('Attachment')
 @Index(['familyId'])
@@ -49,12 +49,7 @@ export class Attachment {
   @Column({ type: 'int' })
   size: number;
 
-  @Column({ type: 'int', nullable: true })
-  width: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  height: number | null;
-
+  @ForeignKeyIndex('IDX_Attachment_uploadedById')
   @Column({ type: 'int', nullable: true })
   uploadedById: number | null;
 

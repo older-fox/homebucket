@@ -14,6 +14,7 @@ import { Attachment } from './attachment.entity';
 import { Item } from './item.entity';
 import { ItemUnit } from './item-unit.entity';
 import { Template } from './template.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 
@@ -35,6 +36,7 @@ export class Location {
   @Column({ type: 'int' })
   familyId: number;
 
+  @ForeignKeyIndex('IDX_Location_parentId')
   @Column({ type: 'int', nullable: true })
   parentId: number | null;
 
@@ -44,6 +46,7 @@ export class Location {
   @Column({ type: 'varchar', length: STRING_LENGTH, nullable: true })
   description: string | null;
 
+  @ForeignKeyIndex('IDX_Location_imageId')
   @Column({ type: 'int', nullable: true })
   imageId: number | null;
 

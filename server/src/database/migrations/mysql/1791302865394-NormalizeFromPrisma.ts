@@ -176,6 +176,15 @@ export class NormalizeFromPrisma1791302865394 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // 与 up() 用同一个守卫：只有 Prisma 时代的老库才存在需要"反向改写"的结构。
+        // 没有它会出事：在全新库上 revert 到这一步会真的执行 DROP FOREIGN KEY、把
+        // createdAt 改回 datetime(3)、price 改回 decimal(65,30)，而 MySQL 的 DDL 是隐式提交的，
+        // migrationsTransactionMode: 'all' 也回滚不了 —— 库里会留下半应用状态，
+        // 接着 Revert 到 Init 时它的 DROP FOREIGN KEY 又报 "Can't DROP ... check that column/key exists"。
+        // 代价是：在真正跑过 up() 的老库上 revert 也会被跳过（那时结构已经不是 Prisma 形状了），
+        // 即不提供"退回 Prisma 结构"的能力 —— 那本来就是明确不支持的操作，要退回请用备份恢复。
+        if (!(await this.isPrismaEraSchema(queryRunner))) return;
+
         await queryRunner.query(`ALTER TABLE \`_ItemTags\` DROP FOREIGN KEY \`FK_c2cf303c77cec519f0bc677153c\``);
         await queryRunner.query(`ALTER TABLE \`_ItemTags\` DROP FOREIGN KEY \`FK_4ddff1474545a4a78386ee982a7\``);
         await queryRunner.query(`ALTER TABLE \`_ItemImages\` DROP FOREIGN KEY \`FK_d90e9591251b2a43ed1b485bc1b\``);

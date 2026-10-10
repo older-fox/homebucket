@@ -19,6 +19,7 @@ import { Location } from './location.entity';
 import { Template } from './template.entity';
 import { ItemUnit } from './item-unit.entity';
 import { Tag } from './tag.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 /** DECIMAL(12,2) 上限 9,999,999,999.99，家庭记账足够，且比原先的 (65,30) 省一大截 */
@@ -96,12 +97,15 @@ export class Item {
   @Column({ type: 'varchar', length: STRING_LENGTH, nullable: true })
   traceCode: string | null;
 
+  @ForeignKeyIndex('IDX_Item_locationId')
   @Column({ type: 'int', nullable: true })
   locationId: number | null;
 
+  @ForeignKeyIndex('IDX_Item_templateId')
   @Column({ type: 'int', nullable: true })
   templateId: number | null;
 
+  @ForeignKeyIndex('IDX_Item_coverImageId')
   @Column({ type: 'int', nullable: true })
   coverImageId: number | null;
 

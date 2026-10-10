@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Family } from './family.entity';
 import { User } from './user.entity';
+import { ForeignKeyIndex } from './foreign-key-index';
 
 const STRING_LENGTH = 191;
 
@@ -22,6 +23,7 @@ export class FamilyInvite {
   @Column({ type: 'varchar', length: STRING_LENGTH, unique: true })
   token: string;
 
+  @ForeignKeyIndex('IDX_FamilyInvite_createdById')
   @Column({ type: 'int' })
   createdById: number;
 
