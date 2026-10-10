@@ -3,8 +3,9 @@
 # 参照 DockerFileTest / ciTest 的取舍：
 #   · 只在容器内构建：用 kaniko 在容器里构建并推送镜像，不需要 docker daemon / dind，
 #     也不需要 privileged runner。kaniko 镜像走加速域名（替代 gcr.io / ghcr.io）。
-#   · 不做 typecheck、不做独立的 build 校验 job —— 编译发生在 docker build 内部
-#     （nest build / nuxt build），失败即整个 job 失败。
+#   · check 阶段先做"便宜但拦得住人"的检查：server 类型检查 + 结构漂移探针、
+#     web 类型检查。镜像构建里的 nest build / nuxt build 只覆盖一部分：
+#     nuxt build 走 vite/esbuild 只转译、**不做类型检查**，web 的类型错误只能靠 vue-tsc 拦。
 #   · 不保留任何产物：没有 artifacts，构建结果只以镜像形式进入项目的容器注册表。
 #
 # 加速域名（都可通过 CI/CD Variables 覆盖）：
@@ -21,6 +22,8 @@
 # 触发：推送任意分支 / 打 tag 都会自动构建并推送镜像；也可在页面 / API 手动触发。
 
 stages:
+  # 默认串行：check 全部通过才进入 image，避免为类型错误白跑一次 kaniko 构建。
+  - check
   - image
 
 variables:
@@ -41,6 +44,44 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "api"
       when: always
     - when: never
+
+# 类型检查 + 结构漂移探针。
+#
+# 为什么不用 kaniko / 不放进 Dockerfile：这两件事都需要 devDependencies（typescript、
+# ts-node、vue-tsc），而运行镜像里 `npm ci --omit=dev`；放在这里也才能"先失败、后构建镜像"。
+#
+# 为什么落在这个 stage 而不是各建各的：web 侧 nuxt build 只转译（esbuild/vite 不做类型检查），
+# 所以 vue-tsc 是拦截 web 类型错误的唯一关卡；server 侧 nest build 会类型检查，但提前几分钟
+# 暴露比等到镜像构建最后一段更省事，顺带把 DB 结构漂移探针一起跑了。
+check:types:
+  stage: check
+  # 与镜像构建用同一个基础镜像变量（走加速域名）；若 runner 的 docker daemon 拉不动这个
+  # 域名，把下面换成官方 node:24-bookworm-slim 即可（runner 侧有 Docker Hub 镜像源时更稳）。
+  image:
+    name: $NODE_IMAGE
+    # 官方 node 镜像自带 entrypoint（docker-entrypoint.sh），跑脚本用不上，清空即可
+    entrypoint: [""]
+  interruptible: true
+  variables:
+    GIT_STRATEGY: clone
+  script:
+    # 两个包各自锁定依赖（各自有 package-lock.json），都用 NPM_REGISTRY 加速源，
+    # 与镜像构建保持同一套解析结果，避免 CI 装到的版本和镜像里不一致。
+    - cd server
+    - npm ci --no-audit --no-fund --registry "$NPM_REGISTRY"
+    - npm run typecheck
+    # 全新 SQLite 库跑完迁移后 schema:log 必须零漂移 —— 实体改了忘写迁移时只有这个探针会响。
+    # MySQL 需要外部实例，CI 里跑不了，所以这里只覆盖 SQLite 一侧。
+    - npm run db:check-drift
+    # 目前还没有测试文件，--if-present 让这行现在是无害的 no-op（加了 test 脚本后自动生效）
+    - npm test --if-present
+    - cd ../web
+    - npm ci --no-audit --no-fund --registry "$NPM_REGISTRY"
+    - npm run typecheck
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "api"
 
 docker:image:
   stage: image

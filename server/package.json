@@ -5,6 +5,7 @@
   "description": "Homebucket backend (NestJS + TypeORM)",
   "scripts": {
     "build": "nest build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
@@ -14,6 +15,7 @@
     "db:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "db:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
     "db:baseline": "node scripts/db-baseline.mjs",
+    "db:check-drift": "node scripts/check-drift.mjs",
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
