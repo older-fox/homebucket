@@ -81,7 +81,7 @@
                 <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
               </td>
               <td class="hb-mono muted">{{ item.barcode || item.traceCode || '—' }}</td>
-              <td class="num hb-num">{{ item.quantity }}</td>
+              <td class="num hb-num">{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</td>
               <td>{{ item.model || '—' }}</td>
               <td>{{ item.location?.name || t('item.noLocation') }}</td>
               <td>
@@ -162,7 +162,7 @@
                   </span>
                 </p>
                 <div class="hb-list-meta">
-                  <span class="hb-chip tiny hb-num">×{{ item.quantity }}</span>
+                  <span class="hb-chip tiny hb-num">×{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</span>
                   <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
                   <!-- 条码只在没有标签时占位，避免和标签挤成两行 -->
                   <span v-if="(item.barcode || item.traceCode) && !item.tags.length" class="hb-chip tiny hb-mono">{{ item.barcode || item.traceCode }}</span>
@@ -199,6 +199,8 @@ interface Item {
   id: number;
   name: string;
   quantity: number;
+  baseUnit: string | null;
+  packLevels: { name: string; factor: number }[];
   price: number;
   model: string | null;
   barcode: string | null;
@@ -213,6 +215,7 @@ const api = useApi();
 const route = useRoute();
 const toast = useToast();
 const { money } = useFormat();
+const { format: formatUnits } = useUnits();
 const isMobile = useBreakpoint();
 
 const page = ref(1);

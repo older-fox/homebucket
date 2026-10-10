@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ActivityModule } from '../activity/activity.module';
 import { ScanController } from './scan.controller';
 import { ScanService } from './scan.service';
 
@@ -9,6 +10,7 @@ import { ScanService } from './scan.service';
  * 不写 TypeOrmModule.forFeature：DatabaseModule 是 @Global 的，已导出全部实体 Repository。
  */
 @Module({
+  imports: [ActivityModule],
   controllers: [ScanController],
   providers: [ScanService],
 })

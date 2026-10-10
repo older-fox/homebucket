@@ -1,8 +1,15 @@
 import 'reflect-metadata';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { config as loadEnv } from 'dotenv';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { entities } from '../entities';
 import { env } from '../config/env';
+
+// 本文件既是 Nest 的数据源工厂，也是 TypeORM CLI（db:run / db:generate / db:revert /
+// db:show）的入口。CLI 不经过 main.ts，必须自己加载仓库根目录的 .env，
+// 否则 DATABASE_URL / DB_* 一律读不到，会退化成 127.0.0.1:3306 导致连接被拒。
+// dotenv 默认不覆盖已有变量，应用启动时 main.ts 已加载过，这里重复调用无副作用。
+loadEnv({ path: resolve(process.cwd(), '../.env') });
 
 /**
  * 迁移文件按 provider 分目录。

@@ -7,6 +7,7 @@ import { Location } from '../entities/location.entity';
 import { Tag } from '../entities/tag.entity';
 import { mediaUrl } from '../common/media';
 import { countByForeignKey } from '../common/relation-count';
+import { parsePackLevels } from '../items/packaging';
 
 /**
  * 全局搜索业务逻辑。
@@ -79,6 +80,8 @@ export class SearchService {
         id: item.id,
         name: item.name,
         quantity: item.quantity,
+        baseUnit: item.baseUnit,
+        packLevels: parsePackLevels(item.packLevels),
         price: item.price,
         model: item.model,
         manufacturer: item.manufacturer,

@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { type Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, type Repository } from 'typeorm';
 import QRCode from 'qrcode';
 import { Item } from '../entities/item.entity';
 import { ItemUnit } from '../entities/item-unit.entity';
 import { Location } from '../entities/location.entity';
 import { Template } from '../entities/template.entity';
 import { Attachment } from '../entities/attachment.entity';
+import { ActivityService, type ActivityActor } from '../activity/activity.service';
+import { parsePackLevels } from '../items/packaging';
 import { mediaUrl } from '../common/media';
 import { env } from '../config/env';
 
@@ -21,6 +23,9 @@ export interface ScanCard {
   /** 型号 / 制造商（或 SN 备注）拼出的副标题，都没有时为 null */
   subtitle: string | null;
   quantity: number | null;
+  /** 包装：最小单位名 + 层级；为空表示未启用（前端据此展示"X 箱 Y 瓶"） */
+  baseUnit: string | null;
+  packLevels: { name: string; factor: number }[];
   price: number | null;
   locationName: string | null;
   imageUrl: string | null;
@@ -66,6 +71,8 @@ export class ScanService {
     @InjectRepository(Location) private readonly locations: Repository<Location>,
     @InjectRepository(Template) private readonly templates: Repository<Template>,
     @InjectRepository(Attachment) private readonly attachments: Repository<Attachment>,
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly activity: ActivityService,
   ) {}
 
   /**
@@ -92,7 +99,12 @@ export class ScanService {
    * 只解析一次：findTarget 已经把目标连同卡片一起拿回来了，改完直接把新状态回填，
    * 不必为了拿最新状态再跑一遍六次查询。
    */
-  async setTakenOut(familyId: number, code: string, takenOut: boolean): Promise<ScanTarget> {
+  async setTakenOut(
+    familyId: number,
+    actor: ActivityActor,
+    code: string,
+    takenOut: boolean,
+  ): Promise<ScanTarget> {
     const target = await this.findTarget(familyId, code);
     if (!target) {
       throw new NotFoundException({ code: 'scan.notFound', message: '没有找到对应的物品或位置' });
@@ -105,11 +117,31 @@ export class ScanService {
     }
 
     const takenOutAt = takenOut ? new Date() : null;
-    if (target.type === 'unit') {
-      await this.units.update({ id: target.id, familyId }, { takenOutAt });
-    } else {
-      await this.items.update({ id: target.id, familyId }, { takenOutAt });
-    }
+    // 上面已把模板/位置拦掉，这里收窄成 'item' | 'unit'；在下面的闭包里 TS 不会保留对
+    // target.type 的属性收窄，所以先取到局部常量
+    const targetType = target.type;
+
+    // 状态变更与历史同事务：取走/放回不产生字段差异，动作本身就说明了变化
+    await this.dataSource.transaction(async (manager) => {
+      if (targetType === 'unit') {
+        await manager.update(ItemUnit, { id: target.id, familyId }, { takenOutAt });
+      } else {
+        await manager.update(Item, { id: target.id, familyId }, { takenOutAt });
+      }
+
+      await this.activity.record(
+        familyId,
+        actor,
+        {
+          targetType,
+          targetId: target.id,
+          itemId: targetType === 'item' ? target.id : (target.itemId ?? null),
+          itemName: target.name,
+          action: takenOut ? 'item.take_out' : 'item.put_back',
+        },
+        manager,
+      );
+    });
 
     return { ...target, takenOutAt };
   }
@@ -122,6 +154,8 @@ export class ScanService {
       barcode: true,
       traceCode: true,
       quantity: true,
+      baseUnit: true,
+      packLevels: true,
       price: true,
       model: true,
       manufacturer: true,
@@ -160,6 +194,8 @@ export class ScanService {
           name: template.name,
           subtitle: null,
           quantity: null,
+          baseUnit: null,
+          packLevels: [],
           price: null,
           locationName: null,
           imageUrl: null,
@@ -186,6 +222,8 @@ export class ScanService {
           name: location.name,
           subtitle: null,
           quantity: null,
+          baseUnit: null,
+          packLevels: [],
           price: null,
           locationName: location.name,
           imageUrl: null,
@@ -238,6 +276,8 @@ export class ScanService {
         name: item.name,
         subtitle: subtitleOf(item),
         quantity: item.quantity,
+        baseUnit: item.baseUnit,
+        packLevels: parsePackLevels(item.packLevels),
         price: item.price,
         locationName,
         imageUrl,
@@ -272,6 +312,8 @@ export class ScanService {
         name: unit.item.name,
         subtitle: unit.note ?? subtitleOf(unit.item),
         quantity: null,
+        baseUnit: unit.item.baseUnit,
+        packLevels: parsePackLevels(unit.item.packLevels),
         price: unit.item.price,
         locationName,
         imageUrl,

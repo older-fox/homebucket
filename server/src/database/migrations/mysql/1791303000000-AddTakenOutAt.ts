@@ -14,13 +14,27 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class AddTakenOutAt1791303000000 implements MigrationInterface {
   name = 'AddTakenOutAt1791303000000';
 
+  /**
+   * 逐列判断后再补：老库（Prisma 时代）里 `Item.takenOutAt` 可能已经存在，
+   * 而 `ItemUnit.takenOutAt` 没有。若第一条 ALTER 就因 "Duplicate column name" 失败，
+   * 整个迁移会中断，缺的那一列反而永远补不上（且迁移记录不会写入）。
+   * 因此两列都各自先 hasColumn 判断，存在则跳过。
+   */
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE \`Item\` ADD \`takenOutAt\` datetime(3) NULL`);
-    await queryRunner.query(`ALTER TABLE \`ItemUnit\` ADD \`takenOutAt\` datetime(3) NULL`);
+    if (!(await queryRunner.hasColumn('Item', 'takenOutAt'))) {
+      await queryRunner.query(`ALTER TABLE \`Item\` ADD \`takenOutAt\` datetime(3) NULL`);
+    }
+    if (!(await queryRunner.hasColumn('ItemUnit', 'takenOutAt'))) {
+      await queryRunner.query(`ALTER TABLE \`ItemUnit\` ADD \`takenOutAt\` datetime(3) NULL`);
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE \`Item\` DROP COLUMN \`takenOutAt\``);
-    await queryRunner.query(`ALTER TABLE \`ItemUnit\` DROP COLUMN \`takenOutAt\``);
+    if (await queryRunner.hasColumn('Item', 'takenOutAt')) {
+      await queryRunner.query(`ALTER TABLE \`Item\` DROP COLUMN \`takenOutAt\``);
+    }
+    if (await queryRunner.hasColumn('ItemUnit', 'takenOutAt')) {
+      await queryRunner.query(`ALTER TABLE \`ItemUnit\` DROP COLUMN \`takenOutAt\``);
+    }
   }
 }

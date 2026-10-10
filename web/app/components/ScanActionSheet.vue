@@ -120,7 +120,8 @@
  * 而下面的守卫（焦点在输入框里就不接管）足以避免抢走正常输入。
  */
 const { t } = useI18n();
-const { money, number, relative } = useFormat();
+const { money, relative } = useFormat();
+const { format: formatUnits } = useUnits();
 const toast = useToast();
 const {
   open,
@@ -267,7 +268,7 @@ const metaRows = computed(() => {
     rows.push({
       icon: 'i-lucide-layers',
       label: t('scan.quantityLabel'),
-      value: number(current.card.quantity),
+      value: formatUnits(current.card.quantity, current.card.baseUnit, current.card.packLevels),
     });
   }
   if (current.card.unitCount) {
@@ -305,16 +306,37 @@ const metaRows = computed(() => {
 
 /* ---------------- 动作 ---------------- */
 
-function onPrimary() {
-  return takenOut.value ? putBack() : takeOut();
+/**
+ * 所有动作都遵循"操作完就收起浮窗"：
+ *   · 浮窗挂在布局层、open 存在 useState 里，跳转后并不会自动卸载，
+ *     不显式 close() 的话它会一直盖在新页面上；
+ *   · 取走/放回是原地动作，成功后同样收起（失败则保持打开，方便重试）。
+ */
+async function onPrimary() {
+  const ok = await (takenOut.value ? putBack() : takeOut());
+  if (ok) close();
 }
 
-const goDetail = () => itemId.value && navigateTo(`/items/${itemId.value}`);
-const goEdit = () => itemId.value && navigateTo(`/items/${itemId.value}?edit=1`);
-const goLocation = () => target.value && navigateTo(`/locations?focus=${target.value.id}`);
-const goCreate = () => navigateTo({ path: '/items/new', query: { barcode: code.value } });
-const goTemplate = () =>
-  target.value && navigateTo({ path: '/items/new', query: { templateId: target.value.id } });
+const goDetail = () => {
+  close();
+  if (itemId.value) return navigateTo(`/items/${itemId.value}`);
+};
+const goEdit = () => {
+  close();
+  if (itemId.value) return navigateTo(`/items/${itemId.value}?edit=1`);
+};
+const goLocation = () => {
+  close();
+  if (target.value) return navigateTo(`/locations?focus=${target.value.id}`);
+};
+const goCreate = () => {
+  close();
+  return navigateTo({ path: '/items/new', query: { barcode: code.value } });
+};
+const goTemplate = () => {
+  close();
+  if (target.value) return navigateTo({ path: '/items/new', query: { templateId: target.value.id } });
+};
 const retry = () => lookup(code.value);
 
 async function copyCode() {

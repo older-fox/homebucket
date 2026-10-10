@@ -56,6 +56,14 @@ export class Template {
   @Column({ type: 'int', default: 1 })
   quantity: number;
 
+  /** 包装：最小单位名（如「瓶」）；为空 = 未启用。与 Item 同义，套用模板时带到物品上 */
+  @Column({ type: 'varchar', length: STRING_LENGTH, nullable: true })
+  baseUnit: string | null;
+
+  /** 包装层级（JSON 字符串），格式同 Item.packLevels */
+  @Column({ type: 'text', nullable: true })
+  packLevels: string | null;
+
   @Column({
     type: 'decimal',
     precision: MONEY_PRECISION,

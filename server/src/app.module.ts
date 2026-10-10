@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { AppController } from './app.controller';
+import { ActivityModule } from './activity/activity.module';
 import { AuthModule } from './auth/auth.module';
 import { CollectionModule } from './collection/collection.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -21,6 +22,7 @@ import { env } from './config/env';
   imports: [
     DatabaseModule,
     CollectionModule,
+    ActivityModule,
     AuthModule,
     FamiliesModule,
     UploadsModule,

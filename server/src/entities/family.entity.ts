@@ -18,6 +18,7 @@ import { Tag } from './tag.entity';
 import { Template } from './template.entity';
 import { Attachment } from './attachment.entity';
 import { NotificationChannel } from './notification-channel.entity';
+import { ActivityLog } from './activity-log.entity';
 
 const STRING_LENGTH = 191;
 
@@ -92,6 +93,10 @@ export class Family {
 
   @OneToMany(() => NotificationChannel, (channel) => channel.family)
   notifiers: NotificationChannel[];
+
+  /** 操作历史（家庭删除时一并清理） */
+  @OneToMany(() => ActivityLog, (log) => log.family)
+  activityLogs: ActivityLog[];
 
   /** 把本家庭当作默认家庭的用户（User.defaultFamilyId 的反向） */
   @OneToMany(() => User, (user) => user.defaultFamily)

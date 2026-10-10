@@ -11,6 +11,9 @@ export interface ScanCard {
   name: string;
   subtitle: string | null;
   quantity: number | null;
+  /** 包装：最小单位名 + 层级（为空表示未启用），用于展示"X 箱 Y 瓶" */
+  baseUnit: string | null;
+  packLevels: { name: string; factor: number }[];
   price: number | null;
   locationName: string | null;
   imageUrl: string | null;
@@ -84,9 +87,12 @@ export function useScanSheet() {
     }
   }
 
-  /** 取走 / 放回：接口会把动作后的新状态一起返回，直接替换即可，不必再查一次 */
-  async function setTakenOut(next: boolean) {
-    if (!code.value || !takeable.value || busy.value) return;
+  /**
+   * 取走 / 放回：接口会把动作后的新状态一起返回，直接替换即可，不必再查一次。
+   * 返回是否成功——成功时调用方（浮窗）会收起，失败则保持打开让用户重试。
+   */
+  async function setTakenOut(next: boolean): Promise<boolean> {
+    if (!code.value || !takeable.value || busy.value) return false;
 
     busy.value = true;
     try {
@@ -94,11 +100,13 @@ export function useScanSheet() {
         `/scan/${encodeURIComponent(code.value)}/${next ? 'take' : 'return'}`,
       );
       toast.add({ title: t(next ? 'scan.takeOutDone' : 'scan.putBackDone'), color: 'success' });
+      return true;
     } catch (error) {
       toast.add({
         title: (error as { message?: string }).message || t('errors.unknown'),
         color: 'error',
       });
+      return false;
     } finally {
       busy.value = false;
     }

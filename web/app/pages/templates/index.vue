@@ -56,7 +56,7 @@
           <p class="meta">
             <span v-if="template.model">{{ template.model }}</span>
             <span v-if="template.manufacturer">· {{ template.manufacturer }}</span>
-            <span>· ×{{ template.quantity }}</span>
+            <span>· ×{{ formatUnits(template.quantity, template.baseUnit, template.packLevels) }}</span>
             <span>· {{ money(template.price) }}</span>
           </p>
           <p v-if="template.barcode" class="meta">
@@ -112,7 +112,11 @@
           </UFormField>
           <div class="grid-2">
             <UFormField :label="t('item.quantity')">
-              <UInput v-model.number="form.quantity" type="number" inputmode="numeric" min="0" size="xl" class="w-full" />
+              <UnitQuantityInput
+                v-model="form.quantity"
+                :base-unit="form.baseUnit"
+                :pack-levels="form.packLevels"
+              />
             </UFormField>
             <UFormField :label="t('item.price')">
               <UInput v-model.number="form.price" type="number" inputmode="decimal" step="0.01" size="xl" class="w-full" />
@@ -124,6 +128,14 @@
               <UInput v-model="form.manufacturer" size="xl" class="w-full" />
             </UFormField>
           </div>
+          <UFormField :label="t('item.packLevels')">
+            <PackLevelsEditor
+              :base-unit="form.baseUnit"
+              :pack-levels="form.packLevels"
+              @update:base-unit="(value) => (form.baseUnit = value)"
+              @update:pack-levels="(value) => (form.packLevels = value)"
+            />
+          </UFormField>
           <UFormField :label="t('template.defaultLocation')">
             <LocationPicker v-model="form.defaultLocationId" />
           </UFormField>
@@ -149,6 +161,8 @@
 </template>
 
 <script setup lang="ts">
+import type { PackLevel } from '~/composables/useUnits';
+
 interface Template {
   id: number;
   barcode: string | null;
@@ -157,6 +171,8 @@ interface Template {
   imageUrl: string | null;
   imageId: number | null;
   quantity: number;
+  baseUnit: string | null;
+  packLevels: PackLevel[];
   price: number;
   model: string | null;
   manufacturer: string | null;
@@ -170,6 +186,7 @@ const { t } = useI18n();
 const api = useApi();
 const toast = useToast();
 const { money } = useFormat();
+const { format: formatUnits } = useUnits();
 const route = useRoute();
 
 const { data, pending, refresh } = await useAsyncData('templates', () => api.get<Template[]>('/templates'), {
@@ -207,6 +224,8 @@ const form = reactive<{
   barcode: string;
   description: string;
   quantity: number;
+  baseUnit: string | null;
+  packLevels: PackLevel[];
   price: number;
   model: string;
   manufacturer: string;
@@ -217,6 +236,8 @@ const form = reactive<{
   name: '',
   description: '',
   quantity: 1,
+  baseUnit: null,
+  packLevels: [],
   price: 0,
   model: '',
   manufacturer: '',
@@ -232,6 +253,8 @@ function openCreate() {
     name: '',
     description: '',
     quantity: 1,
+    baseUnit: null,
+    packLevels: [],
     price: 0,
     model: '',
     manufacturer: '',
@@ -249,6 +272,8 @@ function openEdit(template: Template) {
     name: template.name,
     description: template.description ?? '',
     quantity: template.quantity,
+    baseUnit: template.baseUnit,
+    packLevels: template.packLevels ?? [],
     price: template.price,
     model: template.model ?? '',
     manufacturer: template.manufacturer ?? '',
@@ -285,6 +310,8 @@ async function save() {
       name: form.name,
       description: form.description || undefined,
       quantity: form.quantity,
+      baseUnit: form.baseUnit,
+      packLevels: form.packLevels,
       price: form.price,
       model: form.model || undefined,
       manufacturer: form.manufacturer || undefined,

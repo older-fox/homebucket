@@ -6,6 +6,14 @@ import { Item } from '../entities/item.entity';
 import { Location } from '../entities/location.entity';
 import { Tag } from '../entities/tag.entity';
 import { Template } from '../entities/template.entity';
+import { ActivityService, diffFields, type ActivityActor } from '../activity/activity.service';
+import {
+  normalizePackLevels,
+  normalizePackaging,
+  packLevelsLabel,
+  parsePackLevels,
+  serializePackLevels,
+} from '../items/packaging';
 import { shortToken } from '../common/id';
 import { mediaUrl } from '../common/media';
 import { countByForeignKey } from '../common/relation-count';
@@ -20,6 +28,7 @@ export class TemplatesService {
     @InjectRepository(Location) private readonly locations: Repository<Location>,
     @InjectRepository(Tag) private readonly tags: Repository<Tag>,
     @InjectRepository(Attachment) private readonly attachments: Repository<Attachment>,
+    private readonly activity: ActivityService,
   ) {}
 
   async list(familyId: number) {
@@ -63,6 +72,8 @@ export class TemplatesService {
       imageUrl: mediaUrl(row.image),
       barcode: row.barcode,
       quantity: row.quantity,
+      baseUnit: row.baseUnit,
+      packLevels: parsePackLevels(row.packLevels),
       // price 实体上挂了 decimal transformer，已经是 number，不用再 Number()
       price: row.price,
       model: row.model,
@@ -80,6 +91,7 @@ export class TemplatesService {
     await this.assertRelations(familyId, dto);
     await this.assertBarcodeAvailable(familyId, dto.barcode);
 
+    const packaging = normalizePackaging(dto.baseUnit, dto.packLevels);
     const row = await this.templates.save(
       this.templates.create({
         familyId,
@@ -87,6 +99,8 @@ export class TemplatesService {
         description: dto.description ?? null,
         imageId: dto.imageId ?? null,
         quantity: dto.quantity ?? 1,
+        baseUnit: packaging.baseUnit,
+        packLevels: packaging.packLevels,
         price: dto.price ?? 0,
         model: dto.model ?? null,
         manufacturer: dto.manufacturer ?? null,
@@ -110,6 +124,14 @@ export class TemplatesService {
     if (dto.description !== undefined) row.description = dto.description;
     if (dto.imageId !== undefined) row.imageId = dto.imageId;
     if (dto.quantity !== undefined) row.quantity = dto.quantity;
+    if (dto.baseUnit !== undefined || dto.packLevels !== undefined) {
+      const nextBase = dto.baseUnit !== undefined ? dto.baseUnit?.trim() || null : row.baseUnit;
+      if (dto.packLevels !== undefined) {
+        row.packLevels = serializePackLevels(normalizePackLevels(dto.packLevels));
+      }
+      row.baseUnit = nextBase;
+      if (!nextBase) row.packLevels = null;
+    }
     if (dto.price !== undefined) row.price = dto.price;
     if (dto.model !== undefined) row.model = dto.model;
     if (dto.manufacturer !== undefined) row.manufacturer = dto.manufacturer;
@@ -130,8 +152,8 @@ export class TemplatesService {
     return { ok: true };
   }
 
-  /** 用模板快速新增物品：模板字段作为默认值，允许覆盖 */
-  async createItem(familyId: number, id: number, dto: UseTemplateDto) {
+  /** 用模板快速新增物品：模板字段作为默认值，允许覆盖；记一条 item.create（含来源模板） */
+  async createItem(familyId: number, actor: ActivityActor, id: number, dto: UseTemplateDto) {
     const template = await this.templates.findOne({
       where: { id, familyId },
       relations: { tags: true },
@@ -143,23 +165,66 @@ export class TemplatesService {
       if (!exists) throw new BadRequestException({ code: 'location.notFound', message: '位置不存在' });
     }
 
-    const row = await this.items.save(
-      this.items.create({
+    const name = dto.name?.trim() || template.name;
+    const locationId = dto.locationId ?? template.defaultLocationId;
+    const locationName = locationId
+      ? ((await this.locations.findOne({ where: { id: locationId, familyId }, select: { name: true } }))?.name ?? null)
+      : null;
+
+    const changes = diffFields({}, {
+      name,
+      description: template.description ?? null,
+      quantity: dto.quantity ?? template.quantity,
+      price: template.price,
+      model: template.model ?? null,
+      manufacturer: template.manufacturer ?? null,
+      location: locationName,
+      tags: template.tags.map((tag) => tag.name).sort(),
+      baseUnit: template.baseUnit ?? null,
+      packLevels: packLevelsLabel(parsePackLevels(template.packLevels)),
+      // 记下"从哪个模板来"，便于追溯
+      template: template.name,
+    });
+
+    const row = await this.items.manager.transaction(async (manager) => {
+      const saved = await manager.save(
+        manager.create(Item, {
+          familyId,
+          name,
+          description: template.description,
+          quantity: dto.quantity ?? template.quantity,
+          price: template.price,
+          model: template.model,
+          manufacturer: template.manufacturer,
+          locationId,
+          templateId: template.id,
+          coverImageId: template.imageId,
+          // 包装规格随模板带到物品上
+          baseUnit: template.baseUnit,
+          packLevels: template.packLevels,
+          qrToken: shortToken(),
+          // 模板标签整体带过来（Prisma 的嵌套 connect），连接行由 save 写入
+          tags: template.tags,
+        }),
+      );
+
+      await this.activity.record(
         familyId,
-        name: dto.name?.trim() || template.name,
-        description: template.description,
-        quantity: dto.quantity ?? template.quantity,
-        price: template.price,
-        model: template.model,
-        manufacturer: template.manufacturer,
-        locationId: dto.locationId ?? template.defaultLocationId,
-        templateId: template.id,
-        coverImageId: template.imageId,
-        qrToken: shortToken(),
-        // 模板标签整体带过来（Prisma 的嵌套 connect），连接行由 save 写入
-        tags: template.tags,
-      }),
-    );
+        actor,
+        {
+          targetType: 'item',
+          targetId: saved.id,
+          itemId: saved.id,
+          itemName: saved.name,
+          action: 'item.create',
+          changes,
+        },
+        manager,
+      );
+
+      return saved;
+    });
+
     return { id: row.id, name: row.name };
   }
 

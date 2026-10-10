@@ -1,4 +1,5 @@
 import { IsOptional, IsString, Length } from 'class-validator';
+import { IsOptionalNotNull } from '../common/validation';
 
 /** 标签的入参 DTO（校验规则与原 tags.module.ts 内联版本完全一致） */
 
@@ -16,12 +17,12 @@ export class CreateTagDto {
 }
 
 export class UpdateTagDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(1, 40)
   name?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(4, 9)
   color?: string;

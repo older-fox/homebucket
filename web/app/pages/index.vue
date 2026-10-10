@@ -72,7 +72,7 @@
             </p>
           </div>
           <div class="hb-list-side">
-            <span class="hb-list-note hb-num">×{{ item.quantity }}</span>
+            <span class="hb-list-note hb-num">×{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</span>
             <span class="hb-num">{{ money(item.price * item.quantity) }}</span>
           </div>
         </li>
@@ -148,6 +148,8 @@ interface DashboardItem {
   id: number;
   name: string;
   quantity: number;
+  baseUnit: string | null;
+  packLevels: { name: string; factor: number }[];
   price: number;
   location: { id: number; name: string } | null;
   tags: { id: number; name: string; color: string }[];
@@ -170,6 +172,7 @@ const { t } = useI18n();
 const api = useApi();
 const { current, load } = useFamily();
 const { money, number } = useFormat();
+const { format: formatUnits } = useUnits();
 
 onMounted(load);
 

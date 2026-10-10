@@ -124,9 +124,16 @@
 
     <div class="grid">
       <UFormField :label="t('item.quantity')">
-        <UInput v-model.number="form.quantity" type="number" inputmode="numeric" min="0" size="xl" class="w-full" />
+        <UnitQuantityInput
+          v-model="form.quantity"
+          :base-unit="form.baseUnit"
+          :pack-levels="form.packLevels"
+        />
       </UFormField>
-      <UFormField :label="t('item.price')" :hint="t('item.priceHint', { currency })">
+      <UFormField
+        :label="t('item.price')"
+        :hint="form.baseUnit ? t('item.pricePerBase', { unit: form.baseUnit }) : t('item.priceHint', { currency })"
+      >
         <UInput v-model.number="form.price" type="number" inputmode="decimal" step="0.01" min="0" size="xl" class="w-full" />
       </UFormField>
       <UFormField :label="t('item.model')">
@@ -136,6 +143,15 @@
         <UInput v-model="form.manufacturer" size="xl" class="w-full" />
       </UFormField>
     </div>
+
+    <UFormField :label="t('item.packLevels')">
+      <PackLevelsEditor
+        :base-unit="form.baseUnit"
+        :pack-levels="form.packLevels"
+        @update:base-unit="(value) => (form.baseUnit = value)"
+        @update:pack-levels="(value) => (form.packLevels = value)"
+      />
+    </UFormField>
 
     <UFormField :label="t('item.location')">
       <LocationPicker v-model="form.locationId" />
@@ -187,11 +203,15 @@
 </template>
 
 <script setup lang="ts">
+import type { PackLevel } from '~/composables/useUnits';
+
 interface Template {
   id: number;
   name: string;
   description: string | null;
   quantity: number;
+  baseUnit: string | null;
+  packLevels: PackLevel[];
   price: number;
   model: string | null;
   manufacturer: string | null;
@@ -211,6 +231,8 @@ interface ItemDetail {
   manufacturer: string | null;
   barcode: string | null;
   traceCode: string | null;
+  baseUnit: string | null;
+  packLevels: PackLevel[];
   location: { id: number } | null;
   tags: { id: number }[];
   images: { id: number; url: string }[];
@@ -246,6 +268,8 @@ const form = reactive<{
   name: string;
   description: string;
   quantity: number;
+  baseUnit: string | null;
+  packLevels: PackLevel[];
   price: number;
   model: string;
   manufacturer: string;
@@ -260,6 +284,8 @@ const form = reactive<{
   name: '',
   description: '',
   quantity: 1,
+  baseUnit: null,
+  packLevels: [],
   price: 0,
   model: '',
   manufacturer: '',
@@ -289,6 +315,8 @@ onMounted(async () => {
       name: item.name,
       description: item.description ?? '',
       quantity: item.quantity,
+      baseUnit: item.baseUnit,
+      packLevels: item.packLevels ?? [],
       price: item.price,
       model: item.model ?? '',
       manufacturer: item.manufacturer ?? '',
@@ -411,6 +439,8 @@ async function applyTemplate(templateId: number) {
       name: form.name || template.name,
       description: template.description ?? '',
       quantity: template.quantity,
+      baseUnit: template.baseUnit,
+      packLevels: template.packLevels ?? [],
       price: template.price,
       model: template.model ?? '',
       manufacturer: template.manufacturer ?? '',
@@ -447,6 +477,8 @@ async function submit() {
       name: form.name,
       description: form.description || undefined,
       quantity: form.quantity,
+      baseUnit: form.baseUnit,
+      packLevels: form.packLevels,
       price: form.price,
       model: form.model || undefined,
       manufacturer: form.manufacturer || undefined,

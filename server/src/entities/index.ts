@@ -1,4 +1,5 @@
 import { Attachment } from './attachment.entity';
+import { ActivityLog } from './activity-log.entity';
 import { Family } from './family.entity';
 import { FamilyInvite } from './family-invite.entity';
 import { FamilyMember } from './family-member.entity';
@@ -48,10 +49,12 @@ export const entities = [
   Tag,
   Template,
   NotificationChannel,
+  ActivityLog,
 ];
 
 export {
   Attachment,
+  ActivityLog,
   Family,
   FamilyInvite,
   FamilyMember,

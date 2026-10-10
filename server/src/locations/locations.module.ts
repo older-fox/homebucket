@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ActivityModule } from '../activity/activity.module';
 import { LocationsController } from './locations.controller';
 import { LocationsService } from './locations.service';
 
@@ -9,6 +10,7 @@ import { LocationsService } from './locations.service';
  * 不需要 TypeOrmModule.forFeature：DatabaseModule 是 @Global 的，已导出全部实体的 Repository。
  */
 @Module({
+  imports: [ActivityModule],
   controllers: [LocationsController],
   providers: [LocationsService],
   exports: [LocationsService],

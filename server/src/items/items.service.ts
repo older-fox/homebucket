@@ -6,12 +6,24 @@ import { Item } from '../entities/item.entity';
 import { ItemUnit } from '../entities/item-unit.entity';
 import { Location } from '../entities/location.entity';
 import { Tag } from '../entities/tag.entity';
+import { Template } from '../entities/template.entity';
 import { CollectionService } from '../collection/collection.service';
+import { ActivityService, diffFields, type ActivityActor } from '../activity/activity.service';
 import { shortToken, traceCode } from '../common/id';
 import { mediaUrl } from '../common/media';
 import { normalizePaging } from '../common/pagination';
 import { countByForeignKey } from '../common/relation-count';
-import type { CreateItemDto, ItemUnitDto, QueryItemsDto, UpdateItemDto } from './dto';
+import {
+  factorOf,
+  formatBreakdown,
+  normalizePackLevels,
+  normalizePackaging,
+  packLevelsLabel,
+  parsePackLevels,
+  serializePackLevels,
+} from './packaging';
+import type { AdjustStockDto, CreateItemDto, ItemUnitDto, QueryItemsDto, UnpackDto, UpdateItemDto } from './dto';
+import type { ActivityChange } from '../activity/activity.service';
 
 @Injectable()
 export class ItemsService {
@@ -20,9 +32,11 @@ export class ItemsService {
     @InjectRepository(ItemUnit) private readonly units: Repository<ItemUnit>,
     @InjectRepository(Location) private readonly locations: Repository<Location>,
     @InjectRepository(Tag) private readonly tags: Repository<Tag>,
+    @InjectRepository(Template) private readonly templates: Repository<Template>,
     @InjectRepository(Attachment) private readonly attachments: Repository<Attachment>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly collection: CollectionService,
+    private readonly activity: ActivityService,
   ) {}
 
   async list(familyId: number, query: QueryItemsDto) {
@@ -48,6 +62,8 @@ export class ItemsService {
         id: row.id,
         name: row.name,
         quantity: row.quantity,
+        baseUnit: row.baseUnit,
+        packLevels: parsePackLevels(row.packLevels),
         price: row.price,
         model: row.model,
         manufacturer: row.manufacturer,
@@ -86,6 +102,8 @@ export class ItemsService {
       name: item.name,
       description: item.description,
       quantity: item.quantity,
+      baseUnit: item.baseUnit,
+      packLevels: parsePackLevels(item.packLevels),
       price: item.price,
       model: item.model,
       manufacturer: item.manufacturer,
@@ -117,18 +135,25 @@ export class ItemsService {
     };
   }
 
-  async create(familyId: number, dto: CreateItemDto) {
+  async create(familyId: number, actor: ActivityActor, dto: CreateItemDto) {
     await this.assertRelations(familyId, dto);
     await this.assertBarcodeAvailable(familyId, dto.barcode);
     await this.assertTraceCodeAvailable(familyId, dto.traceCode);
 
-    // 主记录 + 序列号 + 多对多关系放同一个事务，避免中途失败留下半条数据
+    // 创建 = 一串"从无到有"的差异（from 全为 null）；值在写入前解析成可直接展示的形式
+    const changes = diffFields({}, await this.itemSnapshotFromDto(familyId, dto));
+    const packaging = normalizePackaging(dto.baseUnit, dto.packLevels);
+
+    // 主记录 + 序列号 + 多对多关系放同一个事务，避免中途失败留下半条数据；
+    // 历史与业务同事务写入，保证审计不丢行
     const created = await this.dataSource.transaction(async (manager) => {
       const item = manager.create(Item, {
         familyId,
         name: dto.name,
         description: dto.description ?? null,
         quantity: dto.quantity ?? 1,
+        baseUnit: packaging.baseUnit,
+        packLevels: packaging.packLevels,
         price: dto.price ?? 0,
         model: dto.model ?? null,
         manufacturer: dto.manufacturer ?? null,
@@ -159,6 +184,20 @@ export class ItemsService {
         );
       }
 
+      await this.activity.record(
+        familyId,
+        actor,
+        {
+          targetType: 'item',
+          targetId: saved.id,
+          itemId: saved.id,
+          itemName: saved.name,
+          action: 'item.create',
+          changes,
+        },
+        manager,
+      );
+
       return saved;
     });
 
@@ -175,16 +214,29 @@ export class ItemsService {
     return { id: created.id, name: created.name, qrToken: created.qrToken };
   }
 
-  async update(familyId: number, id: number, dto: UpdateItemDto) {
+  async update(familyId: number, actor: ActivityActor, id: number, dto: UpdateItemDto) {
     const item = await this.mustExist(familyId, id);
     await this.assertRelations(familyId, dto);
     await this.assertBarcodeAvailable(familyId, dto.barcode, id);
+
+    // 先算好改动前后的可展示快照，再在事务里落库 + 记历史（后者与前者同事务，审计不丢行）
+    const before = await this.itemSnapshotById(familyId, id);
+    const after = await this.applyItemDtoToSnapshot(familyId, before, dto);
 
     await this.dataSource.transaction(async (manager) => {
       // 只覆盖 dto 里出现过的字段（Prisma 的 undefined = 不改，这里保持一致）
       if (dto.name !== undefined) item.name = dto.name;
       if (dto.description !== undefined) item.description = dto.description ?? null;
       if (dto.quantity !== undefined) item.quantity = dto.quantity;
+      if (dto.baseUnit !== undefined || dto.packLevels !== undefined) {
+        const nextBase = dto.baseUnit !== undefined ? dto.baseUnit?.trim() || null : item.baseUnit;
+        if (dto.packLevels !== undefined) {
+          item.packLevels = serializePackLevels(normalizePackLevels(dto.packLevels));
+        }
+        item.baseUnit = nextBase;
+        // 最小单位名为空 = 关闭包装，层级一并清掉，避免"有层级却没单位名"的坏状态
+        if (!nextBase) item.packLevels = null;
+      }
       if (dto.price !== undefined) item.price = dto.price;
       if (dto.model !== undefined) item.model = dto.model ?? null;
       if (dto.manufacturer !== undefined) item.manufacturer = dto.manufacturer ?? null;
@@ -201,6 +253,24 @@ export class ItemsService {
       }
       // updatedAt 由 @UpdateDateColumn 自动维护
       await manager.save(item);
+
+      const changes = diffFields(before, after);
+      // 空改动不记流水（例如只提交了同样的值）
+      if (changes.length) {
+        await this.activity.record(
+          familyId,
+          actor,
+          {
+            targetType: 'item',
+            targetId: item.id,
+            itemId: item.id,
+            itemName: item.name,
+            action: 'item.update',
+            changes,
+          },
+          manager,
+        );
+      }
     });
 
     if (dto.barcode) {
@@ -215,45 +285,320 @@ export class ItemsService {
     return this.detail(familyId, id);
   }
 
-  async remove(familyId: number, id: number) {
-    await this.mustExist(familyId, id);
-    await this.items.delete({ id });
+  async remove(familyId: number, actor: ActivityActor, id: number) {
+    const before = await this.itemSnapshotById(familyId, id);
+    const changes = diffFields(before, {});
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(Item, { id });
+      // 名下的 SN 随外键级联删除，不逐条记历史；整件删除记一条即可
+      await this.activity.record(
+        familyId,
+        actor,
+        {
+          targetType: 'item',
+          targetId: id,
+          itemId: id,
+          itemName: typeof before.name === 'string' ? before.name : null,
+          action: 'item.delete',
+          changes,
+        },
+        manager,
+      );
+    });
+
     return { ok: true };
   }
 
   // ---------- 序列号单元（每个 SN 可以放在不同位置） ----------
 
-  async addUnit(familyId: number, itemId: number, dto: ItemUnitDto) {
-    await this.mustExist(familyId, itemId);
+  async addUnit(familyId: number, actor: ActivityActor, itemId: number, dto: ItemUnitDto) {
+    const item = await this.mustExist(familyId, itemId);
     if (dto.locationId) await this.mustLocation(familyId, dto.locationId);
     if (dto.sn) await this.assertSnAvailable(familyId, dto.sn);
 
-    return this.units.save(
-      this.units.create({
-        familyId,
-        itemId,
-        sn: dto.sn ?? null,
-        locationId: dto.locationId ?? null,
-        note: dto.note ?? null,
-      }),
+    const changes = diffFields(
+      {},
+      this.unitFields(await this.locationName(familyId, dto.locationId ?? null), dto.sn ?? null, dto.note ?? null),
     );
+
+    return this.dataSource.transaction(async (manager) => {
+      const unit = await manager.save(
+        manager.create(ItemUnit, {
+          familyId,
+          itemId,
+          sn: dto.sn ?? null,
+          locationId: dto.locationId ?? null,
+          note: dto.note ?? null,
+        }),
+      );
+      await this.activity.record(
+        familyId,
+        actor,
+        {
+          targetType: 'unit',
+          targetId: unit.id,
+          itemId,
+          itemName: item.name,
+          action: 'unit.create',
+          changes,
+        },
+        manager,
+      );
+      return unit;
+    });
   }
 
-  async updateUnit(familyId: number, itemId: number, unitId: number, dto: ItemUnitDto) {
+  async updateUnit(familyId: number, actor: ActivityActor, itemId: number, unitId: number, dto: ItemUnitDto) {
     const unit = await this.mustUnit(familyId, itemId, unitId);
     if (dto.locationId) await this.mustLocation(familyId, dto.locationId);
     if (dto.sn) await this.assertSnAvailable(familyId, dto.sn, unitId);
 
-    if (dto.sn !== undefined) unit.sn = dto.sn ?? null;
-    if (dto.locationId !== undefined) unit.locationId = dto.locationId ?? null;
-    if (dto.note !== undefined) unit.note = dto.note ?? null;
-    return this.units.save(unit);
+    const before = this.unitFields(
+      await this.locationName(familyId, unit.locationId),
+      unit.sn,
+      unit.note,
+    );
+    const after = { ...before };
+    if (dto.sn !== undefined) after.sn = dto.sn ?? null;
+    if (dto.locationId !== undefined) after.location = await this.locationName(familyId, dto.locationId ?? null);
+    if (dto.note !== undefined) after.note = dto.note ?? null;
+    const changes = diffFields(before, after);
+    const itemName = await this.itemName(familyId, itemId);
+
+    return this.dataSource.transaction(async (manager) => {
+      if (dto.sn !== undefined) unit.sn = dto.sn ?? null;
+      if (dto.locationId !== undefined) unit.locationId = dto.locationId ?? null;
+      if (dto.note !== undefined) unit.note = dto.note ?? null;
+      const saved = await manager.save(unit);
+
+      if (changes.length) {
+        await this.activity.record(
+          familyId,
+          actor,
+          { targetType: 'unit', targetId: saved.id, itemId, itemName, action: 'unit.update', changes },
+          manager,
+        );
+      }
+      return saved;
+    });
   }
 
-  async removeUnit(familyId: number, itemId: number, unitId: number) {
-    await this.mustUnit(familyId, itemId, unitId);
-    await this.units.delete({ id: unitId });
+  async removeUnit(familyId: number, actor: ActivityActor, itemId: number, unitId: number) {
+    const unit = await this.mustUnit(familyId, itemId, unitId);
+    const before = this.unitFields(await this.locationName(familyId, unit.locationId), unit.sn, unit.note);
+    const changes = diffFields(before, {});
+    const itemName = await this.itemName(familyId, itemId);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(ItemUnit, { id: unitId });
+      await this.activity.record(
+        familyId,
+        actor,
+        { targetType: 'unit', targetId: unitId, itemId, itemName, action: 'unit.delete', changes },
+        manager,
+      );
+    });
+
     return { ok: true };
+  }
+
+  // ---------- 消耗 / 补货 / 拆箱 ----------
+
+  /** 用掉：按包装层级（缺省 = 最小单位）扣减库存，记 item.consume */
+  consume(familyId: number, actor: ActivityActor, id: number, dto: AdjustStockDto) {
+    return this.adjustStock(familyId, actor, id, dto, -1);
+  }
+
+  /** 补货：按包装层级增加库存，记 item.restock */
+  restock(familyId: number, actor: ActivityActor, id: number, dto: AdjustStockDto) {
+    return this.adjustStock(familyId, actor, id, dto, 1);
+  }
+
+  private async adjustStock(
+    familyId: number,
+    actor: ActivityActor,
+    id: number,
+    dto: AdjustStockDto,
+    sign: 1 | -1,
+  ) {
+    const item = await this.mustExist(familyId, id);
+    const levels = parsePackLevels(item.packLevels);
+    if (dto.level && !levels.some((level) => level.name === dto.level)) {
+      throw new BadRequestException({ code: 'item.levelUnknown', message: '未知的包装单位' });
+    }
+
+    const delta = sign * dto.amount * factorOf(dto.level, levels);
+    const next = item.quantity + delta;
+    if (next < 0) {
+      throw new BadRequestException({ code: 'item.notEnoughStock', message: '库存不足' });
+    }
+
+    const changes = diffFields({ quantity: item.quantity }, { quantity: next });
+    if (dto.note) changes.push({ field: 'note', from: null, to: dto.note });
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(Item, { id }, { quantity: next });
+      await this.activity.record(
+        familyId,
+        actor,
+        {
+          targetType: 'item',
+          targetId: id,
+          itemId: id,
+          itemName: item.name,
+          action: sign < 0 ? 'item.consume' : 'item.restock',
+          changes,
+        },
+        manager,
+      );
+    });
+
+    return this.detail(familyId, id);
+  }
+
+  /**
+   * 拆箱：只留痕，不改库存。
+   * 库存本就以最小单位存，"箱/散"是展示层自动换算的，所以拆箱没有数据动作；
+   * 这里只是让用户可以标记"今天开了一箱"。
+   */
+  async unpack(familyId: number, actor: ActivityActor, id: number, dto: UnpackDto) {
+    const item = await this.mustExist(familyId, id);
+    if (!item.baseUnit && parsePackLevels(item.packLevels).length === 0) {
+      throw new BadRequestException({ code: 'item.noPackaging', message: '该物品未配置包装单位' });
+    }
+
+    const changes: ActivityChange[] = [];
+    if (dto.note) changes.push({ field: 'note', from: null, to: dto.note });
+
+    await this.activity.record(familyId, actor, {
+      targetType: 'item',
+      targetId: id,
+      itemId: id,
+      itemName: item.name,
+      action: 'item.unpack',
+      changes,
+    });
+
+    return this.detail(familyId, id);
+  }
+
+  // ---------- 历史快照（把 id 解析成可展示的值，供 diff 使用） ----------
+
+  /** 直接的标量字段 */
+  private itemFields(item: {
+    name: string;
+    description: string | null;
+    quantity: number;
+    price: number;
+    model: string | null;
+    manufacturer: string | null;
+    barcode: string | null;
+    coverImageId: number | null;
+    baseUnit: string | null;
+    packLevels: string | null;
+  }): Record<string, unknown> {
+    return {
+      name: item.name,
+      description: item.description ?? null,
+      quantity: item.quantity,
+      price: item.price,
+      model: item.model ?? null,
+      manufacturer: item.manufacturer ?? null,
+      barcode: item.barcode ?? null,
+      coverImage: Boolean(item.coverImageId),
+      baseUnit: item.baseUnit ?? null,
+      // 用可读串（箱=24, 提=6）而非原始 JSON，历史差异才看得懂
+      packLevels: packLevelsLabel(parsePackLevels(item.packLevels)),
+    };
+  }
+
+  /** 加载物品（含标签/图集）并解析成历史快照，作为 diff 的 before */
+  private async itemSnapshotById(familyId: number, id: number): Promise<Record<string, unknown>> {
+    const item = await this.items.findOne({
+      where: { id, familyId },
+      relations: { tags: true, images: true },
+    });
+    if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });
+
+    return {
+      ...this.itemFields(item),
+      location: await this.locationName(familyId, item.locationId),
+      tags: item.tags.map((tag) => tag.name).sort(),
+      images: item.images.length,
+    };
+  }
+
+  /** create 用：dto 即最终值（默认值与实体保持一致） */
+  private async itemSnapshotFromDto(familyId: number, dto: CreateItemDto): Promise<Record<string, unknown>> {
+    return {
+      name: dto.name,
+      description: dto.description ?? null,
+      quantity: dto.quantity ?? 1,
+      price: dto.price ?? 0,
+      model: dto.model ?? null,
+      manufacturer: dto.manufacturer ?? null,
+      barcode: dto.barcode?.trim() || null,
+      baseUnit: dto.baseUnit?.trim() || null,
+      packLevels: packLevelsLabel(normalizePackLevels(dto.packLevels)),
+      location: await this.locationName(familyId, dto.locationId ?? null),
+      tags: (await this.tagNames(familyId, dto.tagIds)).sort(),
+      coverImage: Boolean(dto.coverImageId),
+      images: dto.imageIds?.length ?? 0,
+    };
+  }
+
+  /** update 用：在 before 基础上只覆盖 dto 出现过的字段，与服务里 patching 的逻辑一一对应 */
+  private async applyItemDtoToSnapshot(
+    familyId: number,
+    before: Record<string, unknown>,
+    dto: UpdateItemDto,
+  ): Promise<Record<string, unknown>> {
+    const after = { ...before };
+    if (dto.name !== undefined) after.name = dto.name;
+    if (dto.description !== undefined) after.description = dto.description ?? null;
+    if (dto.quantity !== undefined) after.quantity = dto.quantity;
+    if (dto.price !== undefined) after.price = dto.price;
+    if (dto.model !== undefined) after.model = dto.model ?? null;
+    if (dto.manufacturer !== undefined) after.manufacturer = dto.manufacturer ?? null;
+    if (dto.barcode !== undefined) after.barcode = dto.barcode.trim() || null;
+    if (dto.baseUnit !== undefined || dto.packLevels !== undefined) {
+      const nextBase = dto.baseUnit !== undefined ? dto.baseUnit?.trim() || null : (after.baseUnit as string | null);
+      after.baseUnit = nextBase;
+      if (dto.packLevels !== undefined) after.packLevels = packLevelsLabel(normalizePackLevels(dto.packLevels));
+      if (!nextBase) after.packLevels = null;
+    }
+    if (dto.locationId !== undefined) after.location = await this.locationName(familyId, dto.locationId ?? null);
+    if (dto.tagIds !== undefined) after.tags = (await this.tagNames(familyId, dto.tagIds)).sort();
+    if (dto.coverImageId !== undefined) after.coverImage = Boolean(dto.coverImageId);
+    if (dto.imageIds !== undefined) after.images = dto.imageIds.length;
+    return after;
+  }
+
+  private unitFields(location: string | null, sn: string | null, note: string | null): Record<string, unknown> {
+    return { sn: sn ?? null, location, note: note ?? null };
+  }
+
+  /** 位置名（无 id 返回 null，省一次查询） */
+  private async locationName(familyId: number, locationId: number | null): Promise<string | null> {
+    if (!locationId) return null;
+    const row = await this.locations.findOne({
+      where: { id: locationId, familyId },
+      select: { name: true },
+    });
+    return row?.name ?? null;
+  }
+
+  /** 一组标签 id 的名字（顺序由调用方 sort 稳定） */
+  private async tagNames(familyId: number, tagIds?: number[]): Promise<string[]> {
+    if (!tagIds?.length) return [];
+    const tags = await this.tags.findBy({ id: In(tagIds), familyId });
+    return tags.map((tag) => tag.name);
+  }
+
+  private async itemName(familyId: number, itemId: number): Promise<string | null> {
+    const row = await this.items.findOne({ where: { id: itemId, familyId }, select: { name: true } });
+    return row?.name ?? null;
   }
 
   // ---------- CSV 导出（不含缩略图） ----------
@@ -268,6 +613,7 @@ export class ItemsService {
     const header = [
       '名称',
       '数量',
+      '包装明细',
       '单价',
       '总价',
       '型号',
@@ -285,6 +631,7 @@ export class ItemsService {
       [
         row.name,
         String(row.quantity),
+        formatBreakdown(row.quantity, parsePackLevels(row.packLevels), row.baseUnit),
         row.price.toFixed(2),
         (row.price * row.quantity).toFixed(2),
         row.model ?? '',
@@ -406,6 +753,11 @@ export class ItemsService {
     if (!exists) throw new BadRequestException({ code: 'location.notFound', message: '位置不存在' });
   }
 
+  private async mustTemplate(familyId: number, templateId: number) {
+    const exists = await this.templates.exists({ where: { id: templateId, familyId } });
+    if (!exists) throw new BadRequestException({ code: 'template.notFound', message: '模板不存在' });
+  }
+
   private async assertSnAvailable(familyId: number, sn: string, exceptUnitId?: number) {
     const where: FindOptionsWhere<ItemUnit> = { familyId, sn };
     if (exceptUnitId) where.id = Not(exceptUnitId);
@@ -417,9 +769,20 @@ export class ItemsService {
 
   private async assertRelations(
     familyId: number,
-    dto: { locationId?: number; tagIds?: number[]; imageIds?: number[]; coverImageId?: number; units?: ItemUnitDto[] },
+    dto: {
+      locationId?: number;
+      templateId?: number;
+      tagIds?: number[];
+      imageIds?: number[];
+      coverImageId?: number;
+      units?: ItemUnitDto[];
+    },
   ) {
     if (dto.locationId) await this.mustLocation(familyId, dto.locationId);
+
+    // templateId 同样是家庭内的外键：不校验的话，引用别的家庭 / 不存在的模板会
+    // 直接撞外键约束抛 500，而不是给出可读的 400
+    if (dto.templateId) await this.mustTemplate(familyId, dto.templateId);
 
     for (const unit of dto.units ?? []) {
       if (unit.locationId) await this.mustLocation(familyId, unit.locationId);

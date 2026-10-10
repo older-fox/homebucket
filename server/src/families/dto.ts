@@ -1,4 +1,5 @@
 import { IsInt, IsOptional, IsString, Length, Max, Min, IsBoolean } from 'class-validator';
+import { IsOptionalNotNull } from '../common/validation';
 
 export class CreateFamilyDto {
   @IsString()
@@ -7,22 +8,22 @@ export class CreateFamilyDto {
 }
 
 export class UpdateFamilyDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(1, 60)
   name?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(3, 3)
   currency?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(2, 20)
   locale?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(1, 60)
   timeZone?: string;

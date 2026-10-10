@@ -5,9 +5,11 @@ import { Attachment } from '../entities/attachment.entity';
 import { Item } from '../entities/item.entity';
 import { ItemUnit } from '../entities/item-unit.entity';
 import { Location } from '../entities/location.entity';
+import { ActivityService, diffFields, type ActivityActor } from '../activity/activity.service';
 import { shortToken } from '../common/id';
 import { mediaUrl } from '../common/media';
 import { countByForeignKey } from '../common/relation-count';
+import { parsePackLevels } from '../items/packaging';
 import type { CreateLocationDto, MoveLocationDto, UpdateLocationDto } from './dto';
 
 /** 位置树节点：对外结构（不是实体），含三种子记录计数与图片地址 */
@@ -41,6 +43,7 @@ export class LocationsService {
     @InjectRepository(ItemUnit) private readonly units: Repository<ItemUnit>,
     @InjectRepository(Attachment) private readonly attachments: Repository<Attachment>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly activity: ActivityService,
   ) {}
 
   /** 整棵位置树（嵌套 children），按 sortIndex 升序 */
@@ -134,6 +137,8 @@ export class LocationsService {
         id: row.id,
         name: row.name,
         quantity: row.quantity,
+        baseUnit: row.baseUnit,
+        packLevels: parsePackLevels(row.packLevels),
         price: row.price,
         model: row.model,
         location: row.location ? { id: row.location.id, name: row.location.name } : null,
@@ -151,7 +156,7 @@ export class LocationsService {
     };
   }
 
-  async create(familyId: number, dto: CreateLocationDto) {
+  async create(familyId: number, actor: ActivityActor, dto: CreateLocationDto) {
     if (dto.parentId) await this.mustExist(familyId, dto.parentId);
     if (dto.imageId) await this.mustAttachment(familyId, dto.imageId);
 
@@ -164,41 +169,87 @@ export class LocationsService {
       select: { id: true, sortIndex: true },
     });
 
-    const created = await this.locations.save(
-      this.locations.create({
-        familyId,
-        name: dto.name,
-        description: dto.description ?? null,
-        parentId: dto.parentId ?? null,
-        imageId: dto.imageId ?? null,
-        sortIndex: (last?.sortIndex ?? 0) + 1,
-        qrToken: shortToken(),
-      }),
-    );
+    const changes = diffFields({}, {
+      name: dto.name,
+      description: dto.description ?? null,
+      parent: await this.locationName(familyId, dto.parentId ?? null),
+      image: Boolean(dto.imageId),
+    });
 
-    return { id: created.id, name: created.name, parentId: created.parentId };
+    return this.dataSource.transaction(async (manager) => {
+      const created = await manager.save(
+        manager.create(Location, {
+          familyId,
+          name: dto.name,
+          description: dto.description ?? null,
+          parentId: dto.parentId ?? null,
+          imageId: dto.imageId ?? null,
+          sortIndex: (last?.sortIndex ?? 0) + 1,
+          qrToken: shortToken(),
+        }),
+      );
+
+      await this.activity.record(
+        familyId,
+        actor,
+        { targetType: 'location', targetId: created.id, action: 'location.create', changes },
+        manager,
+      );
+
+      return { id: created.id, name: created.name, parentId: created.parentId };
+    });
   }
 
-  async update(familyId: number, id: number, dto: UpdateLocationDto) {
+  async update(familyId: number, actor: ActivityActor, id: number, dto: UpdateLocationDto) {
     await this.mustExist(familyId, id);
     if (dto.imageId) await this.mustAttachment(familyId, dto.imageId);
 
-    // 只覆盖 dto 里出现过的字段（Prisma 的 undefined = 不改，这里保持一致）
-    const patch: QueryDeepPartialEntity<Location> = {};
-    if (dto.name !== undefined) patch.name = dto.name;
-    if (dto.description !== undefined) patch.description = dto.description;
-    if (dto.imageId !== undefined) patch.imageId = dto.imageId;
-    if (Object.keys(patch).length) await this.locations.update({ id }, patch);
+    const before = await this.locationSnapshot(familyId, id);
+    const after = { ...before };
+    if (dto.name !== undefined) after.name = dto.name;
+    if (dto.description !== undefined) after.description = dto.description ?? null;
+    if (dto.imageId !== undefined) after.image = Boolean(dto.imageId);
+    const changes = diffFields(before, after);
 
-    // updatedAt 由 @UpdateDateColumn 自动维护
+    await this.dataSource.transaction(async (manager) => {
+      // 只覆盖 dto 里出现过的字段（Prisma 的 undefined = 不改，这里保持一致）
+      const patch: QueryDeepPartialEntity<Location> = {};
+      if (dto.name !== undefined) patch.name = dto.name;
+      if (dto.description !== undefined) patch.description = dto.description;
+      if (dto.imageId !== undefined) patch.imageId = dto.imageId;
+      if (Object.keys(patch).length) await manager.update(Location, { id }, patch);
+
+      // updatedAt 由 @UpdateDateColumn 自动维护
+      if (changes.length) {
+        await this.activity.record(
+          familyId,
+          actor,
+          { targetType: 'location', targetId: id, action: 'location.update', changes },
+          manager,
+        );
+      }
+    });
+
     return { ok: true };
   }
 
-  async remove(familyId: number, id: number) {
+  async remove(familyId: number, actor: ActivityActor, id: number) {
     await this.mustExist(familyId, id);
+    const changes = diffFields(await this.locationSnapshot(familyId, id), {});
     // 子树由数据库的 ON DELETE CASCADE 带走（与改造前一致），deleted 只是回显数量
     const ids = await this.descendantIds(familyId, id, true);
-    await this.locations.delete({ id });
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(Location, { id });
+      // 该位置下物品的 locationId 被 FK 置空、子位置被级联删除，都只记这一条位置删除
+      await this.activity.record(
+        familyId,
+        actor,
+        { targetType: 'location', targetId: id, action: 'location.delete', changes },
+        manager,
+      );
+    });
+
     return { ok: true, deleted: ids.size };
   }
 
@@ -206,8 +257,12 @@ export class LocationsService {
    * 拖拽落点由服务端裁决：算出 sortIndex 并做闭环校验。
    * 同级间隔过小时整层量化重排，保证后续拖拽稳定。
    */
-  async move(familyId: number, id: number, dto: MoveLocationDto) {
-    await this.mustExist(familyId, id);
+  async move(familyId: number, actor: ActivityActor, id: number, dto: MoveLocationDto) {
+    const current = await this.locations.findOne({
+      where: { id, familyId },
+      select: { id: true, parentId: true },
+    });
+    if (!current) throw new NotFoundException({ code: 'location.notFound', message: '位置不存在' });
     const parentId = dto.parentId ?? null;
 
     if (parentId !== null) {
@@ -248,7 +303,25 @@ export class LocationsService {
       sortIndex = others.length ? others[others.length - 1].sortIndex + 1 : 0;
     }
 
-    await this.locations.update({ id }, { parentId, sortIndex });
+    // 只有层级变化才记 location.move；同层纯排序不记，避免流水噪音
+    if (parentId !== current.parentId) {
+      const changes = diffFields(
+        { parent: await this.locationName(familyId, current.parentId) },
+        { parent: await this.locationName(familyId, parentId) },
+      );
+      await this.dataSource.transaction(async (manager) => {
+        await manager.update(Location, { id }, { parentId, sortIndex });
+        await this.activity.record(
+          familyId,
+          actor,
+          { targetType: 'location', targetId: id, action: 'location.move', changes },
+          manager,
+        );
+      });
+    } else {
+      await this.locations.update({ id }, { parentId, sortIndex });
+    }
+
     await this.normalize(familyId, parentId);
 
     return { ok: true, tree: await this.tree(familyId) };
@@ -360,5 +433,30 @@ export class LocationsService {
   private async mustAttachment(familyId: number, id: number) {
     const exists = await this.attachments.exists({ where: { id, familyId } });
     if (!exists) throw new BadRequestException({ code: 'upload.notFound', message: '图片不存在' });
+  }
+
+  /** 位置名（供历史 diff 用；无 id 返回 null，省一次查询） */
+  private async locationName(familyId: number, locationId: number | null): Promise<string | null> {
+    if (!locationId) return null;
+    const row = await this.locations.findOne({
+      where: { id: locationId, familyId },
+      select: { name: true },
+    });
+    return row?.name ?? null;
+  }
+
+  /** 位置的历史快照：把 parentId 解析成父位置名，供 diff 使用 */
+  private async locationSnapshot(familyId: number, id: number): Promise<Record<string, unknown>> {
+    const row = await this.locations.findOne({
+      where: { id, familyId },
+      select: { id: true, name: true, description: true, parentId: true, imageId: true },
+    });
+    if (!row) throw new NotFoundException({ code: 'location.notFound', message: '位置不存在' });
+    return {
+      name: row.name,
+      description: row.description ?? null,
+      parent: await this.locationName(familyId, row.parentId),
+      image: Boolean(row.imageId),
+    };
   }
 }

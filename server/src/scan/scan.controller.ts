@@ -1,7 +1,13 @@
 import { Controller, Get, Header, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
-import { CurrentFamily, FamilyScoped } from '../common/decorators';
+import { CurrentFamily, CurrentUser, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
+import type { AuthUser } from '../auth/jwt-auth.guard';
 import { ScanService } from './scan.service';
+
+/** 操作人：id + 用户名快照 */
+function actorOf(user: AuthUser) {
+  return { id: user.id, name: user.username };
+}
 
 /** 扫码/二维码入口（职责：只声明路由与响应头，解析逻辑在 ScanService） */
 @Controller()
@@ -24,15 +30,23 @@ export class ScanController {
   @FamilyScoped()
   @Post('scan/:code/take')
   @HttpCode(HttpStatus.OK)
-  take(@CurrentFamily() family: FamilyContext, @Param('code') code: string) {
-    return this.scan.setTakenOut(family.id, code, true);
+  take(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Param('code') code: string,
+  ) {
+    return this.scan.setTakenOut(family.id, actorOf(user), code, true);
   }
 
   @FamilyScoped()
   @Post('scan/:code/return')
   @HttpCode(HttpStatus.OK)
-  putBack(@CurrentFamily() family: FamilyContext, @Param('code') code: string) {
-    return this.scan.setTakenOut(family.id, code, false);
+  putBack(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Param('code') code: string,
+  ) {
+    return this.scan.setTakenOut(family.id, actorOf(user), code, false);
   }
 
   @FamilyScoped()

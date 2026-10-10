@@ -7,6 +7,7 @@ import { ItemUnit } from '../entities/item-unit.entity';
 import { Location } from '../entities/location.entity';
 import { Tag } from '../entities/tag.entity';
 import { countByForeignKey } from '../common/relation-count';
+import { parsePackLevels } from '../items/packaging';
 
 /** 首页概览服务（职责：聚合家庭维度的统计、最近物品、位置与标签计数） */
 @Injectable()
@@ -70,6 +71,8 @@ export class DashboardService {
         id: item.id,
         name: item.name,
         quantity: item.quantity,
+        baseUnit: item.baseUnit,
+        packLevels: parsePackLevels(item.packLevels),
         price: item.price,
         createdAt: item.createdAt,
         location: item.location ? { id: item.location.id, name: item.location.name } : null,

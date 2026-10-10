@@ -59,6 +59,17 @@ export class Item {
   quantity: number;
 
   /**
+   * 包装：最小单位名（如「瓶」）。为空 = 未启用包装，界面按纯数字处理。
+   * 库存总数存在 quantity（最小单位），包装只影响录入与展示。
+   */
+  @Column({ type: 'varchar', length: STRING_LENGTH, nullable: true })
+  baseUnit: string | null;
+
+  /** 包装层级（JSON 字符串）：形如 [{"name":"箱","factor":24},{"name":"提","factor":6}]，factor 整数 >1、按降序存 */
+  @Column({ type: 'text', nullable: true })
+  packLevels: string | null;
+
+  /**
    * 单价（家庭主货币）。transformer 把 MySQL 的字符串 decimal 统一成 number，
    * 这样两个 provider 下调用方拿到的都是 number。
    */

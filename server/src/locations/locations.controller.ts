@@ -1,8 +1,14 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
-import { CurrentFamily, FamilyScoped } from '../common/decorators';
+import { CurrentFamily, CurrentUser, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
+import type { AuthUser } from '../auth/jwt-auth.guard';
 import { CreateLocationDto, MoveLocationDto, UpdateLocationDto } from './dto';
 import { LocationsService } from './locations.service';
+
+/** 操作人：id + 用户名快照 */
+function actorOf(user: AuthUser) {
+  return { id: user.id, name: user.username };
+}
 
 /**
  * 位置域的 HTTP 入口：只负责路由与参数绑定，业务逻辑全部在 LocationsService。
@@ -20,8 +26,12 @@ export class LocationsController {
 
   @FamilyScoped()
   @Post()
-  create(@CurrentFamily() family: FamilyContext, @Body() dto: CreateLocationDto) {
-    return this.locations.create(family.id, dto);
+  create(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateLocationDto,
+  ) {
+    return this.locations.create(family.id, actorOf(user), dto);
   }
 
   @FamilyScoped()
@@ -40,25 +50,31 @@ export class LocationsController {
   @Patch(':id/move')
   move(
     @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: MoveLocationDto,
   ) {
-    return this.locations.move(family.id, id, dto);
+    return this.locations.move(family.id, actorOf(user), id, dto);
   }
 
   @FamilyScoped()
   @Patch(':id')
   update(
     @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateLocationDto,
   ) {
-    return this.locations.update(family.id, id, dto);
+    return this.locations.update(family.id, actorOf(user), id, dto);
   }
 
   @FamilyScoped()
   @Delete(':id')
-  remove(@CurrentFamily() family: FamilyContext, @Param('id', ParseIntPipe) id: number) {
-    return this.locations.remove(family.id, id);
+  remove(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.locations.remove(family.id, actorOf(user), id);
   }
 }

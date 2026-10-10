@@ -11,6 +11,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { IsOptionalNotNull } from '../common/validation';
 
 export class ItemUnitDto {
   @IsOptional()
@@ -26,6 +27,17 @@ export class ItemUnitDto {
   @IsString()
   @Length(0, 200)
   note?: string;
+}
+
+export class PackLevelDto {
+  @IsString()
+  @Length(1, 20)
+  name: string;
+
+  /** 每个该单位包含多少个下级/最小单位；整数且 >1 */
+  @IsInt()
+  @Min(2)
+  factor: number;
 }
 
 export class CreateItemDto {
@@ -91,6 +103,19 @@ export class CreateItemDto {
   @IsInt()
   coverImageId?: number;
 
+  /** 最小单位名（如「瓶」）；不传 = 未启用包装 */
+  @IsOptional()
+  @IsString()
+  @Length(1, 20)
+  baseUnit?: string;
+
+  /** 包装层级（从大到小，如 箱=24、提=6）；可为空数组表示不启用 */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PackLevelDto)
+  packLevels?: PackLevelDto[];
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -99,7 +124,7 @@ export class CreateItemDto {
 }
 
 export class UpdateItemDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(1, 120)
   name?: string;
@@ -108,12 +133,12 @@ export class UpdateItemDto {
   @IsString()
   description?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsInt()
   @Min(0)
   quantity?: number;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsNumber()
   @Min(0)
   price?: number;
@@ -126,7 +151,7 @@ export class UpdateItemDto {
   @IsString()
   manufacturer?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(4, 64)
   barcode?: string;
@@ -135,12 +160,12 @@ export class UpdateItemDto {
   @IsInt()
   locationId?: number;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @IsInt({ each: true })
   tagIds?: number[];
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @IsInt({ each: true })
   imageIds?: number[];
@@ -148,6 +173,44 @@ export class UpdateItemDto {
   @IsOptional()
   @IsInt()
   coverImageId?: number;
+
+  /** 最小单位名；置空（null/空串）表示关闭包装 */
+  @IsOptional()
+  @IsString()
+  @Length(1, 20)
+  baseUnit?: string;
+
+  /** 包装层级；传空数组或 null 表示关闭包装 */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PackLevelDto)
+  packLevels?: PackLevelDto[];
+}
+
+/** 消耗 / 补货入参：按 level（包装层级名，缺省=最小单位）增减 amount 个 */
+export class AdjustStockDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 20)
+  level?: string;
+
+  @IsInt()
+  @Min(1)
+  amount: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 200)
+  note?: string;
+}
+
+/** 拆箱：只留痕，不改库存，只需一个可选备注 */
+export class UnpackDto {
+  @IsOptional()
+  @IsString()
+  @Length(0, 200)
+  note?: string;
 }
 
 export class QueryItemsDto {

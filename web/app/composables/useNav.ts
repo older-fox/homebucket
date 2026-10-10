@@ -16,6 +16,8 @@ export function useNav() {
     { key: 'locations', to: '/locations', icon: 'i-lucide-map-pinned', mobile: true },
     { key: 'items', to: '/items', icon: 'i-lucide-package', mobile: true },
     { key: 'templates', to: '/templates', icon: 'i-lucide-layers' },
+    // 操作历史收进桌面侧栏与移动端「更多」抽屉（不设 mobile，避免底部 Tab 挤成 2/2/扫码/more 之外）
+    { key: 'activity', to: '/activity', icon: 'i-lucide-history' },
     { key: 'settings', to: '/settings', icon: 'i-lucide-settings', mobile: false },
   ];
 

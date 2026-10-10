@@ -114,7 +114,7 @@
                   <template v-if="item.model"> · {{ item.model }}</template>
                 </span>
                 <span class="hb-list-meta">
-                  <span class="hb-chip tiny hb-num">×{{ item.quantity }}</span>
+                  <span class="hb-chip tiny hb-num">×{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</span>
                   <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
                 </span>
               </span>
@@ -139,7 +139,7 @@
                     {{ item.name }}
                     <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
                   </td>
-                  <td class="num hb-num">{{ item.quantity }}</td>
+                  <td class="num hb-num">{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</td>
                   <td class="hb-muted">{{ item.location?.name || t('item.noLocation') }}</td>
                   <td class="num hb-num">{{ money(item.price * item.quantity) }}</td>
                 </tr>
@@ -216,6 +216,8 @@ interface Contents {
     id: number;
     name: string;
     quantity: number;
+    baseUnit: string | null;
+    packLevels: { name: string; factor: number }[];
     price: number;
     model: string | null;
     location: { id: number; name: string } | null;
@@ -233,6 +235,7 @@ const emit = defineEmits<{ edit: []; createChild: []; qr: []; select: [number] }
 const { t } = useI18n();
 const api = useApi();
 const { money } = useFormat();
+const { format: formatUnits } = useUnits();
 
 const { loadContents, isContentsPending } = useLocations();
 

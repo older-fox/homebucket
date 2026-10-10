@@ -1,8 +1,14 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
-import { CurrentFamily, FamilyScoped } from '../common/decorators';
+import { CurrentFamily, CurrentUser, FamilyScoped } from '../common/decorators';
 import type { FamilyContext } from '../common/family-context.guard';
+import type { AuthUser } from '../auth/jwt-auth.guard';
 import { CreateTemplateDto, UpdateTemplateDto, UseTemplateDto } from './dto';
 import { TemplatesService } from './templates.service';
+
+/** 操作人：id + 用户名快照 */
+function actorOf(user: AuthUser) {
+  return { id: user.id, name: user.username };
+}
 
 /** 模板 HTTP 层：只做路由与参数绑定，业务逻辑全在 TemplatesService */
 @Controller('templates')
@@ -47,9 +53,10 @@ export class TemplatesController {
   @Post(':id/items')
   createItem(
     @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UseTemplateDto,
   ) {
-    return this.templates.createItem(family.id, id, dto);
+    return this.templates.createItem(family.id, actorOf(user), id, dto);
   }
 }

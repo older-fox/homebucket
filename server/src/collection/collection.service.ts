@@ -4,6 +4,7 @@ import { type Repository } from 'typeorm';
 import { Item } from '../entities/item.entity';
 import { Template } from '../entities/template.entity';
 import { env } from '../config/env';
+import { parsePackLevels } from '../items/packaging';
 
 /** 收集服务返回的商品信息（由独立的收集服务项目判定与聚合） */
 export interface RemoteProduct {
@@ -106,6 +107,8 @@ export class CollectionService {
       id: item.id,
       name: item.name,
       quantity: item.quantity,
+      baseUnit: item.baseUnit,
+      packLevels: parsePackLevels(item.packLevels),
       location: item.location ? { id: item.location.id, name: item.location.name } : null,
     };
   }

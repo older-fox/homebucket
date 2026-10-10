@@ -330,6 +330,22 @@ const BARCODES = {
   睡袋: '6904444455555',
 };
 
+/**
+ * 多级包装示例：库存仍按最小单位存，界面自动换算成「X 箱 Y 板 Z 节」。
+ * 只在演示数据里给几样常用耗材配上，用来验证换算与消耗。
+ */
+const PACKAGING = {
+  抽纸: { baseUnit: '包', packLevels: [{ name: '提', factor: 6 }] },
+  '5 号电池': {
+    baseUnit: '节',
+    packLevels: [
+      { name: '板', factor: 4 },
+      { name: '盒', factor: 24 },
+    ],
+  },
+  牛奶: { baseUnit: '盒', packLevels: [{ name: '箱', factor: 6 }] },
+};
+
 // ---------------------------------------------------------------- 模板
 const TEMPLATES = [
   ['5 号电池', '一次性备用耗材，用完即买', 8, 3, '碱性', '南孚', '厨房/吊柜', ['备用']],
@@ -556,12 +572,15 @@ async function main() {
     for (const [name, quantity, price, model, manufacturer, tagNames, description] of rows) {
       const withImage = itemCount % 4 === 0; // 约 1/4 物品带本地占位图
       const image = withImage ? await createImage(shared.id, demo.id, name, imageIndex++) : null;
+      const pack = PACKAGING[name];
 
       const item = itemRepo.create({
         familyId: shared.id,
         name,
         description,
         quantity,
+        baseUnit: pack?.baseUnit ?? null,
+        packLevels: pack ? JSON.stringify(pack.packLevels) : null,
         price,
         model,
         manufacturer,
@@ -599,11 +618,14 @@ async function main() {
 
   console.log('创建模板…');
   for (const [name, description, quantity, price, model, manufacturer, place, tagNames] of TEMPLATES) {
+    const pack = PACKAGING[name];
     const template = templateRepo.create({
       familyId: shared.id,
       name,
       description,
       quantity,
+      baseUnit: pack?.baseUnit ?? null,
+      packLevels: pack ? JSON.stringify(pack.packLevels) : null,
       price,
       model,
       manufacturer,

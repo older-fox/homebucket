@@ -19,7 +19,7 @@
     <div class="meta hb-card">
       <div class="meta-item">
         <span class="label">{{ t('item.quantity') }}</span>
-        <span class="value">×{{ item.quantity }}</span>
+        <span class="value">×{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</span>
       </div>
       <div class="meta-item">
         <span class="label">{{ t('item.price') }}</span>
@@ -52,14 +52,48 @@
       </div>
     </div>
 
+    <div class="stock-actions">
+      <UButton color="primary" variant="soft" icon="i-lucide-minus" @click="openAdjust('consume')">
+        {{ t('item.consume') }}
+      </UButton>
+      <UButton color="success" variant="soft" icon="i-lucide-plus" @click="openAdjust('restock')">
+        {{ t('item.restock') }}
+      </UButton>
+      <UButton
+        v-if="packaged"
+        color="neutral"
+        variant="soft"
+        icon="i-lucide-box-open"
+        :title="t('item.unpackHint')"
+        @click="unpack"
+      >
+        {{ t('item.unpack') }}
+      </UButton>
+    </div>
+
     <section class="block">
       <h2>{{ t('item.units') }}</h2>
-      <UnitEditor :item-id="item.id" :units="item.units" @changed="load" />
+      <UnitEditor :item-id="item.id" :units="item.units" @changed="reload" />
     </section>
 
     <section ref="editSection" class="block">
       <h2>{{ t('item.edit') }}</h2>
-      <ItemForm :item-id="item.id" @saved="load" />
+      <ItemForm :item-id="item.id" @saved="reload" />
+    </section>
+
+    <section class="block">
+      <h2>{{ t('history.title') }}</h2>
+      <ListSkeleton v-if="historyLoading" :rows="3" />
+      <template v-else-if="history.length">
+        <ActivityTimeline :entries="history" />
+        <ListPager
+          :page="historyPage"
+          :total="historyTotal"
+          :page-size="historyPageSize"
+          @update:page="onHistoryPage"
+        />
+      </template>
+      <EmptyState v-else :text="t('history.empty')" icon="i-lucide-history" />
     </section>
 
     <UModal v-model:open="showQr" :title="t('item.qrCode')">
@@ -73,14 +107,28 @@
         </div>
       </template>
     </UModal>
+
+    <StockAdjustDialog
+      v-if="item"
+      v-model:open="adjustOpen"
+      :item-id="itemId"
+      :base-unit="item.baseUnit"
+      :pack-levels="item.packLevels"
+      :mode="adjustMode"
+      @done="reload"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+import type { ActivityEntry, ActivityPage } from '~/types/activity';
+
 interface ItemDetail {
   id: number;
   name: string;
   quantity: number;
+  baseUnit: string | null;
+  packLevels: { name: string; factor: number }[];
   price: number;
   createdAt: string;
   location: { id: number; name: string } | null;
@@ -97,15 +145,68 @@ const api = useApi();
 const route = useRoute();
 const toast = useToast();
 const { money, date } = useFormat();
+const { format: formatUnits } = useUnits();
 
 const itemId = Number(route.params.id);
 const item = ref<ItemDetail | null>(null);
 const showQr = ref(false);
 const qrUrl = ref('');
 
+const adjustOpen = ref(false);
+const adjustMode = ref<'consume' | 'restock'>('consume');
+const packaged = computed(
+  () => Boolean(item.value?.baseUnit) || (item.value?.packLevels?.length ?? 0) > 0,
+);
+
+function openAdjust(mode: 'consume' | 'restock') {
+  adjustMode.value = mode;
+  adjustOpen.value = true;
+}
+
+/** 拆箱：只留痕、不改库存（库存按最小单位，箱/散自动换算） */
+async function unpack() {
+  try {
+    await api.post(`/items/${itemId}/unpack`, {});
+    toast.add({ title: t('item.unpackDone'), color: 'success' });
+    await reload();
+  } catch (error) {
+    toast.add({ title: (error as { message?: string }).message ?? t('errors.unknown'), color: 'error' });
+  }
+}
+
+const history = ref<ActivityEntry[]>([]);
+const historyTotal = ref(0);
+const historyPage = ref(1);
+const historyPageSize = 10;
+const historyLoading = ref(true);
+
 async function load() {
   item.value = await api.get<ItemDetail>(`/items/${itemId}`);
   if (showQr.value) await loadQr();
+}
+
+async function loadHistory() {
+  historyLoading.value = true;
+  try {
+    const res = await api.get<ActivityPage>(`/items/${itemId}/history`, {
+      page: historyPage.value,
+      pageSize: historyPageSize,
+    });
+    history.value = res.items;
+    historyTotal.value = res.total;
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+/** 物品或 SN 变动后，详情与历史一起刷新 */
+async function reload() {
+  await Promise.all([load(), loadHistory()]);
+}
+
+function onHistoryPage(next: number) {
+  historyPage.value = next;
+  void loadHistory();
 }
 
 async function loadQr() {
@@ -143,7 +244,7 @@ async function remove() {
 const editSection = ref<HTMLElement | null>(null);
 
 onMounted(async () => {
-  await load();
+  await reload();
   // 从扫码「编辑物品」进来（?edit=1）：滚动到编辑区块
   if (route.query.edit === '1') {
     await nextTick();
@@ -213,6 +314,13 @@ h2 {
 .qr-box img {
   width: 240px;
   height: 240px;
+}
+
+.stock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: var(--hb-gap-lg);
 }
 
 @media (min-width: 768px) {

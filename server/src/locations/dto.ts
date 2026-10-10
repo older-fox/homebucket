@@ -1,4 +1,5 @@
 import { IsInt, IsOptional, IsString, Length } from 'class-validator';
+import { IsOptionalNotNull } from '../common/validation';
 
 /**
  * 位置域的入参 DTO。
@@ -26,7 +27,7 @@ export class CreateLocationDto {
 }
 
 export class UpdateLocationDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Length(1, 120)
   name?: string;
