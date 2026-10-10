@@ -319,10 +319,16 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 ## CI（GitLab + kaniko）
 
-`.gitlab-ci.yml` 只有一个 job `docker:image`：
+`.gitlab-ci.yml` 分两个 stage：`check` → `image`（`check` 全绿才进镜像构建）。
+
+**`check:types`**（stage `check`，push 任意分支 / 页面手动触发都会跑）：普通 Node 容器，把本地那套检查原样跑一遍 —— 两个包各自 `npm ci`，两边各跑 `npm run typecheck`，server 侧再跑 `npm run db:check-drift` 与 `npm test`。类型错误、结构漂移、契约回归都在这里几分钟内拦住，不必等（慢得多的）镜像构建；MySQL 覆盖不到，因为需要外部实例（`db:check-drift` 改为对一次性 SQLite 文件跑迁移 + `schema:log`）。
+
+server 的安装在 CI 里必须写成 `npm ci --ignore-scripts`：`better-sqlite3` 的 npm 包带 `binding.gyp` 却没有 install 脚本，npm 会按默认行为补跑一次 `node-gyp rebuild`，而基础镜像是 slim 版（既没有 Python 也没有编译器），会以 `gyp ERR! find Python … Could not find any Python installation to use` 直接失败；跳过安装脚本即可 —— 运行期 `lib/binding.js` 直接加载包内 `prebuilds/*.node`，不需要 `build/` 目录。Dockerfile 里两处 server 安装出于同样原因也带着这个参数，改 CI 时别把它漏掉（`server/test/ci-install-scripts.test.mjs` 会盯着）。
+
+**`docker:image`**（stage `image`）：
 
 - **整个 job 在容器内执行**：使用 kaniko executor（debug）镜像，不需要 docker daemon / dind，也不需要 privileged runner。
-- **不做 typecheck、不做独立 build 校验 job**：编译发生在 `docker build` 内部（`nest build` / `nuxt build`），失败即 job 失败。
+- **编译在 `docker build` 内部**（`nest build` / `nuxt build`）：失败即 job 失败。
 - **零 artifacts**：构建结果只以镜像形式推送到**项目的容器注册表**（`$CI_REGISTRY_IMAGE`）。
 - **tag 策略**：始终推 `sha-<short>`；推送默认分支额外推 `latest`；打 tag 额外推版本号；其它分支额外推分支名 slug。
 - **触发**：push 任意分支 / 打 tag / 页面 Run pipeline / API。
@@ -474,4 +480,5 @@ cd server && npm run build && npm run seed   # seed 跑的是 dist/，需先构�
 - **启动即迁移**：空 sqlite 库启动 → 自动建库建表并直接注册成功；二次启动输出 `[migrate] provider=sqlite 没有待执行的迁移`；`AUTO_MIGRATE=false` 时跳过。
 - **Prisma 老库升级**：`db:baseline` 在不改动任何表的前提下登记 `Init` 并保留增量迁移待执行，随后 `db:run` 应用 `NormalizeFromPrisma` + `RenamePrismaFkIndexes`；该路径先做了演练、再实际执行，无数据丢失，完成后库结构与全新安装一致。
 - **Docker**：镜像用 BuildKit 构建成功，单容器同时起前后端，`0.0.0.0:3000` 可访问、`/api` 代理通、后端连上 dev MySQL（`db:true`）；`docker build --check` 无告警。
-- **CI**：kaniko 流水线为单 job、容器内执行、无 artifacts；加速域名与镜像路径已按环境配置（尚未在真实 GitLab runner 上跑过）。
+- **CI**：两个 job 已在真实 GitLab runner 上跑起来（check → image，容器内执行、无 artifacts）。首次运行在 `check` 阶段就失败：server 的 `npm ci` 触发了 `better-sqlite3` 的隐式 `node-gyp rebuild`，而 slim 基础镜像没有 Python（`gyp ERR! find Python … Could not find any Python installation to use`）—— 已按 Dockerfile 里同样的做法加 `--ignore-scripts`，并按 CI 的步骤在干净目录逐条复跑通过（`typecheck`、`db:check-drift` 零漂移、`npm test` 51/51、web 侧 `npm ci` + `nuxt typecheck`）。
+

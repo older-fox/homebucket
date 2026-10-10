@@ -350,6 +350,9 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 **`check:types`** (stage `check`, runs on every push / manual pipeline): a plain Node container that runs the same checks as the local loop above — `npm ci` in both packages, `npm run typecheck` in both, `npm run db:check-drift` and `npm test` on the server. It catches type errors, schema drift and contract regressions in a couple of minutes, before the (much slower) image build starts; it cannot cover MySQL, because that needs an external server (`db:check-drift` runs against a throwaway SQLite file instead).
 
+The server install there must stay `npm ci --ignore-scripts`. `better-sqlite3` ships a `binding.gyp` but no install script, so npm implicitly runs `node-gyp rebuild`, and the slim base image has neither Python nor a compiler: the job dies with `gyp ERR! find Python … Could not find any Python installation to use`. Skipping install scripts is safe — `lib/binding.js` loads `prebuilds/*.node` straight from the package, no `build/` directory needed. The Dockerfile passes the same flag for the same reason, and `server/test/ci-install-scripts.test.mjs` guards both files against losing it.
+
+
 **`docker:image`** (stage `image`):
 
 - **The whole job runs inside a container**: it uses the kaniko executor (debug) image — no docker daemon / dind and no privileged runner required.
@@ -523,4 +526,4 @@ Everything in this section was run against this repository; the first group is a
 - **Frontend runtime**: register / login / me, item CRUD with SN units, packaging editor, take-out and put-back from the scan sheet (including unknown codes offering "create an item"), the activity timeline, both locales (including the punctuation that follows the locale), and hydration mismatches on eight routes — none left. `nuxt typecheck` and `nuxt build` pass.
 - **Migrate on boot**: starting against an empty SQLite database creates the file and tables and registration succeeds immediately; a second start logs `[migrate] provider=sqlite 没有待执行的迁移`; `AUTO_MIGRATE=false` skips it.
 - **Docker**: the image builds with BuildKit; one container serves both apps with `0.0.0.0:3000` reachable, the `/api` proxy working and the backend connected to the dev MySQL (`db:true`); `docker build --check` reports no warnings.
-- **CI**: both jobs are configured for this environment (mirrors, kaniko image paths, two stages) but have not yet been exercised on a real GitLab runner — the checks themselves all pass locally, which is what the `check` stage runs.
+- **CI**: both jobs have now been exercised on a real GitLab runner (check → image, in-container, no artifacts). The first run failed inside `check`: the server `npm ci` triggered the implicit `better-sqlite3` `node-gyp rebuild` and the slim base image has no Python (`gyp ERR! find Python … Could not find any Python installation to use`). Fixed by installing the server with `--ignore-scripts`, exactly as the Dockerfile already does; every command of the job was then re-run in a clean directory — `typecheck`, `db:check-drift` (zero drift), `npm test` 51/51, plus web `npm ci` and `nuxt typecheck`.

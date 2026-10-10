@@ -67,8 +67,17 @@ check:types:
   script:
     # 两个包各自锁定依赖（各自有 package-lock.json），都用 NPM_REGISTRY 加速源，
     # 与镜像构建保持同一套解析结果，避免 CI 装到的版本和镜像里不一致。
+    #
+    # --ignore-scripts：better-sqlite3 的 npm 包带各平台预编译产物（prebuilds/*.node），
+    # 但它同时带 binding.gyp 且没有 install 脚本，npm 会按默认行为补跑一次 node-gyp rebuild，
+    # 而这套 node:24-bookworm-slim 里既没有 Python 也没有编译器，会直接
+    #   gyp ERR! find Python / Error: Could not find any Python installation to use
+    # 让 npm ci 挂掉（job 会在这一步就失败，后面的检查一个都跑不到）。
+    # 跳过安装脚本即可：运行期 lib/binding.js 直接 require prebuilds/ 里的 .node 文件，
+    # 不需要 build/ 目录，db:check-drift 照样能打开 SQLite 库。
+    # Dockerfile 里两处 npm ci 出于同样原因已经带了 --ignore-scripts，这里保持一致。
     - cd server
-    - npm ci --no-audit --no-fund --registry "$NPM_REGISTRY"
+    - npm ci --ignore-scripts --no-audit --no-fund --registry "$NPM_REGISTRY"
     - npm run typecheck
     # 全新 SQLite 库跑完迁移后 schema:log 必须零漂移 —— 实体改了忘写迁移时只有这个探针会响。
     # MySQL 需要外部实例，CI 里跑不了，所以这里只覆盖 SQLite 一侧。
