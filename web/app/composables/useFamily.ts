@@ -15,6 +15,9 @@ export interface FamilySummary {
 /** 家庭列表 + 当前家庭（存在 cookie 的 hb_family 里，useApi 会自动带上 X-Family-Id） */
 export function useFamily() {
   const api = useApi();
+  // 这两个组合式函数在 setup 阶段取好（不能在事件回调里现取：那时没有 Nuxt 上下文）
+  const route = useRoute();
+  const locations = useLocations();
   const families = useState<FamilySummary[]>('hb_families', () => []);
   /**
    * 当前家庭 id 直接用 useApi 里那一份共享状态，而不是再 useCookie('hb_family') 一次。
@@ -43,9 +46,22 @@ export function useFamily() {
   async function switchTo(id: number) {
     if (String(id) === String(currentId.value)) return;
     currentId.value = String(id);
-    // 家庭上下文变了：所有按家庭维度缓存的数据（dashboard / items / templates …）
-    // 都必须作废，否则新家庭页面上会继续显示上一个家庭的内容
+
+    // 家庭上下文变了：所有按家庭维度缓存的数据都必须作废，
+    // 否则新家庭页面上会继续显示上一个家庭的内容。
     clearNuxtData();
+    // 位置树与各位置内容同样只属于一个家庭
+    locations.reset();
+
+    if (route.path === '/') {
+      // 已经在首页时，navigateTo('/') 属于「重复导航」，vue-router 会直接忽略它：
+      // 页面不会重新执行 setup，被清掉的 dashboard 缓存也就没人去重新拉 ——
+      // 表现就是切了家庭还要手动刷新整页。这里显式重新取一次数。
+      await refreshNuxtData();
+      return;
+    }
+
+    // 其它页面则跳回首页；首页因为缓存已清空，会自己重新取数
     await navigateTo('/');
   }
 
