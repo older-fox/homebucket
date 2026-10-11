@@ -2,7 +2,7 @@
   <div>
     <PageHeader :title="t('settings.title')" :description="current?.name" />
 
-    <UTabs :items="tabs" class="tabs">
+    <UTabs v-model="activeTab" :items="tabs" class="tabs">
       <template #family>
         <section class="block">
           <h2>{{ t('settings.familyList') }}</h2>
@@ -113,6 +113,93 @@
         </section>
       </template>
 
+      <template #account>
+        <section class="block">
+          <h2>{{ t('settings.account') }}</h2>
+          <div class="account hb-card">
+            <div class="account-avatar">
+              <img v-if="profile.avatarUrl" :src="profile.avatarUrl" :alt="profile.username" class="avatar-img" />
+              <span v-else class="avatar-fallback">{{ (profile.username || '?').slice(0, 1).toUpperCase() }}</span>
+              <PhotoUploader
+                :model-value="avatarIds"
+                :initial="initialAvatar"
+                :multiple="false"
+                capture="user"
+                @update:model-value="saveAvatar"
+              />
+            </div>
+
+            <div class="account-main">
+              <p class="account-name">
+                <span class="row-title">{{ profile.username }}</span>
+                <span class="hb-muted">{{ profile.email || '—' }}</span>
+              </p>
+              <form class="form" @submit.prevent="saveAccount">
+                <UFormField :label="t('settings.alertDays')" :help="t('settings.alertDaysHint')">
+                  <UInput
+                    v-model.number="accountForm.takenOutAlertDays"
+                    type="number"
+                    min="0"
+                    max="365"
+                    size="xl"
+                    class="w-full"
+                  />
+                </UFormField>
+                <UButton type="submit" size="xl" class="hb-tap" :loading="savingAccount">{{ t('common.save') }}</UButton>
+              </form>
+              <p class="hint">{{ t('settings.avatarHint') }}</p>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <template #apiKeys>
+        <section class="block">
+          <div class="block-head">
+            <h2>{{ t('settings.apiKeys') }}</h2>
+          </div>
+          <p class="hint">{{ t('settings.apiKeyHint') }}</p>
+
+          <form class="inline-form" @submit.prevent="createApiKey">
+            <UInput
+              v-model="apiKeyForm.name"
+              :placeholder="t('settings.apiKeyNamePlaceholder')"
+              size="xl"
+              class="grow"
+              required
+            />
+            <UInput v-model="apiKeyForm.expiresAt" type="date" size="xl" :title="t('settings.apiKeyExpiresHint')" />
+            <UButton type="submit" size="xl" class="hb-tap" :loading="creatingApiKey">
+              {{ t('settings.apiKeyCreate') }}
+            </UButton>
+          </form>
+
+          <EmptyState v-if="!apiKeys.length" :text="t('settings.apiKeyEmpty')" icon="i-lucide-key-round" />
+          <ul v-else class="rows hb-card">
+            <li v-for="key in apiKeys" :key="key.id" class="row" :class="{ revoked: key.revokedAt }">
+              <div class="row-main">
+                <span class="row-title">
+                  {{ key.name }}
+                  <span class="hb-mono hb-muted">{{ key.prefix }}…</span>
+                </span>
+                <span class="row-sub">{{ apiKeySub(key) }}</span>
+              </div>
+              <UButton
+                v-if="!key.revokedAt"
+                size="sm"
+                color="error"
+                variant="ghost"
+                icon="i-lucide-trash-2"
+                class="hb-tap"
+                :aria-label="t('common.delete')"
+                @click="revokeApiKey(key)"
+              />
+            </li>
+          </ul>
+          <p class="hint">{{ t('settings.apiKeyLimitHint') }}</p>
+        </section>
+      </template>
+
       <template #system>
         <section v-if="current" class="block">
           <form class="form" @submit.prevent="saveSettings">
@@ -215,6 +302,20 @@
         </form>
       </template>
     </UModal>
+
+    <!-- 新建的 key 明文只在这里出现一次，关掉就再也拿不到 -->
+    <UModal v-model:open="tokenOpen" :title="t('settings.apiKeyCreate')">
+      <template #body>
+        <p class="hint">{{ t('settings.apiKeyCreatedTip') }}</p>
+        <p class="token hb-mono hb-break">{{ createdToken }}</p>
+        <div class="form-actions">
+          <UButton color="neutral" variant="soft" icon="i-lucide-copy" class="hb-tap" @click="copyToken">
+            {{ t('common.copy') }}
+          </UButton>
+          <UButton class="hb-tap" @click="tokenOpen = false">{{ t('common.close') }}</UButton>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -241,6 +342,25 @@ interface Notifier {
   config: Record<string, string>;
 }
 
+interface ApiKey {
+  id: number;
+  name: string;
+  prefix: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+interface Profile {
+  id: number;
+  username: string;
+  email: string | null;
+  takenOutAlertDays: number;
+  avatarId: number | null;
+  avatarUrl: string | null;
+}
+
 const NOTIFIER_FIELDS: Record<string, string[]> = {
   smtp: ['host', 'port', 'secure', 'user', 'pass', 'from', 'to'],
   googlechat: ['webhookUrl'],
@@ -256,21 +376,31 @@ const NOTIFIER_FIELDS: Record<string, string[]> = {
 const EVENTS = ['invite_created', 'member_joined', 'item_created', 'item_updated', 'location_created'];
 
 const { t } = useI18n();
+const route = useRoute();
 const api = useApi();
 const toast = useToast();
 const { copy } = useClipboard();
-const { money, date } = useFormat();
+const { money, date, relative } = useFormat();
 const { families, current, load, switchTo, refresh: refreshFamilies } = useFamily();
 
 const tabs = computed(() => [
-  { label: t('settings.family'), slot: 'family' as const, icon: 'i-lucide-users' },
-  { label: t('settings.system'), slot: 'system' as const, icon: 'i-lucide-settings' },
-  { label: t('settings.notifiers'), slot: 'notifiers' as const, icon: 'i-lucide-bell' },
+  { label: t('settings.family'), value: 'family', slot: 'family' as const, icon: 'i-lucide-users' },
+  { label: t('settings.account'), value: 'account', slot: 'account' as const, icon: 'i-lucide-user-round' },
+  { label: t('settings.apiKeys'), value: 'apiKeys', slot: 'apiKeys' as const, icon: 'i-lucide-key-round' },
+  { label: t('settings.system'), value: 'system', slot: 'system' as const, icon: 'i-lucide-settings' },
+  { label: t('settings.notifiers'), value: 'notifiers', slot: 'notifiers' as const, icon: 'i-lucide-bell' },
 ]);
+
+/**
+ * 初始 tab：顶栏提醒角标会带着 ?tab=account 跳进来（提醒已关闭时给用户的出口）。
+ * 认不出就落回第一个 tab。
+ */
+const requestedTab = typeof route.query.tab === 'string' ? route.query.tab : '';
+const activeTab = ref(tabs.value.some((tab) => tab.value === requestedTab) ? requestedTab : 'family');
 
 onMounted(async () => {
   await load(true);
-  await Promise.all([loadFamilyData(), loadNotifiers()]);
+  await Promise.all([loadFamilyData(), loadNotifiers(), loadAccount(), loadApiKeys()]);
 });
 
 const isOwner = computed(() => current.value?.isOwner || current.value?.role === 'owner');
@@ -286,6 +416,24 @@ const creatingInvite = ref(false);
 
 const settings = reactive({ name: '', currency: 'CNY', locale: 'zh-CN', timeZone: 'Asia/Shanghai' });
 const savingSettings = ref(false);
+
+// 账号资料（GET/PATCH /auth/me）
+const profile = ref<Profile>({ id: 0, username: '', email: null, takenOutAlertDays: 7, avatarId: null, avatarUrl: null });
+const accountForm = reactive({ takenOutAlertDays: 7 });
+const savingAccount = ref(false);
+
+/** PhotoUploader 的 v-model 是 id 数组，头像只取第一张 */
+const avatarIds = computed(() => (profile.value.avatarId ? [profile.value.avatarId] : []));
+const initialAvatar = computed(() =>
+  profile.value.avatarId && profile.value.avatarUrl ? [{ id: profile.value.avatarId, url: profile.value.avatarUrl }] : [],
+);
+
+// API key（GET/POST/DELETE /api-keys）
+const apiKeys = ref<ApiKey[]>([]);
+const apiKeyForm = reactive({ name: '', expiresAt: '' });
+const creatingApiKey = ref(false);
+const tokenOpen = ref(false);
+const createdToken = ref('');
 
 const notifierOpen = ref(false);
 const notifierEditing = ref<Notifier | null>(null);
@@ -334,6 +482,96 @@ async function loadFamilyData() {
 
 async function loadNotifiers() {
   notifiers.value = await api.get<Notifier[]>('/notifiers');
+}
+
+/** 账号资料：头像与提醒阈值都挂在账号上（不分家庭） */
+async function loadAccount() {
+  profile.value = await api.get<Profile>('/auth/me');
+  accountForm.takenOutAlertDays = profile.value.takenOutAlertDays;
+}
+
+async function saveAccount() {
+  const days = Number(accountForm.takenOutAlertDays);
+  if (!Number.isInteger(days) || days < 0 || days > 365) {
+    toast.add({ title: t('validation.failed'), color: 'error' });
+    return;
+  }
+  savingAccount.value = true;
+  try {
+    profile.value = await api.patch<Profile>('/auth/me', { takenOutAlertDays: days });
+    toast.add({ title: t('common.saved'), color: 'success' });
+  } catch (error) {
+    fail(error);
+  } finally {
+    savingAccount.value = false;
+  }
+}
+
+/** 头像改即存（和成员角色、通知器开关一样不需要额外点保存） */
+async function saveAvatar(ids: number[]) {
+  const avatarId = ids[0] ?? null;
+  if (avatarId === profile.value.avatarId) return;
+  try {
+    profile.value = await api.patch<Profile>('/auth/me', { avatarId });
+  } catch (error) {
+    fail(error);
+    await loadAccount();
+  }
+}
+
+async function loadApiKeys() {
+  apiKeys.value = await api.get<ApiKey[]>('/api-keys');
+}
+
+function apiKeySub(key: ApiKey) {
+  if (key.revokedAt) return t('settings.apiKeyRevoked');
+  const parts: string[] = [
+    key.lastUsedAt ? t('settings.apiKeyLastUsed', { time: relative(key.lastUsedAt) }) : t('settings.apiKeyNeverUsed'),
+  ];
+  if (key.expiresAt) {
+    // 过期判断放在前端只为了显示：真正的过期由后端 authenticate() 卡住
+    parts.push(
+      new Date(key.expiresAt).getTime() <= Date.now()
+        ? t('settings.apiKeyExpired')
+        : t('settings.apiKeyExpiresAt', { date: date(key.expiresAt) }),
+    );
+  }
+  return parts.join(t('common.listSeparator'));
+}
+
+async function createApiKey() {
+  if (!apiKeyForm.name.trim()) return;
+  creatingApiKey.value = true;
+  try {
+    // expiresAt 留空时不能传空串：后端用 @Matches 校验格式
+    const body: { name: string; expiresAt?: string } = { name: apiKeyForm.name.trim() };
+    if (apiKeyForm.expiresAt) body.expiresAt = apiKeyForm.expiresAt;
+    const created = await api.post<ApiKey & { token: string }>('/api-keys', body);
+    createdToken.value = created.token;
+    tokenOpen.value = true;
+    apiKeyForm.name = '';
+    apiKeyForm.expiresAt = '';
+    await loadApiKeys();
+  } catch (error) {
+    fail(error);
+  } finally {
+    creatingApiKey.value = false;
+  }
+}
+
+async function revokeApiKey(key: ApiKey) {
+  if (!window.confirm(t('settings.apiKeyRevokeConfirm', { name: key.name }))) return;
+  try {
+    await api.del(`/api-keys/${key.id}`);
+    await loadApiKeys();
+  } catch (error) {
+    fail(error);
+  }
+}
+
+async function copyToken() {
+  // 用 copy() 的 prompt 回退：key 很长，剪贴板不可用时至少能手动选中
+  await copy(createdToken.value, { fallback: 'prompt' });
 }
 
 function fail(error: unknown) {
@@ -494,7 +732,6 @@ async function removeNotifier(notifier: Notifier) {
 }
 
 </script>
-
 <style scoped>
 .block {
   margin-top: 16px;
@@ -559,6 +796,11 @@ h2 {
   color: var(--hb-muted);
 }
 
+/* 已撤销的 key 只留一行痕迹：不再提供撤销按钮，整行压暗 */
+.row.revoked .row-main {
+  opacity: 0.55;
+}
+
 .url {
   font-family: ui-monospace, monospace;
   font-size: var(--hb-fs-xs);
@@ -581,6 +823,59 @@ h2 {
 
 .role-select {
   width: 110px;
+}
+
+.account {
+  display: flex;
+  gap: 16px;
+  padding: 14px;
+}
+
+.account-avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.avatar-img,
+.avatar-fallback {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 1px solid var(--hb-border);
+  object-fit: cover;
+}
+
+.avatar-fallback {
+  display: grid;
+  place-items: center;
+  background: var(--hb-surface-2);
+  color: var(--hb-brand);
+  font-size: var(--hb-fs-h3);
+  font-weight: var(--hb-fw-semibold);
+}
+
+.account-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+}
+
+.token {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-r-sm);
+  background: var(--hb-surface-2);
+  font-size: var(--hb-fs-xs);
 }
 
 .form {
@@ -606,6 +901,15 @@ h2 {
   }
 
   .days {
+    width: 100%;
+  }
+
+  .account {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .account-main {
     width: 100%;
   }
 }
