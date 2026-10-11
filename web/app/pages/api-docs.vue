@@ -4,7 +4,7 @@ import apiZh from '~/assets/docs/api.zh-CN.md?raw';
 import apiEn from '~/assets/docs/api.en.md?raw';
 
 /**
- * 只读 API 说明页。
+ * API 说明页（只读与可写物品两种权限）。
  *
  * 文档是随前端一起打包的静态 markdown（`app/assets/docs/api.*.md`），不是用户输入，
  * 所以这里用 v-html 渲染是安全的；换成用户可编辑的内容时必须先消毒。
