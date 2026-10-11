@@ -208,6 +208,14 @@
           </ul>
           <p class="hint">{{ t('settings.apiKeyLimitHint') }}</p>
         </section>
+
+        <!-- 说明文档就在创建 key 的同一个页面里，不再单独占一个侧栏入口 -->
+        <section class="block">
+          <div class="block-head">
+            <h2>{{ t('settings.apiDocs') }}</h2>
+          </div>
+          <ApiDocs hide-title />
+        </section>
       </template>
 
       <template #system>

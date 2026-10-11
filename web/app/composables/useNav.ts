@@ -18,8 +18,6 @@ export function useNav() {
     { key: 'templates', to: '/templates', icon: 'i-lucide-layers' },
     // 操作历史收进桌面侧栏与移动端「更多」抽屉（不设 mobile，避免底部 Tab 挤成 2/2/扫码/more 之外）
     { key: 'activity', to: '/activity', icon: 'i-lucide-history' },
-    // 只读 API 说明：同样是次级页面，留在侧栏与「更多」抽屉里
-    { key: 'apiDocs', to: '/api-docs', icon: 'i-lucide-book-open' },
     { key: 'settings', to: '/settings', icon: 'i-lucide-settings', mobile: false },
   ];
 

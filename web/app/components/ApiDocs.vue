@@ -4,28 +4,28 @@ import apiZh from '~/assets/docs/api.zh-CN.md?raw';
 import apiEn from '~/assets/docs/api.en.md?raw';
 
 /**
- * API 说明页（只读与可写物品两种权限）。
+ * API 说明（只读与可写物品两种权限）。
  *
  * 文档是随前端一起打包的静态 markdown（`app/assets/docs/api.*.md`），不是用户输入，
  * 所以这里用 v-html 渲染是安全的；换成用户可编辑的内容时必须先消毒。
  *
- * 路由是 `/api-docs` 而不是 `/api`：`/api/**` 由 nitro 代理给 Nest，占用不得。
+ * 唯一的消费方是设置页的 API keys tab（`/settings?tab=apiKeys`）：它原先还是侧栏里的
+ * 独立页面 `/api-docs`，收进设置页后不再单独占一个导航项。嵌进去时用 hideTitle 去掉
+ * markdown 自己的 h1，标题交给外面的小节标题，免得页里出现两个同级标题。
  */
-definePageMeta({ layoutMode: 'scroll', layoutModeMobile: 'scroll' });
+const props = defineProps<{ hideTitle?: boolean }>();
 
-const { t, locale } = useI18n();
-
-useHead({ title: () => t('nav.apiDocs') });
+const { locale } = useI18n();
 
 const source = computed(() => (locale.value.toLowerCase().startsWith('zh') ? apiZh : apiEn));
-const html = computed(() => String(marked.parse(source.value)));
+const html = computed(() => {
+  const md = props.hideTitle ? source.value.replace(/^#\s+[^\n]*\r?\n+/, '') : source.value;
+  return String(marked.parse(md));
+});
 </script>
 
 <template>
-  <div class="api-docs">
-    <PageHeader :title="t('nav.apiDocs')" />
-    <article class="doc hb-card" v-html="html" />
-  </div>
+  <article class="doc hb-card" v-html="html" />
 </template>
 
 <style scoped>
@@ -44,6 +44,10 @@ const html = computed(() => String(marked.parse(source.value)));
   margin: 26px 0 10px;
   font-size: var(--hb-fs-h3);
   font-weight: var(--hb-fw-semibold);
+}
+
+.doc :deep(h2:first-child) {
+  margin-top: 0;
 }
 
 .doc :deep(h3) {
@@ -96,7 +100,12 @@ const html = computed(() => String(marked.parse(source.value)));
 }
 
 .doc :deep(table) {
+  /* 写接口那张表里全是长路径，min-content 宽度会撑破手机版：改成自己能横向滚动，
+     否则浏览器会把整个 layout viewport 撑宽、整页缩小（390px 下会变成 601px 宽） */
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 0 0 14px;
   border-collapse: collapse;
   font-size: var(--hb-fs-xs);
