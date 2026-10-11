@@ -536,6 +536,19 @@ samp {
   color: var(--hb-danger);
 }
 
+/* API key 的权限胶囊：可写用品牌绿强调（能改数据），只读保持灰（默认、最小权限） */
+.hb-chip.write {
+  border-color: var(--hb-brand);
+  background: var(--hb-brand-soft);
+  color: var(--hb-brand-strong);
+}
+
+.hb-chip.read {
+  border-color: var(--hb-border-strong);
+  background: var(--hb-surface-2);
+  color: var(--hb-muted);
+}
+
 /* 列表行右侧的次要文字（如数量 ×N） */
 .hb-list-note {
   font-size: var(--hb-fs-xs);

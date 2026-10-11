@@ -168,6 +168,13 @@
               class="grow"
               required
             />
+            <USelect
+              v-model="apiKeyForm.scope"
+              :items="apiKeyScopeOptions"
+              size="xl"
+              class="scope-select"
+              :title="t('settings.apiKeyScopeHint')"
+            />
             <UInput v-model="apiKeyForm.expiresAt" type="date" size="xl" :title="t('settings.apiKeyExpiresHint')" />
             <UButton type="submit" size="xl" class="hb-tap" :loading="creatingApiKey">
               {{ t('settings.apiKeyCreate') }}
@@ -181,6 +188,9 @@
                 <span class="row-title">
                   {{ key.name }}
                   <span class="hb-mono hb-muted">{{ key.prefix }}…</span>
+                  <span v-if="!key.revokedAt" class="hb-chip tiny" :class="key.scope">
+                    {{ t(`settings.apiKeyScope_${key.scope}`) }}
+                  </span>
                 </span>
                 <span class="row-sub">{{ apiKeySub(key) }}</span>
               </div>
@@ -346,6 +356,8 @@ interface ApiKey {
   id: number;
   name: string;
   prefix: string;
+  /** read = 只能读；write = 额外可写物品（属性/序列号/库存/取走归还/增删） */
+  scope: 'read' | 'write';
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
@@ -430,7 +442,12 @@ const initialAvatar = computed(() =>
 
 // API key（GET/POST/DELETE /api-keys）
 const apiKeys = ref<ApiKey[]>([]);
-const apiKeyForm = reactive({ name: '', expiresAt: '' });
+// 默认只读：想要写权限必须显式选一次（与后端「不传 scope = read」同一口径）
+const apiKeyForm = reactive<{ name: string; scope: 'read' | 'write'; expiresAt: string }>({
+  name: '',
+  scope: 'read',
+  expiresAt: '',
+});
 const creatingApiKey = ref(false);
 const tokenOpen = ref(false);
 const createdToken = ref('');
@@ -456,6 +473,10 @@ const currencyOptions = [
 ].map((code) => ({ label: code, value: code }));
 
 const localeOptions = ['zh-CN', 'zh-TW', 'en', 'ja', 'ko', 'fr', 'de', 'es'].map((code) => ({ label: code, value: code }));
+const apiKeyScopeOptions = (['read', 'write'] as const).map((scope) => ({
+  label: t(`settings.apiKeyScope_${scope}`),
+  value: scope,
+}));
 
 const typeOptions = Object.keys(NOTIFIER_FIELDS).map((type) => ({ label: t(`notifier.types.${type}`), value: type }));
 const eventOptions = computed(() => EVENTS.map((event) => ({ label: t(`event.${event}`), value: event })));
@@ -544,12 +565,16 @@ async function createApiKey() {
   creatingApiKey.value = true;
   try {
     // expiresAt 留空时不能传空串：后端用 @Matches 校验格式
-    const body: { name: string; expiresAt?: string } = { name: apiKeyForm.name.trim() };
+    const body: { name: string; scope: 'read' | 'write'; expiresAt?: string } = {
+      name: apiKeyForm.name.trim(),
+      scope: apiKeyForm.scope,
+    };
     if (apiKeyForm.expiresAt) body.expiresAt = apiKeyForm.expiresAt;
     const created = await api.post<ApiKey & { token: string }>('/api-keys', body);
     createdToken.value = created.token;
     tokenOpen.value = true;
     apiKeyForm.name = '';
+    // scope 不重置：连着建多把同权限的 key 时不用每次重选；下一次建 key 前一眼能看到当前选择
     apiKeyForm.expiresAt = '';
     await loadApiKeys();
   } catch (error) {
@@ -823,6 +848,17 @@ h2 {
 
 .role-select {
   width: 110px;
+}
+
+/* 权限选择：窄到不挤压名字输入框，又能完整显示「可写物品」 */
+.scope-select {
+  width: 132px;
+}
+
+/* 权限胶囊别折行：移动端行里空间紧张时，先挤名字也不要让「可写物品」断成两行 */
+.row-title .hb-chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .account {
