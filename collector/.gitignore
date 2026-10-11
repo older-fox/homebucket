@@ -1,16 +1,11 @@
-# 依赖与构建产物
-node_modules/
-dist/
-public/
-*.tsbuildinfo
-
-# 本地 SQLite 库（COLLECTOR_DB_FILE_PATH 默认 data/collector.db）与其它运行时数据
-data/
+node_modules
+.nuxt
+.output
+dist
+data
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-
-# 本地配置（.env.example 是模板，不进这里的忽略）
 .env
-.env.local
+*.tsbuildinfo

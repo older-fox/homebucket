@@ -2,56 +2,31 @@
   "name": "homebucket-collector",
   "version": "0.1.0",
   "private": true,
-  "description": "HomeBucket 物品信息收集器：所有实例共享的物品资料库（后端 + 内置前端，同一个 npm 包）",
+  "type": "module",
+  "description": "HomeBucket 物品信息收集器：所有 HomeBucket 实例共享的物品资料库",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "dev:server": "nest start --watch",
-    "dev:web": "vite",
-    "build": "npm run build:web && npm run build:server",
-    "build:server": "nest build",
-    "build:web": "vue-tsc --noEmit -p tsconfig.web.json && vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.json && vue-tsc --noEmit -p tsconfig.web.json",
-    "pretest": "npm run build:server",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"test/*.test.mjs\"",
-    "start": "node dist/main.js",
-    "serve": "npm run build && npm run start",
-    "db:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
-    "db:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
-    "db:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
-    "db:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
-    "db:check-drift": "node scripts/check-drift.mjs"
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "start": "node scripts/start.mjs",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck",
+    "test": "node --import tsx --test \"test/*.test.ts\"",
+    "test:e2e": "node test/e2e.mjs",
+    "db:check-drift": "node --import tsx scripts/check-drift.mjs"
   },
   "dependencies": {
-    "@nestjs/common": "^12.1.2",
-    "@nestjs/core": "^12.1.2",
-    "@nestjs/platform-fastify": "^12.1.2",
-    "@nestjs/typeorm": "^12.0.2",
+    "@nuxtjs/color-mode": "^4.0.1",
     "better-sqlite3": "^13.0.3",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.1",
-    "dotenv": "^17.0.0",
-    "fastify": "^5.0.0",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2",
-    "typeorm": "^1.1.1",
-    "vue": "^3.5.43",
-    "vue-router": "^5.3.1"
+    "nuxt": "^4.6.1",
+    "typeorm": "^1.1.2"
   },
   "devDependencies": {
-    "@nestjs/cli": "^12.0.8",
-    "@nestjs/schematics": "^12.0.6",
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^24.0.0",
-    "@vitejs/plugin-vue": "^6.0.9",
-    "ts-node": "^10.9.2",
-    "typescript": "~6.0.3",
-    "vite": "^8.3.2",
-    "vue-tsc": "^3.3.12"
-  },
-  "overrides": {
-    "better-sqlite3": "$better-sqlite3"
-  },
-  "allowScripts": {
-    "better-sqlite3@13.0.3": true
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.1",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.13"
   }
 }

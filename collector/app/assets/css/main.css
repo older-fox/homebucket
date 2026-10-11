@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* 深色模式：@nuxtjs/color-mode 的 classSuffix 留空 → <html class="dark"> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 收集器的自定义色彩令牌：主色沿用 HomeBucket 的蓝，避免两套视觉语言 */
+@theme {
+  --color-brand-50: oklch(0.97 0.014 254);
+  --color-brand-100: oklch(0.93 0.032 254);
+  --color-brand-500: oklch(0.62 0.16 254);
+  --color-brand-600: oklch(0.55 0.17 254);
+  --color-brand-700: oklch(0.48 0.16 254);
+}

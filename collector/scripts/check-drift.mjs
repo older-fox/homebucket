@@ -1,64 +1,38 @@
 #!/usr/bin/env node
 /**
- * 结构漂移检查：在一个全新的临时 SQLite 库上跑完全部迁移，再用 TypeORM 的 `schema:log`
- * 比对「实体元数据」与「迁移建出来的库结构」是否一致。
+ * 漂移检查（与迁移前的 `npm run db:check-drift` 同义）：
+ * 在一个全新的临时 SQLite 库上跑完迁移，然后让 TypeORM 比一遍
+ * "实体定义"与"迁移建出来的表结构"。**必须零差异**。
  *
- * 为什么值得做成脚本：实体改了但忘了写迁移（或迁移里列类型/长度/索引与实体不一致）时，
- * `migration:run` 与 `nest build` 都不会报错，只会在生产上以"列不存在 / 类型不对"的形式爆出来。
- * `schema:log` 是唯一能在 CI 里零外部依赖跑起来的探针 —— SQLite 不需要真实数据库服务。
- *
- * 用法：`npm run db:check-drift`（退出码 0 = 零漂移）
+ * 为什么要有这个检查：迁移是手写的，实体是另一份描述，两者漂移的表现是
+ * "测试全绿但生产少一列"。在这里失败，比上线后才发现便宜得多。
  */
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const dataSource = join('src', 'database', 'data-source.ts');
+import { join } from 'node:path';
+import { DataSource } from 'typeorm';
+import { buildDataSourceOptions } from '../server/database/data-source.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'hbcol-drift-'));
-const currentDb = join(dir, 'drift.db');
-process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+const database = join(dir, 'drift.db');
+const dataSource = new DataSource(buildDataSourceOptions({ database }));
 
-/** `npx --no-install` 让脚本在 CI 与本地都用同一份本地安装的 CLI，不去联网找包 */
-function typeorm(...args) {
-  return spawnSync(
-    'npx',
-    ['--no-install', 'typeorm-ts-node-commonjs', ...args, '--dataSource', dataSource],
-    {
-      cwd: serverDir,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        COLLECTOR_DB_PROVIDER: 'sqlite',
-        COLLECTOR_DB_FILE_PATH: currentDb,
-      },
-    },
-  );
+try {
+  await dataSource.initialize();
+  await dataSource.runMigrations({ transaction: 'all' });
+  const sql = await dataSource.driver.createSchemaBuilder().log();
+  const statements = [...sql.upQueries.map((query) => query.query), ...sql.downQueries.map((query) => query.query)];
+  if (statements.length === 0) {
+    console.log(`[drift] OK：${database} 上迁移与实体定义完全一致`);
+  } else {
+    console.error(`[drift] 发现 ${statements.length} 处漂移，需要补一条迁移：`);
+    for (const statement of statements) console.error(`  ${statement};`);
+    process.exitCode = 1;
+  }
+} catch (error) {
+  console.error('[drift] 检查失败：', error);
+  process.exitCode = 1;
+} finally {
+  await dataSource.destroy().catch(() => {});
+  rmSync(dir, { recursive: true, force: true });
 }
-
-const run = typeorm('migration:run');
-if (run.status !== 0) {
-  console.error('[drift] migration:run 失败：');
-  console.error(run.stdout || '', run.stderr || '');
-  process.exit(1);
-}
-
-const log = typeorm('schema:log');
-const output = `${log.stdout ?? ''}${log.stderr ?? ''}`;
-if (log.status !== 0) {
-  console.error('[drift] schema:log 执行失败：');
-  console.error(output);
-  process.exit(1);
-}
-
-// TypeORM 零漂移时的原话；有漂移时会打印 "Schema synchronization will execute following sql queries (N):"
-if (!output.includes('there are no queries to be executed by schema synchronization')) {
-  console.error('[drift] 实体与迁移建出的库结构不一致（schema:log 非空）：');
-  console.error(output.trim());
-  process.exit(1);
-}
-
-console.log('[drift] OK：全新 SQLite 库跑完迁移后 schema:log 零漂移');
