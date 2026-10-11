@@ -1,176 +1,138 @@
 <template>
   <div class="auth">
-    <!-- 桌面端品牌面板 -->
-    <section class="hero">
-      <div class="hero-inner">
-        <div class="hero-brand">
-          <AppLogo :size="44" />
-          <div>
-            <strong>Homebucket</strong>
-            <p>{{ t('common.slogan') }}</p>
-          </div>
-        </div>
+    <!-- 背景：类 Nuxt 的球型渐变（顶部一颗主球 + 两侧辅光 + 细点阵） -->
+    <div class="orb-field" aria-hidden="true">
+      <span class="orb orb-main" />
+      <span class="orb orb-left" />
+      <span class="orb orb-right" />
+      <span class="dots" />
+    </div>
 
-        <ul class="features">
-          <li v-for="item in features" :key="item.icon">
-            <span class="feature-icon"><UIcon :name="item.icon" /></span>
-            <div>
-              <p class="feature-title">{{ item.title }}</p>
-              <p class="feature-desc">{{ item.desc }}</p>
-            </div>
-          </li>
-        </ul>
-      </div>
-      <div class="hero-glow" />
-    </section>
+    <div class="corner">
+      <UColorModeButton class="icon-btn" />
+      <LocaleSwitcher />
+    </div>
 
-    <!-- 表单区 -->
-    <section class="form-side">
-      <div class="corner">
-        <UColorModeButton class="icon-btn" />
-        <LocaleSwitcher />
-      </div>
-
+    <main class="pane">
       <div class="card hb-rise">
-        <div class="card-brand">
-          <AppLogo :size="36" />
-          <h1>Homebucket</h1>
-          <p class="hb-muted">{{ t('common.slogan') }}</p>
+        <div class="card-logo">
+          <AppLogo :size="40" />
         </div>
         <slot />
       </div>
-    </section>
+    </main>
   </div>
 </template>
 
-<script setup lang="ts">
-const { t } = useI18n();
-
-const features = computed(() => [
-  { icon: 'i-lucide-map-pinned', title: t('location.title'), desc: t('location.dragHint') },
-  { icon: 'i-lucide-package', title: t('item.title'), desc: t('item.searchPlaceholder') },
-  { icon: 'i-lucide-qr-code', title: t('scan.title'), desc: t('scan.hint') },
-]);
-</script>
-
 <style scoped>
+/* ==========================================================================
+   常规的居中登录窗：一屏一卡，品牌球型渐变在顶部晕开
+   ========================================================================== */
+
 .auth {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
   /* dvh 处理移动端工具栏高度变化，避免"表单被挤到屏幕外/底部留白" */
   min-height: 100dvh;
-  display: grid;
-  grid-template-columns: 1fr;
-  align-items: stretch;
-}
-
-/* ---------------- 品牌面板（桌面显示） ---------------- */
-.hero {
-  display: none;
-  position: relative;
-  overflow: hidden;
-  padding: 48px;
-  background: linear-gradient(150deg, var(--hb-brand) 0%, var(--hb-brand-strong) 60%, #083f3b 100%);
-  color: #fff;
-}
-
-.hero-inner {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 40px;
-  height: 100%;
-  max-width: 420px;
-}
-
-.hero-brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.hero-brand strong {
-  display: block;
-  font-size: 22px;
-  letter-spacing: -0.02em;
-}
-
-.hero-brand p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  opacity: 0.85;
-}
-
-.features {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.features li {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.feature-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: rgb(255 255 255 / 16%);
-  flex-shrink: 0;
-}
-
-.feature-icon :deep(svg) {
-  width: 20px;
-  height: 20px;
-}
-
-.feature-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.feature-desc {
-  margin: 3px 0 0;
-  font-size: 12.5px;
-  opacity: 0.8;
-  line-height: 1.5;
-}
-
-.hero-glow {
-  position: absolute;
-  right: -120px;
-  bottom: -140px;
-  width: 420px;
-  height: 420px;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 10%);
-  filter: blur(10px);
-}
-
-/* ---------------- 表单侧 ---------------- */
-.form-side {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100dvh;
-  padding: 32px 18px calc(32px + var(--hb-safe-bottom));
+  padding: 40px 18px calc(40px + var(--hb-safe-bottom));
   box-sizing: border-box;
+  overflow: hidden;
 }
+
+/* ---------------- 球型渐变背景 ---------------- */
+
+.orb-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  /* 大半径模糊 + 自身已经是径向渐变：远看就是一颗发光的球，而不是一块色斑 */
+  filter: blur(48px);
+}
+
+/* 主球：顶部居中，青绿 → 天蓝，收口处透明 */
+.orb-main {
+  top: -240px;
+  left: 50%;
+  width: 560px;
+  height: 560px;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    circle at 50% 74%,
+    #00dc82 0%,
+    #2dd4bf 24%,
+    #14b8a6 42%,
+    #0ea5e9 62%,
+    rgb(14 165 233 / 0%) 74%
+  );
+  opacity: 0.42;
+  animation: hb-orb-float 22s var(--hb-ease) infinite alternate;
+}
+
+/* 高光：让球有"从左上被照亮"的立体感 */
+.orb-main::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 38% 32%, rgb(255 255 255 / 55%), transparent 42%);
+}
+
+.orb-left {
+  top: 6%;
+  left: -9%;
+  width: 340px;
+  height: 340px;
+  background: radial-gradient(circle, #5eead4 0%, rgb(94 234 212 / 0%) 70%);
+  opacity: 0.32;
+  filter: blur(72px);
+}
+
+.orb-right {
+  top: 0;
+  right: -8%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, #38bdf8 0%, rgb(56 189 248 / 0%) 70%);
+  opacity: 0.26;
+  filter: blur(72px);
+}
+
+/* 细点阵：给渐变一点"科技感"的底纹，向下淡出 */
+.dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgb(15 118 110 / 18%) 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: 0.45;
+  -webkit-mask-image: radial-gradient(120% 62% at 50% 0%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(120% 62% at 50% 0%, #000 0%, transparent 72%);
+}
+
+@keyframes hb-orb-float {
+  from {
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  to {
+    transform: translateX(-50%) translateY(26px) scale(1.05);
+  }
+}
+
+/* ---------------- 右上角工具（主题 / 语言） ---------------- */
 
 .corner {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: max(14px, env(safe-area-inset-top, 0px));
+  right: 14px;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -186,53 +148,71 @@ const features = computed(() => [
   color: var(--hb-text-2);
 }
 
-.card {
+/* ---------------- 卡片 ---------------- */
+
+.pane {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 400px;
-  background: var(--hb-surface);
+}
+
+.card {
+  /* 半透明 + 毛玻璃：背景的光球会从卡片边缘透出来一点 */
+  background: color-mix(in srgb, var(--hb-surface) 92%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
   border: 1px solid var(--hb-border);
   border-radius: var(--hb-r-xl);
   box-shadow: var(--hb-shadow-lg);
-  padding: 28px 24px;
+  padding: 26px 22px 24px;
 }
 
-.card-brand {
+.card-logo {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 22px;
-  text-align: center;
+  justify-content: center;
+  margin-bottom: 14px;
 }
 
-.card-brand h1 {
-  margin: 6px 0 0;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--hb-text);
+/* ---------------- 深色 / 小屏 / 降低动效 ---------------- */
+
+/* 注意：不要写成 :global(.dark) .orb-main —— 编译产物会退化成裸 .dark，
+   等于给 <html class="dark"> 加 opacity，整页被冲淡。写成 .dark 后代选择器，
+   scoped 只会给末级选择器加 [data-v-xxx]，祖先 .dark 依然能命中。 */
+.dark .orb-main {
+  opacity: 0.5;
 }
 
-.card-brand p {
-  margin: 0;
-  font-size: 12.5px;
+.dark .dots {
+  background-image: radial-gradient(rgb(94 234 212 / 14%) 1px, transparent 1px);
+}
+
+@media (max-width: 480px) {
+  .auth {
+    padding: 30px 16px calc(30px + var(--hb-safe-bottom));
+  }
+
+  /* 小屏只留主球，辅光挤在一起反而脏 */
+  .orb-main {
+    top: -170px;
+    width: 400px;
+    height: 400px;
+  }
+
+  .orb-left,
+  .orb-right {
+    display: none;
+  }
 }
 
 @media (min-width: 900px) {
-  .auth {
-    grid-template-columns: 1.1fr 1fr;
+  .card {
+    padding: 32px 30px 28px;
   }
+}
 
-  .hero {
-    display: block;
-  }
-
-  .form-side {
-    padding: 40px;
-  }
-
-  .card-brand {
-    display: none; /* 桌面端品牌已在左侧面板 */
+@media (prefers-reduced-motion: reduce) {
+  .orb-main {
+    animation: none;
   }
 }
 </style>
