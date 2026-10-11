@@ -39,7 +39,8 @@
 cd collector
 
 npm install
-cp .env.example .env        # 至少填一个 COLLECTOR_ADMIN_TOKEN（生产环境必须 ≥8 字符）
+cp .env.example .env        # 开发环境可先留空，用默认账号 admin / dev-admin-password 登录
+                            # （生产环境必须填 COLLECTOR_ADMIN_PASSWORD，≥8 字符，否则拒绝启动）
 npm run dev                 # http://127.0.0.1:3400 —— 页面和 API 同一个进程，带热更新
 ```
 
@@ -64,13 +65,18 @@ npm start                   # node scripts/start.mjs，3400 上同时提供 API 
 | `COLLECTOR_DB_PROVIDER` | `sqlite` | 只支持 `sqlite`；填别的会显式启动失败，不做静默回退。 |
 | `COLLECTOR_DB_FILE_PATH` | `data/collector.db` | SQLite 文件。相对路径按**启动时的工作目录**解析（Nitro 下没有稳定的 `__dirname`）。 |
 | `COLLECTOR_AUTO_MIGRATE` | `true` | 启动时自动跑 TypeORM 迁移。 |
-| `COLLECTOR_ADMIN_TOKEN` | 空 | 纠错台令牌。`NODE_ENV=production` 时**必须**设置且 ≥8 字符，否则拒绝启动。 |
+| `COLLECTOR_ADMIN_USERNAME` | `admin` | 纠错台账号名（2-32 位字母/数字/`.`/`_`/`-`，以字母或数字开头）。 |
+| `COLLECTOR_ADMIN_PASSWORD` | 空 | 纠错台口令（≥8 字符，**不做 trim**）。`NODE_ENV=production` 时**必须**设置，否则拒绝启动；非 production 留空则回退到开发默认口令 `dev-admin-password`（账号 `admin`），让 `npm run dev` 开箱可用。 |
+| `COLLECTOR_ADMIN_FORCE_RESET` | `false` | 设 `true` 时用 .env 里的口令重置管理员并作废其全部会话（忘了密码的兜底），改完记得关掉。 |
+| `COLLECTOR_SESSION_TTL_HOURS` | `168` | 登录会话有效期（小时，7 天）。滑动续期：剩余不足一半时每次请求续满。 |
+| `COLLECTOR_LOGIN_RATE_LIMIT` | `10` | 登录尝试限流：每个 IP 每窗口的次数上限（管理接口整体不限流，只有登录单独限流）。 |
+| `COLLECTOR_LOGIN_RATE_WINDOW_MS` | `600000` | 登录限流窗口长度（毫秒）。 |
 | `COLLECTOR_REGISTRATION_OPEN` | `true` | 是否允许新实例自我注册。关掉后新实例拿到 403，已注册的照常上报。 |
 | `COLLECTOR_CORS_ORIGIN` | `*` | 允许的跨域来源；多个用逗号分隔。 |
 | `COLLECTOR_MAX_BODY_SIZE` | `64kb` | 请求体上限（无单位的数字按字节算）。 |
 | `COLLECTOR_RATE_LIMIT` | `240` | 每个来源 IP 在每个窗口内的请求数上限（查询/注册/上报共用）。 |
 | `COLLECTOR_RATE_WINDOW_MS` | `60000` | 限流窗口长度。 |
-| `NODE_ENV` | `development` | `production` 会收紧（管理令牌必须显式配置）。 |
+| `NODE_ENV` | `development` | `production` 会收紧（管理员口令必须显式配置，不再回退开发默认值）。 |
 
 迁移到 Nuxt 之后**没有** `COLLECTOR_API_PREFIX` / `COLLECTOR_WEB_DIR`：接口路径由 `server/api/` 的目录结构决定（统一挂在 `/api/**`），页面由 Nuxt 自己提供。
 
@@ -83,7 +89,8 @@ docker build -t homebucket-collector collector
 docker run -d --name homebucket-collector \
   -p 3400:3400 \
   -v /srv/homebucket-collector:/data \
-  -e COLLECTOR_ADMIN_TOKEN='换成足够长的随机串' \
+  -e COLLECTOR_ADMIN_USERNAME='admin' \
+  -e COLLECTOR_ADMIN_PASSWORD='换成足够长的随机串' \
   -e NODE_ENV=production \
   homebucket-collector
 ```
@@ -100,7 +107,8 @@ services:
       - /srv/homebucket-collector:/data
     environment:
       NODE_ENV: production
-      COLLECTOR_ADMIN_TOKEN: 换成足够长的随机串
+      COLLECTOR_ADMIN_USERNAME: admin
+      COLLECTOR_ADMIN_PASSWORD: 换成足够长的随机串
       COLLECTOR_REGISTRATION_OPEN: "true"
     ports:
       - "3400:3400"
@@ -175,7 +183,7 @@ curl -X POST http://127.0.0.1:3400/api/v1/contributions \
 
 `applied` 是"这次真正写进物品的字段"：被人工锁定的字段不会覆盖既有值。
 
-管理接口（`x-admin-token`，见 [管理台](#管理台)）：`/api/admin/...`。
+管理接口（登录后的会话 cookie，见 [管理台](#管理台)）：`/api/admin/...`。
 
 ### B. 老契约（已部署实例的 DATA_COLLECTION_ENDPOINT）
 
@@ -275,12 +283,49 @@ confidence = 赞同当前值的观测数 / (可比较的观测数 + 1)
 | 统计 | 物品/上报/实例总量与近期趋势（聚合 SQL 实时算，不落汇总表） |
 
 页面是 Nuxt SSR（公开页）+ Tailwind v4，深色模式用 `@nuxtjs/color-mode`（`.dark` class，跟随系统，可手动切换）。
-管理台靠顶栏那个"管理令牌"输入框鉴权（存在浏览器 localStorage，请求时放在 `x-admin-token` 头里）：
+
+### 登录与账号
+
+纠错台/审计/改密码这几个页面要登录才能用（公开查询不需要）：未登录访问会自动跳到 `/login`，
+登录后顶栏出现账号菜单（**修改密码** / **退出登录**）。
+
+开发环境（非 `NODE_ENV=production`）不配 `COLLECTOR_ADMIN_PASSWORD` 也能直接登录：账号 `admin`、口令 `dev-admin-password`。
+
+- 账号在**首次启动、库里还没有管理员时**按 `COLLECTOR_ADMIN_USERNAME` / `COLLECTOR_ADMIN_PASSWORD` 创建
+  （启动日志会写"已按 .env 创建管理员账号 …"）。
+- 口令以 **scrypt** 哈希存库（`scrypt$N$r$p$salt$hash`，参数写在哈希串里，以后调参数不会锁死老账号）。
+- 登录成功后服务端发 `hb_collector_session` cookie：**httpOnly**（JS 读不到，XSS 偷不走）、SameSite=Lax
+  （跨站 POST 不带它，管理接口因此天然免疫 CSRF）、Path=/、生产走 https 时自动加 Secure。
+  库里只存这个 cookie 值的 sha256 —— 即使库文件泄露也拿不到可用的令牌。
+- 会话**滑动续期**：剩余不足一半时，每次带 cookie 的请求把它续到满（`COLLECTOR_SESSION_TTL_HOURS`）。
+- 改密码要带当前口令，成功后**其它设备上的会话全部作废**（只留当前这条）。
+
+**忘了密码**：把 `COLLECTOR_ADMIN_FORCE_RESET=true` 写进 `.env` 重启一次，就会用 .env 里的口令重置，
+并作废该账号的全部会话；然后**记得把这个开关关掉**，否则每次重启口令都被 .env 覆盖回去。
+已有账号时 .env 里的口令**不会**生效 —— 否则界面上改过的密码会被下次重启悄悄改回去。
 
 ```bash
-curl http://127.0.0.1:3400/api/admin/session -H 'x-admin-token: <COLLECTOR_ADMIN_TOKEN>'
-# → { "scope": "admin", "service": "...", "version": "0.1.0", "now": "..." }
+# 登录（cookie 存到 /tmp/cj.txt，后续请求带上它）
+curl -c /tmp/cj.txt -X POST http://127.0.0.1:3400/api/admin/login \
+  -H 'content-type: application/json' -d '{"username":"admin","password":"<口令>"}'
+# → { "ok": true, "user": { "id": 1, "username": "admin", ... }, "expiresAt": "..." }
+
+curl -b /tmp/cj.txt http://127.0.0.1:3400/api/admin/session
+# → { "ok": true, "scope": "admin", "version": "0.1.0", "registrationOpen": true,
+#      "user": { "id": 1, "username": "admin", "lastLoginAt": "...", ... } }
+
+curl -b /tmp/cj.txt -X POST http://127.0.0.1:3400/api/admin/logout      # → { "ok": true, "revoked": true }
+
+curl -b /tmp/cj.txt -X POST http://127.0.0.1:3400/api/admin/password \
+  -H 'content-type: application/json' \
+  -d '{"currentPassword":"<旧口令>","newPassword":"<新口令>"}'    # → { "ok": true, "revokedSessions": 2 }
 ```
+
+未登录/会话过期的错误码：`admin.sessionMissing`（没带 cookie）、`admin.sessionInvalid`（令牌不存在或已被吊销）、
+`admin.sessionExpired`（过期，行会被顺手删掉）；口令错是 `admin.badCredentials`（与"用户不存在"同一个 code，
+不给账号枚举留接口）；登录尝试过多是 `rate.tooMany`（带 `retryAfterSeconds`）。
+改密码另有：`admin.badCurrentPassword`（当前口令不对）、`admin.passwordUnchanged`（新旧口令相同）、
+新口令太短是 `validation.failed`（带 `fields`）——这三个都返回 400。
 
 常用管理接口：
 
@@ -330,7 +375,7 @@ collector/
 ├── nuxt.config.ts       # 一个进程同时提供页面（SSR）与 API（Nitro）
 ├── server/              # 后端（Nitro，esbuild 打包）
 │   ├── api/v1/          # 公开查询、上报、实例注册、统计
-│   ├── api/admin/       # 纠错台（x-admin-token）
+│   ├── api/admin/       # 纠错台（登录会话）
 │   ├── api/[...].ts     # 未匹配的 /api/** 统一回 JSON 404（不糊 HTML）
 │   ├── middleware/      # CORS、请求体上限、限流
 │   ├── services/        # items / contributions / instances / stats / admin / compat
@@ -354,11 +399,14 @@ npm run build            # 产出 .output/
 npm run db:check-drift   # 迁移零漂移探针
 ```
 
-- `test:e2e` 也可以用 `COLLECTOR_BASE=http://127.0.0.1:3400 COLLECTOR_ADMIN_TOKEN=…` 打一个**已经在跑**的实例；
-  那种用法要求目标库是**全新的**（脚本会灌一套自己的样例数据并断言条数），所以先删掉库文件再跑。
-  它覆盖的是"契约级"行为：22 条路由的状态码与响应形状、字段级合并规则、锁定/屏蔽/合并/封禁后的重放、
+- `test:e2e` 也可以用 `COLLECTOR_BASE=http://127.0.0.1:3400 COLLECTOR_ADMIN_USERNAME=admin COLLECTOR_ADMIN_PASSWORD=…`
+  打一个**已经在跑**的实例；那种用法要求目标库是**全新的**（脚本会灌一套自己的样例数据并断言条数），
+  所以先删掉库文件再跑，而且目标实例的登录限流窗口会被脚本最后那个 429 用例打满
+  （自拉进程时脚本把 `COLLECTOR_LOGIN_RATE_LIMIT` 压到 5 次/分钟，所以那个用例很快）。
+  它覆盖的是"契约级"行为：25 条路由的状态码与响应形状、字段级合并规则、锁定/屏蔽/合并/封禁后的重放、
   老契约（`GET /api/v1/barcodes/:code` + `POST /api/v1/observations`）的向后兼容、SSR 首屏与静态资源 MIME、
-  CORS 与预检、未知接口回 JSON 404。这些正是单测盯不到的"接缝"，所以发版前必跑。
+  账号口令登录（会话 cookie / 伪造令牌 / 改密码吊销其它会话 / 登出 / 登录限流）、CORS 与预检、未知接口回 JSON 404。
+  这些正是单测盯不到的"接缝"，所以发版前必跑。
 
 - TypeORM 实体用 **`EntitySchema`** 而不是装饰器：Nitro 用 esbuild 打包，esbuild 不支持
   `emitDecoratorMetadata`，装饰器实体会丢掉列类型（详见 `server/database/entities.ts` 的注释）。

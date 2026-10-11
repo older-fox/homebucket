@@ -120,7 +120,7 @@ Once you own enough things, "where did I put this?" becomes a recurring question
     ├── nuxt.config.ts               # one process serves both the pages and the API
     ├── server/                      # Nitro
     │   ├── api/v1/                  # items / contributions / instances / stats + the legacy client contract
-    │   ├── api/admin/               # correction desk (x-admin-token)
+    │   ├── api/admin/               # correction desk (login session)
     │   ├── database/                # TypeORM EntitySchema + better-sqlite3 + migrations
     │   ├── services/  utils/  middleware/
     │   └── plugins/database.ts      # migrates and opens the DB before the first request
@@ -359,7 +359,7 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 `.gitlab-ci.yml` has two stages, `check` then `image`:
 
-**`check:types`** (stage `check`, runs on every push / manual pipeline): a plain Node container that runs the same checks as the local loop above — `npm ci` in all three packages (`server`, `web`, `collector`), `npm run typecheck` in all three, and `npm run db:check-drift` plus `npm test` in `server` and `collector`, followed by the collector's HTTP end-to-end suite (`npm run test:e2e`, which boots a throwaway Nuxt dev server on a random port and exercises all 22 routes and both wire protocols). It catches type errors, schema drift and contract regressions in a couple of minutes, before the (much slower) image build starts; it cannot cover MySQL, because that needs an external server (`db:check-drift` runs against a throwaway SQLite file instead).
+**`check:types`** (stage `check`, runs on every push / manual pipeline): a plain Node container that runs the same checks as the local loop above — `npm ci` in all three packages (`server`, `web`, `collector`), `npm run typecheck` in all three, and `npm run db:check-drift` plus `npm test` in `server` and `collector`, followed by the collector's HTTP end-to-end suite (`npm run test:e2e`, which boots a throwaway Nuxt dev server on a random port and exercises all 25 routes, both wire protocols and the admin login flow). It catches type errors, schema drift and contract regressions in a couple of minutes, before the (much slower) image build starts; it cannot cover MySQL, because that needs an external server (`db:check-drift` runs against a throwaway SQLite file instead).
 
 The server install there must stay `npm ci --ignore-scripts`. `better-sqlite3` ships a `binding.gyp` but no install script, so npm implicitly runs `node-gyp rebuild`, and the slim base image has neither Python nor a compiler: the job dies with `gyp ERR! find Python … Could not find any Python installation to use`. Skipping install scripts is safe — `lib/binding.js` loads `prebuilds/*.node` straight from the package, no `build/` directory needed. The Dockerfile passes the same flag for the same reason, and `server/test/ci-install-scripts.test.mjs` guards both files against losing it.
 

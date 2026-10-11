@@ -112,7 +112,7 @@
     ├── nuxt.config.ts               # 一个进程同时提供页面（SSR）与 API（Nitro）
     ├── server/                      # Nitro
     │   ├── api/v1/                  # 查询/上报/实例注册/统计 + 兼容老实例客户端的契约
-    │   ├── api/admin/               # 纠错台（x-admin-token）
+    │   ├── api/admin/               # 纠错台（登录会话）
     │   ├── database/                # TypeORM EntitySchema + better-sqlite3 + 迁移
     │   ├── services/  utils/  middleware/
     │   └── plugins/database.ts      # 第一个请求之前先跑迁移并打开数据库
@@ -332,7 +332,7 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 `.gitlab-ci.yml` 分两个 stage：`check` → `image`（`check` 全绿才进镜像构建）。
 
-**`check:types`**（stage `check`，push 任意分支 / 页面手动触发都会跑）：普通 Node 容器，把本地那套检查原样跑一遍 —— 三个包（`server`、`web`、`collector`）各自 `npm ci` 并各跑 `npm run typecheck`，`server` 与 `collector` 再各跑 `npm run db:check-drift` 与 `npm test`，最后跑收集器的 HTTP 端到端（`npm run test:e2e`：脚本自己拉一个随机端口的一次性 Nuxt dev 服务，把 22 条路由与两套协议都打一遍）。类型错误、结构漂移、契约回归都在这里几分钟内拦住，不必等（慢得多的）镜像构建；MySQL 覆盖不到，因为需要外部实例（`db:check-drift` 改为对一次性 SQLite 文件跑迁移 + `schema:log`）。
+**`check:types`**（stage `check`，push 任意分支 / 页面手动触发都会跑）：普通 Node 容器，把本地那套检查原样跑一遍 —— 三个包（`server`、`web`、`collector`）各自 `npm ci` 并各跑 `npm run typecheck`，`server` 与 `collector` 再各跑 `npm run db:check-drift` 与 `npm test`，最后跑收集器的 HTTP 端到端（`npm run test:e2e`：脚本自己拉一个随机端口的一次性 Nuxt dev 服务，把 25 条路由、两套协议和管理端登录流程都打一遍）。类型错误、结构漂移、契约回归都在这里几分钟内拦住，不必等（慢得多的）镜像构建；MySQL 覆盖不到，因为需要外部实例（`db:check-drift` 改为对一次性 SQLite 文件跑迁移 + `schema:log`）。
 
 server 的安装在 CI 里必须写成 `npm ci --ignore-scripts`：`better-sqlite3` 的 npm 包带 `binding.gyp` 却没有 install 脚本，npm 会按默认行为补跑一次 `node-gyp rebuild`，而基础镜像是 slim 版（既没有 Python 也没有编译器），会以 `gyp ERR! find Python … Could not find any Python installation to use` 直接失败；跳过安装脚本即可 —— 运行期 `lib/binding.js` 直接加载包内 `prebuilds/*.node`，不需要 `build/` 目录。Dockerfile 里两处 server 安装出于同样原因也带着这个参数，改 CI 时别把它漏掉（`server/test/ci-install-scripts.test.mjs` 会盯着）。
 
