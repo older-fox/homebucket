@@ -13,12 +13,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const EXTERNAL_BASE = (process.env.COLLECTOR_BASE ?? '').trim();
-const ADMIN = process.env.COLLECTOR_ADMIN_TOKEN ?? 'dev-admin-token';
+// 管理端已改为账号 + 口令登录（服务端会话 + httpOnly cookie）。自拉进程时把这几项传下去，
+// 保证脚本打的是它自己配的账号；打外部实例时用外部实例的配置（可用环境变量覆盖）。
+const ADMIN_USERNAME = process.env.COLLECTOR_ADMIN_USERNAME ?? 'admin';
+const ADMIN_PASSWORD = process.env.COLLECTOR_ADMIN_PASSWORD ?? 'dev-admin-password';
+const LOGIN_RATE_LIMIT = Number(process.env.COLLECTOR_LOGIN_RATE_LIMIT ?? 5);
+const SESSION_COOKIE_NAME = 'hb_collector_session';
 const STARTUP_TIMEOUT_MS = Number(process.env.COLLECTOR_E2E_TIMEOUT_MS ?? 120_000);
 
 let pass = 0;
 let fail = 0;
 const failures = [];
+/** 会话 cookie：httpOnly，浏览器/脚本都读不到值，只能在 fetch 里**原样回传** */
+let sessionCookie = null;
 
 function check(name, ok, detail = '') {
   if (ok) {
@@ -69,7 +76,11 @@ async function startDevServer() {
       COLLECTOR_PORT: String(port),
       COLLECTOR_HOST: '127.0.0.1',
       COLLECTOR_DB_FILE_PATH: join(tempDir, 'collector.db'),
-      COLLECTOR_ADMIN_TOKEN: ADMIN,
+      COLLECTOR_ADMIN_USERNAME: ADMIN_USERNAME,
+      COLLECTOR_ADMIN_PASSWORD: ADMIN_PASSWORD,
+      // 把登录限流压到 5 次/分钟：限流用例否则要打十几次错误口令（也就把窗口耗掉了）
+      COLLECTOR_LOGIN_RATE_LIMIT: String(LOGIN_RATE_LIMIT),
+      COLLECTOR_LOGIN_RATE_WINDOW_MS: '60000',
       NUXT_TELEMETRY_DISABLED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -135,16 +146,48 @@ async function stopDevServer() {
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
 }
 
-async function call(path, { method = 'GET', body, key, admin, headers = {} } = {}) {
+/** 从 call() 的结果里取出会话 cookie 的 "名=值"（没有就返回 null）；用于第二个会话这种临时 jar */
+function cookiePairFrom(response) {
+  const list = typeof response.headers.getSetCookie === 'function' ? response.headers.getSetCookie() : [];
+  for (const raw of list) {
+    const pair = raw.split(';')[0];
+    const eq = pair.indexOf('=');
+    if (eq < 0 || pair.slice(0, eq).trim() !== SESSION_COOKIE_NAME) continue;
+    if (pair.slice(eq + 1) === '' || /max-age=0/i.test(raw)) return null;
+    return pair;
+  }
+  return null;
+}
+
+/** 把响应里的会话 cookie 记下来（httpOnly 只是"JS 读不到"，脚本作为客户端当然能转发它） */
+function captureCookie(response) {
+  const list = typeof response.headers.getSetCookie === 'function' ? response.headers.getSetCookie() : [];
+  for (const raw of list) {
+    const pair = raw.split(';')[0];
+    const eq = pair.indexOf('=');
+    if (eq < 0 || pair.slice(0, eq).trim() !== SESSION_COOKIE_NAME) continue;
+    const cleared = pair.slice(eq + 1) === '' || /max-age=0/i.test(raw);
+    sessionCookie = cleared ? null : pair;
+  }
+}
+
+/**
+ * 发一个请求。
+ * `cookie` 用来临时改用别的会话（"第二台设备"）：给了它就不会自动记/覆盖全局的 sessionCookie，
+ * 传 null 表示"这次不带 cookie"。
+ */
+async function call(path, { method = 'GET', body, key, admin, cookie, headers = {} } = {}) {
   const h = { ...headers };
   if (body !== undefined) h['content-type'] = 'application/json';
   if (key) h['x-collector-key'] = key;
-  if (admin) h['x-admin-token'] = ADMIN;
+  const sentCookie = cookie !== undefined ? cookie : admin ? sessionCookie : null;
+  if (sentCookie) h.cookie = sentCookie;
   const response = await fetch(`${BASE}${path}`, {
     method,
     headers: h,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (cookie === undefined) captureCookie(response);
   const text = await response.text();
   let json = null;
   try {
@@ -249,7 +292,34 @@ async function main() {
   const stats = await call('/api/v1/stats');
   check('统计概览', stats.status === 200 && stats.json?.totals?.items === 1 && stats.json?.totals?.contributions === 3, `items=${stats.json?.totals?.items}`);
 
-  // 7. 老契约（已部署实例的 DATA_COLLECTION_ENDPOINT，无凭据）
+  // 7. 管理端登录：账号 + 口令 → httpOnly 会话 cookie（旧版是 x-admin-token 请求头）
+  const loginPage = await call('/login');
+  check('登录页可直达（SSR）', loginPage.status === 200 && /<html/i.test(loginPage.text), `${loginPage.status}`);
+  const passwordPage = await call('/password');
+  check('改密码页可直达（SSR）', passwordPage.status === 200 && /<html/i.test(passwordPage.text), `${passwordPage.status}`);
+  const anonymousSession = await call('/api/admin/session');
+  check('未登录 → 401 admin.sessionMissing', anonymousSession.status === 401 && anonymousSession.json?.code === 'admin.sessionMissing', `${anonymousSession.status} ${anonymousSession.json?.code}`);
+  const forged = await call('/api/admin/session', { headers: { cookie: `${SESSION_COOKIE_NAME}=hbs_${'0'.repeat(40)}` } });
+  check('伪造会话 cookie → 401 admin.sessionInvalid', forged.status === 401 && forged.json?.code === 'admin.sessionInvalid', `${forged.status} ${forged.json?.code}`);
+  const badLogin = await call('/api/admin/login', { method: 'POST', body: { username: ADMIN_USERNAME, password: 'definitely-not-the-password' } });
+  check('口令错误 → 401 admin.badCredentials', badLogin.status === 401 && badLogin.json?.code === 'admin.badCredentials', `${badLogin.status} ${badLogin.json?.code}`);
+  check('登录失败不发放会话', sessionCookie === null && !badLogin.headers.get('set-cookie'));
+  const login = await call('/api/admin/login', { method: 'POST', body: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD } });
+  const loginSetCookie = login.headers.getSetCookie().join('; ');
+  check(
+    '登录成功 → 200 + user + httpOnly/SameSite cookie',
+    login.status === 200 &&
+      login.json?.user?.username === ADMIN_USERNAME &&
+      typeof login.json?.expiresAt === 'string' &&
+      new RegExp(`^${SESSION_COOKIE_NAME}=hbs_`).test(sessionCookie ?? '') &&
+      /HttpOnly/i.test(loginSetCookie) &&
+      /SameSite=Lax/i.test(loginSetCookie),
+    `user=${login.json?.user?.username} cookie=${sessionCookie ? 'yes' : 'no'}`,
+  );
+  const session = await call('/api/admin/session', { admin: true });
+  check('带会话 cookie 访问纠错台', session.status === 200 && session.json?.ok === true && session.json?.user?.username === ADMIN_USERNAME, JSON.stringify(session.json?.user));
+
+  // 8. 老契约（已部署实例的 DATA_COLLECTION_ENDPOINT，无凭据）
   const legacyLookup = await call(`/api/v1/barcodes/${BARCODE_A}`);
   check('老契约查询：200 + 原样回显条码', legacyLookup.status === 200 && legacyLookup.json?.barcode === BARCODE_A, `${legacyLookup.status} ${legacyLookup.json?.barcode}`);
   // 置信度 = 赞同票 / (可比票数 + 1)：此时该条码有 3 条可见上报（c1 全字段、c2 分类、一条 2020 年的
@@ -271,14 +341,7 @@ async function main() {
   const anonymous = legacyAudit.json?.contributions?.[0];
   check('匿名上报在审计里可见（source=api，没有实例）', anonymous?.source === 'api' && anonymous?.instanceId === null, `source=${anonymous?.source} instanceId=${anonymous?.instanceId}`);
 
-  // 8. 纠错台鉴权与人工改字段
-  const adminNoToken = await call('/api/admin/session');
-  check('纠错台无令牌 → 401 admin.tokenMissing', adminNoToken.status === 401 && adminNoToken.json?.code === 'admin.tokenMissing');
-  const adminBadToken = await call('/api/admin/session', { headers: { 'x-admin-token': 'nope' } });
-  check('纠错台错令牌 → 401 admin.tokenInvalid', adminBadToken.status === 401 && adminBadToken.json?.code === 'admin.tokenInvalid');
-  const session = await call('/api/admin/session', { admin: true });
-  check('纠错台会话', session.status === 200 && session.json?.ok === true, JSON.stringify(session.json));
-
+  // 9. 纠错台人工改字段
   const patched = await call(`/api/admin/items/${itemId}`, {
     method: 'PATCH',
     admin: true,
@@ -291,7 +354,7 @@ async function main() {
   const cleared = await call(`/api/admin/items/${itemId}`, { method: 'PATCH', admin: true, body: { clearFields: ['description'] } });
   check('人工清空字段', cleared.json?.item?.description === null, `description=${JSON.stringify(cleared.json?.item?.description)}`);
 
-  // 9. 屏蔽上报 → 值回退
+  // 10. 屏蔽上报 → 值回退
   const latest = await call(`/api/admin/contributions?itemId=${itemId}&pageSize=50`, { admin: true });
   const target = latest.json?.contributions?.find((c) => c.appliedFields?.includes('category'));
   check('纠错台能看到上报流水', Array.isArray(latest.json?.contributions) && latest.json?.contributions.length > 0, `${latest.json?.contributions?.length} 条`);
@@ -302,7 +365,7 @@ async function main() {
   const unblocked = await call(`/api/admin/contributions/${target.id}/block`, { method: 'POST', admin: true, body: { blocked: false } });
   check('恢复上报', unblocked.status === 200 && (await call(`/api/v1/items/${BARCODE_A}`)).json?.category === '电动工具');
 
-  // 10. 合并重复物品
+  // 11. 合并重复物品
   const dupSource = await call('/api/v1/contributions', { method: 'POST', key: key2, body: { barcode: BARCODE_B, name: '冲击钻（重复条目）', manufacturer: 'Bosch 博世' } });
   const dupId = dupSource.json?.item?.id;
   check('重复条目并入老条目', dupSource.status === 201 && dupId !== itemId, `dup=${dupId}`);
@@ -317,7 +380,7 @@ async function main() {
   const adminList = await call(`/api/admin/items?q=${encodeURIComponent('冲击钻')}`, { admin: true });
   check('纠错台仍能看到被并条目', adminList.json?.items?.some((i) => i.id === dupId && i.mergedIntoId === itemId));
 
-  // 11. 封禁实例 → 重放
+  // 12. 封禁实例 → 重放
   const instances = await call('/api/admin/instances', { admin: true });
   const inst2 = instances.json?.instances?.find((i) => i.name === 'E2E 二号机');
   check('纠错台能看到实例列表', instances.status === 200 && instances.json?.instances?.length === 2, `${instances.json?.instances?.length} 个实例`);
@@ -330,7 +393,7 @@ async function main() {
   const afterUnban = await call('/api/v1/instances/me', { key: key2 });
   check('解封后密钥恢复可用', afterUnban.status === 200);
 
-  // 12. 全库重放、兜底路由、CORS
+  // 13. 全库重放、兜底路由、CORS
   const recompute = await call('/api/admin/recompute', { method: 'POST', admin: true });
   check('全库重放（只重放未被并的主条目）', recompute.status === 200 && recompute.json?.items === 1, `items=${recompute.json?.items}`);
   const singleRecompute = await call(`/api/admin/items/${itemId}/recompute`, { method: 'POST', admin: true });
@@ -347,6 +410,107 @@ async function main() {
   check('公开接口带 CORS 头', cors.headers.get('access-control-allow-origin') === '*', cors.headers.get('access-control-allow-origin'));
   const preflight = await fetch(`${BASE}/api/v1/items`, { method: 'OPTIONS', headers: { origin: 'https://example.com' } });
   check('预检请求 → 204', preflight.status === 204, `${preflight.status}`);
+
+  // 14. 改密码：要当前口令；成功后**其它会话全部作废**（"怀疑别人登进来了"的处置动作）
+  // 用第二个会话（模拟"另一台设备"）来操作，这样才能验证"当前这条留着、别的被踢掉"。
+  const secondLogin = await call('/api/admin/login', {
+    method: 'POST',
+    cookie: null, // 别让第二个 jar 覆盖主 jar
+    body: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
+  });
+  const secondCookie = cookiePairFrom(secondLogin);
+  check(
+    '第二个会话登录成功（另一台设备）',
+    secondLogin.status === 200 && secondCookie !== null && secondCookie !== sessionCookie,
+    `${secondLogin.status} cookie=${secondCookie ? 'yes' : 'no'}`,
+  );
+  const otherSession = await call('/api/admin/session', { cookie: secondCookie });
+  check('第二个会话可用', otherSession.status === 200 && otherSession.json?.user?.username === ADMIN_USERNAME, `${otherSession.status}`);
+
+  const wrongCurrent = await call('/api/admin/password', {
+    method: 'POST',
+    cookie: secondCookie,
+    body: { currentPassword: 'definitely-not-the-password', newPassword: 'whatever-but-long-enough' },
+  });
+  check(
+    '当前口令不对 → 400 admin.badCurrentPassword',
+    wrongCurrent.status === 400 && wrongCurrent.json?.code === 'admin.badCurrentPassword',
+    `${wrongCurrent.status} ${wrongCurrent.json?.code}`,
+  );
+  const shortNew = await call('/api/admin/password', {
+    method: 'POST',
+    cookie: secondCookie,
+    body: { currentPassword: ADMIN_PASSWORD, newPassword: 'short' },
+  });
+  check('新口令太短 → 400 validation.failed', shortNew.status === 400 && shortNew.json?.code === 'validation.failed', `${shortNew.status} ${shortNew.json?.code}`);
+
+  const ROTATED_PASSWORD = `${ADMIN_PASSWORD}-rotated`;
+  const changed = await call('/api/admin/password', {
+    method: 'POST',
+    cookie: secondCookie,
+    body: { currentPassword: ADMIN_PASSWORD, newPassword: ROTATED_PASSWORD },
+  });
+  check(
+    '改密码成功并吊销其它会话',
+    changed.status === 200 && changed.json?.ok === true && changed.json?.revokedSessions >= 1,
+    `${changed.status} revoked=${changed.json?.revokedSessions}`,
+  );
+  const sameAgain = await call('/api/admin/password', {
+    method: 'POST',
+    cookie: secondCookie,
+    body: { currentPassword: ROTATED_PASSWORD, newPassword: ROTATED_PASSWORD },
+  });
+  check('新旧口令相同 → 400 admin.passwordUnchanged', sameAgain.status === 400 && sameAgain.json?.code === 'admin.passwordUnchanged', `${sameAgain.status} ${sameAgain.json?.code}`);
+  const keptSession = await call('/api/admin/session', { cookie: secondCookie });
+  check('改密码的这条会话保留', keptSession.status === 200, `${keptSession.status}`);
+  const kickedSession = await call('/api/admin/session', { cookie: sessionCookie });
+  check(
+    '其它设备的会话被踢下线 → 401',
+    kickedSession.status === 401 && ['admin.sessionInvalid', 'admin.sessionExpired'].includes(kickedSession.json?.code),
+    `${kickedSession.status} ${kickedSession.json?.code}`,
+  );
+  // 校验"旧口令已经失效"时不用再登一次（登录要占限流额度，且这里要留额度给下面的重登）：
+  // 拿旧口令当 currentPassword 去改密，服务端必须认不出来 → admin.badCurrentPassword。
+  const oldPassword = await call('/api/admin/password', {
+    method: 'POST',
+    cookie: secondCookie,
+    body: { currentPassword: ADMIN_PASSWORD, newPassword: 'another-long-enough-one' },
+  });
+  check(
+    '旧口令不再被认可 → 400 admin.badCurrentPassword',
+    oldPassword.status === 400 && oldPassword.json?.code === 'admin.badCurrentPassword',
+    `${oldPassword.status} ${oldPassword.json?.code}`,
+  );
+
+  // 把口令改回初始值：脚本要能反复跑，也给下面的登出/限流用例留下可用口令。
+  const restore = await call('/api/admin/password', {
+    method: 'POST',
+    cookie: secondCookie,
+    body: { currentPassword: ROTATED_PASSWORD, newPassword: ADMIN_PASSWORD },
+  });
+  check('改回初始口令（脚本可重复运行）', restore.status === 200 && restore.json?.ok === true, `${restore.status} ${restore.json?.code}`);
+  const relogin = await call('/api/admin/login', { method: 'POST', body: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD } });
+  check('用初始口令重新登录成功', relogin.status === 200 && sessionCookie !== null, `${relogin.status}`);
+
+  // 15. 退出登录与登录限流
+  // 必须放在最后：限流用的是固定窗口（自拉进程时设成 5 次/分钟），把窗口打满之后
+  // 本进程里再没人能登录 —— 前面任何一个用例需要登录都会被它误伤。
+  const logout = await call('/api/admin/logout', { method: 'POST', admin: true });
+  check('退出登录 → 200 且清掉 cookie', logout.status === 200 && logout.json?.ok === true && sessionCookie === null, `revoked=${logout.json?.revoked}`);
+  const afterLogout = await call('/api/admin/session', { admin: true });
+  check('退出后访问纠错台 → 401 admin.sessionMissing', afterLogout.status === 401 && afterLogout.json?.code === 'admin.sessionMissing', `${afterLogout.status} ${afterLogout.json?.code}`);
+
+  let lastAttempt = null;
+  let sawRateLimit = false;
+  for (let i = 0; i < LOGIN_RATE_LIMIT + 3 && !sawRateLimit; i += 1) {
+    lastAttempt = await call('/api/admin/login', { method: 'POST', body: { username: ADMIN_USERNAME, password: `wrong-${i}` } });
+    if (lastAttempt.status === 429) sawRateLimit = true;
+  }
+  check(
+    '登录尝试超限 → 429 rate.tooMany + retryAfterSeconds',
+    sawRateLimit && lastAttempt?.json?.code === 'rate.tooMany' && Number(lastAttempt?.json?.retryAfterSeconds) > 0 && Boolean(lastAttempt?.headers.get('retry-after')),
+    `status=${lastAttempt?.status} code=${lastAttempt?.json?.code}`,
+  );
 }
 
 try {
