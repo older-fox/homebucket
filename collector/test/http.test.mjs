@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 
 import { boot, fakeWebDir, removeDir } from './helpers/boot.mjs';
@@ -41,6 +43,36 @@ test('静态资源按原样返回（不走 SPA 回退）', async () => {
   assert.equal(res.statusCode, 200);
   assert.match(res.body, /collector/);
   assert.match(res.headers['content-type'], /javascript/);
+  // 带内容 hash 的产物目录可以放心长缓存
+  assert.equal(res.headers['cache-control'], 'public, max-age=31536000, immutable');
+  assert.equal(res.headers['content-length'], String(Buffer.byteLength(res.body)));
+});
+
+test('启动后新增的产物文件也能立刻服务（构建换 hash 不必重启）', async () => {
+  // 这条是回归护栏：@fastify/static 的 wildcard:false 模式在启动时 glob 文件表，
+  // 重新构建（emptyOutDir + 新 hash 文件名）之后新文件会落到兜底路由上，
+  // 于是浏览器拿到 text/html 的 JS 并报 MIME 错误。自己读磁盘就没这个问题。
+  writeFileSync(join(webDir, 'assets', 'index-dCzUwFL5.js'), 'console.log("new bundle");', 'utf8');
+  const res = await ctx.inject({ method: 'GET', url: '/assets/index-dCzUwFL5.js' });
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['content-type'], /javascript/);
+  assert.match(res.body, /new bundle/);
+});
+
+test('文件不存在的资源请求回 JSON 404，不会拿 index.html 糊弄', async () => {
+  const res = await ctx.inject({ method: 'GET', url: '/assets/missing-abc123.js' });
+  assert.equal(res.statusCode, 404);
+  assert.match(res.headers['content-type'], /application\/json/);
+  assert.equal(res.json().code, 'route.notFound');
+});
+
+test('目录穿越拿不到静态根目录之外的文件', async () => {
+  const res = await ctx.inject({
+    method: 'GET',
+    url: '/assets/%2e%2e%2f%2e%2e%2fpackage.json',
+  });
+  assert.notEqual(res.statusCode, 200);
+  assert.doesNotMatch(res.body, /homebucket-collector/);
 });
 
 test('接口拼错：/api/** 回 JSON 404 而不是 HTML', async () => {

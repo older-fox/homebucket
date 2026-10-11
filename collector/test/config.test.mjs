@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { isAbsolute } from 'node:path';
 
 import {
   DEV_ADMIN_TOKEN,
   adminTokenOf,
+  packageVersion,
   parseBool,
   parseCorsOrigin,
   parseDbProvider,
@@ -57,9 +59,23 @@ test('数据文件与前端目录：相对路径按服务根目录解析，绝�
   assert.equal(resolveDataFile(undefined, root), '/srv/collector/data/collector.db');
   assert.equal(resolveDataFile('/tmp/x.db', root), '/tmp/x.db');
   assert.equal(isAbsolute(resolveDataFile('a.db', root)), true);
-  assert.equal(resolveWebDir(undefined, root), '/srv/web/dist');
-  assert.equal(resolveWebDir('../web/dist', root), '/srv/web/dist');
+  assert.equal(resolveWebDir(undefined, root), '/srv/collector/public');
+  assert.equal(resolveWebDir('public', root), '/srv/collector/public');
   assert.equal(resolveWebDir('/var/www/collector', root), '/var/www/collector');
+});
+
+test('版本号：npm 注入优先，否则读 package.json', () => {
+  const before = process.env.npm_package_version;
+  try {
+    delete process.env.npm_package_version;
+    const fromPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+    assert.equal(packageVersion(), fromPackage);
+    process.env.npm_package_version = '9.9.9-test';
+    assert.equal(packageVersion(), '9.9.9-test');
+  } finally {
+    if (before === undefined) delete process.env.npm_package_version;
+    else process.env.npm_package_version = before;
+  }
 });
 
 test('管理令牌：生产缺了就不让启动，开发回退到固定值', () => {

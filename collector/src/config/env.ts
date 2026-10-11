@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 /**
  * 配置解析。能拆成纯函数的都拆开了 —— 单测直接调这些函数，不必去动 process.env。
@@ -94,8 +94,24 @@ export function resolveDataFile(raw: string | undefined, serverRoot: string): st
 
 /** 前端静态产物目录：相对路径按服务根目录解析；不存在时启动只是不打前端（API 仍可用） */
 export function resolveWebDir(raw: string | undefined, serverRoot: string): string {
-  const dir = (raw ?? '').trim() || '../web/dist';
+  const dir = (raw ?? '').trim() || 'public';
   return isAbsolute(dir) ? dir : resolve(serverRoot, dir);
+}
+
+/**
+ * 版本号：npm 会把 package.json 的 version 注入 npm_package_version（走 `npm start` 时永远有值）。
+ * 直接用 `node dist/main.js` 启动时没有这个变量，此时读 package.json —— dist/config 与 src/config
+ * 距项目根都是两级，所以同一个相对路径在两个目录下都成立。
+ */
+export function packageVersion(): string {
+  const fromNpm = process.env.npm_package_version;
+  if (fromNpm) return fromNpm;
+  try {
+    const pkg = require(join(SERVER_ROOT, 'package.json')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
 }
 
 /** 管理令牌：生产必须显式配置（≥8 字符），开发回退到固定默认值 */
@@ -128,8 +144,8 @@ export const env = {
   port: parseIntIn(process.env.COLLECTOR_PORT, 3400, 1, 65535),
   host: process.env.COLLECTOR_HOST?.trim() || '0.0.0.0',
   apiPrefix: process.env.COLLECTOR_API_PREFIX?.trim().replace(/^\/+|\/+$/g, '') || 'api',
-  /** 版本号：走 npm script 时由 npm 注入；直接 node dist/main.js 时回退 */
-  version: process.env.npm_package_version ?? '0.0.1',
+  /** 版本号：走 npm script 时由 npm 注入；直接 node dist/main.js 时读 package.json（两个位置都在项目根） */
+  version: packageVersion(),
   dbProvider: parseDbProvider(process.env.COLLECTOR_DB_PROVIDER),
   dataFile: resolveDataFile(process.env.COLLECTOR_DB_FILE_PATH, SERVER_ROOT),
   autoMigrate: parseBool(process.env.COLLECTOR_AUTO_MIGRATE, true),

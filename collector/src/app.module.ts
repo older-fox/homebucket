@@ -12,6 +12,7 @@ import { InstancesModule } from './instances/instances.module';
 import { AdminModule } from './admin/admin.module';
 import { StatsModule } from './stats/stats.module';
 import { HealthModule } from './health/health.module';
+import { CompatModule } from './compat/compat.module';
 
 /**
  * 应用装配。
@@ -31,6 +32,8 @@ import { HealthModule } from './health/health.module';
     AdminModule,
     StatsModule,
     HealthModule,
+    // 互操作层放在最后：它只是"老客户端契约"的适配器，不参与自己的 v1 协议
+    CompatModule,
   ],
   providers: [
     SqlitePragmas,

@@ -44,7 +44,17 @@ export class ContributionsService {
     private readonly instancesService: InstancesService,
   ) {}
 
-  async contribute(instance: InstanceContext, dto: CreateContributionDto): Promise<ContributeResult> {
+  /**
+   * 记一条上报。
+   *
+   * `instance` 允许为 null —— 那是互操作层（src/compat）代老客户端提交的匿名上报：
+   * 老实例不会带密钥，但它们的观测和注册实例的观测一样有价值，
+   * 只是来源列里没有具体实例名（审计页显示"未知来源"），也不去自增实例的上报计数。
+   */
+  async contribute(
+    instance: InstanceContext | null,
+    dto: CreateContributionDto,
+  ): Promise<ContributeResult> {
     const fields = normalizeFields(dto);
     const barcode = normalizeBarcode(dto.barcode);
     if (barcode && !BARCODE_PATTERN.test(barcode)) {
@@ -112,7 +122,7 @@ export class ContributionsService {
           const contribution = await contributionRepo.save(
             contributionRepo.create({
               catalogItemId: item.id,
-              instanceId: instance.id,
+              instanceId: instance?.id ?? null,
               barcode,
               payload: JSON.stringify(fields),
               appliedFields: JSON.stringify(applied),
@@ -123,9 +133,12 @@ export class ContributionsService {
             }),
           );
           await this.itemsService.refreshCounters(manager, item.id);
-          await manager
-            .getRepository('CollectorInstance')
-            .increment({ id: instance.id }, 'contributionCount', 1);
+          // 匿名上报没有实例可计数（`CollectorInstance.increment` 的 id 不能是 null）
+          if (instance) {
+            await manager
+              .getRepository('CollectorInstance')
+              .increment({ id: instance.id }, 'contributionCount', 1);
+          }
 
           return { created, applied, contributionId: contribution.id, itemId: item.id };
         });

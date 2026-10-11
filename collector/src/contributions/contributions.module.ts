@@ -8,5 +8,7 @@ import { InstancesModule } from '../instances/instances.module';
   imports: [ItemsModule, InstancesModule],
   controllers: [ContributionsController],
   providers: [ContributionsService],
+  // 互操作层（src/compat）要把老契约的匿名上报也走同一条合并路径，所以必须导出
+  exports: [ContributionsService],
 })
 export class ContributionsModule {}

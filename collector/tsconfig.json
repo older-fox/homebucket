@@ -26,5 +26,10 @@
   // typeorm CLI（db:*）用 ts-node 加载 data-source.ts；迁移脚本本身不需要类型检查
   "ts-node": {
     "transpileOnly": true
-  }
+  },
+  // 只编译服务端源码：同一个项目里还有 web/（前端 SPA）与 vite.config.ts，
+  // 缺了 include 时 TypeScript 会按默认的 **/* 把它们一起收进来，rootDir 立刻报 TS6059。
+  // 前端由 tsconfig.web.json（vue-tsc）负责。
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "public", "web", "test"]
 }
