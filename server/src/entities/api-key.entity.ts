@@ -12,6 +12,22 @@ import { User } from './user.entity';
 import { STRING_LENGTH } from './column-spec';
 
 /**
+ * key 的权限范围：
+ * - `read`：只能读（v1 的 GET 路由）；
+ * - `write`：额外允许物品相关的写接口（改属性、增删物品、序列号、取走/归还、消耗/补货）。
+ *
+ * 之所以是「物品级」而不是通用的 read/write：写接口目前只开放物品域，
+ * 位置、家庭、标签、通知器一律只读。要扩容请连带扩 v1-write.controller 与文档。
+ */
+export type ApiKeyScope = 'read' | 'write';
+
+/** 老 key（迁移前建的）与不填 scope 的新 key 都按最小权限处理 */
+export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = 'read';
+
+/** 给 DTO 的 @IsIn 用：改这里就等于改接口契约 */
+export const API_KEY_SCOPES: ApiKeyScope[] = ['read', 'write'];
+
+/**
  * API key：给脚本 / 外部程序用的只读凭据。
  *
  * ── 设计要点 ──
@@ -26,8 +42,10 @@ import { STRING_LENGTH } from './column-spec';
  *    而 API key 是长期有效、可反复调用读接口的凭据，值得多一层哈希。
  *    代价是**无法从哈希反查明文**，所以列表接口只能显示 `prefix` 前缀。
  *
- * 3. **只读**：v1 只读接口只有 GET 路由（新增写路由时请三思），key 也不能用于应用自身的
- *    `/api/*` 写接口 —— 那些接口只认 JWT。
+ * 3. **两种 scope**：`read`（默认，只能 GET）与 `write`（额外允许物品相关的写接口，
+ *    见 `src/v1/v1-write.controller.ts`）。老 key 迁移后一律是 `read`，
+ *    想写必须显式建一把 write key —— 「默认最小权限」比「默认方便」重要。
+ *    key 永远不能用于应用自身的 `/api/*` 接口：那些只认 JWT。
  *
  * 4. `revokedAt` 软撤销（保留审计痕迹），`expiresAt` 可选（空 = 永不过期），
  *    `lastUsedAt` 每次成功鉴权时更新，方便界面展示"最后使用时间"。
@@ -52,9 +70,20 @@ export class ApiKey {
   @Column({ type: 'varchar', length: 32 })
   prefix: string;
 
-  /** 明文 token 的 sha256 十六进制摘要（64 字符），全局唯一 */
+  /**
+   * 明文 token 的 sha256 十六进制摘要（64 字符），全局唯一
+   */
   @Column({ type: 'varchar', length: STRING_LENGTH, unique: true })
   keyHash: string;
+
+  /**
+   * 权限范围（`read` / `write`），默认 `read`。
+   *
+   * 带默认值而不是 NOT NULL 无默认：老库迁移时不需要回填语句，
+   * 且「忘了传 scope」的创建请求会自动落到最小权限。
+   */
+  @Column({ type: 'varchar', length: 16, default: DEFAULT_API_KEY_SCOPE })
+  scope: ApiKeyScope;
 
   /** 最后一次成功使用时间 */
   @Column({ type: 'datetime', precision: 3, nullable: true })

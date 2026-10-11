@@ -2,13 +2,25 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'node:crypto';
 import { IsNull, Repository } from 'typeorm';
-import { ApiKey } from '../entities/api-key.entity';
+import { ApiKey, DEFAULT_API_KEY_SCOPE, type ApiKeyScope } from '../entities/api-key.entity';
 import { User } from '../entities/user.entity';
 import type { AuthUser } from '../auth/jwt-auth.guard';
 import type { CreateApiKeyDto } from './dto';
 
 /** 明文 token 的前缀：让用户一眼认出这是 homebucket 的 key，也方便按前缀区分 */
 export const API_KEY_PREFIX = 'hb_';
+
+/**
+ * 鉴权结果：身份 + 这把 key 自己的权限与 id。
+ *
+ * `scope` 必须来自**这一行 key**，不能来自账号或家庭角色：同一个账号可以同时持有
+ * 只读 key 与可写 key，请求的权限取决于用的是哪一把。
+ */
+export interface ApiKeyAuth {
+  user: AuthUser;
+  keyId: number;
+  scope: ApiKeyScope;
+}
 
 /** 单账号最多同时持有的「未撤销」key 数 */
 const MAX_ACTIVE_KEYS = 20;
@@ -59,6 +71,8 @@ export class ApiKeysService {
       this.keys.create({
         userId,
         name: dto.name,
+        // 不传 scope 就是只读：接口层的默认值必须与实体列的默认值一致
+        scope: dto.scope ?? DEFAULT_API_KEY_SCOPE,
         // 前缀只截明文开头：列表里够区分，又短到不可能被误当成完整凭据
         prefix: `${API_KEY_PREFIX}${secret.slice(0, 8)}`,
         keyHash: hashApiKey(token),
@@ -84,10 +98,10 @@ export class ApiKeysService {
   }
 
   /**
-   * 明文 token → 用户身份（v1 只读接口的鉴权入口）。
+   * 明文 token → 身份 + key 自己的 scope（v1 接口的鉴权入口）。
    * 返回 null 表示「无效 / 已撤销 / 已过期 / 账号已不存在」，由 guard 统一转 401。
    */
-  async authenticate(token: string): Promise<AuthUser | null> {
+  async authenticate(token: string): Promise<ApiKeyAuth | null> {
     const row = await this.keys.findOne({ where: { keyHash: hashApiKey(token) } });
     if (!row || row.revokedAt) return null;
     if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
@@ -100,7 +114,12 @@ export class ApiKeysService {
     if (!user) return null;
 
     await this.keys.update({ id: row.id }, { lastUsedAt: new Date() });
-    return { id: user.id, email: user.email, username: user.username };
+    return {
+      user: { id: user.id, email: user.email, username: user.username },
+      keyId: row.id,
+      // 老 key（迁移前建的）读到的就是列默认值 read
+      scope: normalizeScope(row.scope),
+    };
   }
 
   private parseExpiry(value?: string): Date | null {
@@ -123,12 +142,24 @@ export class ApiKeysService {
       id: row.id,
       name: row.name,
       prefix: row.prefix,
+      scope: normalizeScope(row.scope),
       lastUsedAt: toIso(row.lastUsedAt),
       expiresAt: toIso(row.expiresAt),
       revokedAt: toIso(row.revokedAt),
       createdAt: toIso(row.createdAt),
     };
   }
+}
+
+/**
+ * 列里读出来的 scope 收窄成枚举。
+ *
+ * 为什么需要：迁移前的行在部分驱动下可能读到 null（默认值只对**新写入**的行生效），
+ * 手改数据库也可能写进未知字符串。这两种情况都按最小权限 `read` 处理 ——
+ * 鉴权路径上"读不懂就放行"是最危险的默认值。
+ */
+function normalizeScope(value: string | null | undefined): ApiKeyScope {
+  return value === 'write' ? 'write' : DEFAULT_API_KEY_SCOPE;
 }
 
 /** datetime 列在不同 provider 下可能回 Date 也可能回字符串，统一成 ISO */

@@ -1,5 +1,5 @@
 import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
-import { CurrentFamily, CurrentUser } from '../common/decorators';
+import { CurrentApiKey, CurrentFamily, CurrentUser } from '../common/decorators';
 import { FamilyContextGuard, type FamilyContext } from '../common/family-context.guard';
 import type { AuthUser } from '../auth/jwt-auth.guard';
 import { AuthService } from '../auth/auth.service';
@@ -9,6 +9,7 @@ import { QueryItemsDto } from '../items/dto';
 import { LocationsService } from '../locations/locations.service';
 import { ActivityService } from '../activity/activity.service';
 import { ActivityQueryDto } from '../activity/dto';
+import type { ApiKeyContext } from '../api-keys/api-key.guard';
 import { ApiKeyGuard } from '../api-keys/api-key.guard';
 
 /**
@@ -16,8 +17,9 @@ import { ApiKeyGuard } from '../api-keys/api-key.guard';
  *
  * ── 约定 ──
  *
- * 1. **一律 GET**：这一层永远不该有写操作。想加写接口请先想清楚审计与幂等，
- *    并同步更新 server/test/api-key.test.mjs 里「v1 只有 GET」的护栏。
+ * 1. **一律 GET**：这一层永远不该有写操作。写接口单独放在 v1-write.controller.ts，
+ *    那里额外挂 ApiKeyWriteGuard（只放行 write scope 的 key）。这个文件里的
+ *    "不许出现写路由"由 server/test/api-key.test.mjs 的护栏守着。
  * 2. 鉴权用 API key（`X-Api-Key: hb_xxx`，也接受 `Authorization: Bearer hb_xxx`），
  *    不用 JWT 会话；能看到的家庭与角色和 key 所属账号完全一致。
  * 3. 家庭选择沿用 `x-family-id` 请求头，缺省回退到默认家庭（优先个人家庭）——
@@ -36,17 +38,24 @@ export class V1Controller {
     private readonly activity: ActivityService,
   ) {}
 
-  /** 当前账号（含头像）+ 当前家庭与角色 + 该账号的家庭列表 */
+  /** 当前账号（含头像）+ 当前家庭与角色 + 该账号的家庭列表 + 本次 key 的权限范围 */
   @Get('me')
   @UseGuards(FamilyContextGuard)
-  async me(@CurrentUser() user: AuthUser, @CurrentFamily() family: FamilyContext) {
+  async me(
+    @CurrentUser() user: AuthUser,
+    @CurrentFamily() family: FamilyContext,
+    @CurrentApiKey() apiKey?: ApiKeyContext,
+  ) {
     const [account, families] = await Promise.all([
       this.auth.profile(user),
       this.families.list(user.id),
     ]);
 
     return {
-      scope: 'read-only',
+      // 这把 key 能做什么：read-only = 只有 GET；read-write = 额外可写物品
+      // （是否真的是 write 由 ApiKeyWriteGuard 判定，这里只是把状态回给客户端）
+      scope: apiKey?.scope === 'write' ? 'read-write' : 'read-only',
+      key: { id: apiKey?.id ?? null },
       account,
       // 当前生效的家庭（由 x-family-id 或默认家庭解析而来）与本次请求的角色
       family: { id: family.id, role: family.role },
