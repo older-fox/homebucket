@@ -1,5 +1,5 @@
 import { apiHandler } from '../../../../utils/http';
-import { requireAdminToken } from '../../../../utils/auth';
+import { requireAdminSession } from '../../../../services/auth.service';
 import { pathInt } from '../../../../dto/validation';
 import { AdminService } from '../../../../services/admin.service';
 
@@ -12,7 +12,7 @@ import { AdminService } from '../../../../services/admin.service';
  */
 export default defineEventHandler(
   apiHandler(async (event) => {
-    requireAdminToken(event);
+    await requireAdminSession(event);
     const id = pathInt('id', getRouterParam(event, 'id'));
     const { items } = await new AdminService().recomputeAll();
     return { recomputedItems: items, requested: id, note: '重放是全库动作，:id 只用于日志定位' };

@@ -15,6 +15,7 @@ import type {
 } from '../dto/admin';
 import type { QueryItemsDto } from '../dto/items';
 import { InstancesService, type InstanceView } from './instances.service';
+import type { AdminUserView } from './auth.service';
 import {
   ItemsService,
   searchClause,
@@ -28,6 +29,8 @@ export interface AdminSessionView {
   version: string;
   registrationOpen: boolean;
   scope: 'admin';
+  /** 当前登录的账号（前端顶栏显示"以谁的身份在操作"） */
+  user: AdminUserView;
 }
 
 export interface AdminItemRow extends ItemSummaryView {
@@ -80,12 +83,13 @@ export class AdminService {
     this.instancesService = new InstancesService(source);
   }
 
-  session(): AdminSessionView {
+  session(user: AdminUserView): AdminSessionView {
     return {
       ok: true,
       version: env.version,
       registrationOpen: env.registrationOpen,
       scope: 'admin',
+      user,
     };
   }
 

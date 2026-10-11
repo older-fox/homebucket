@@ -50,8 +50,11 @@ RUN npm run build
 # ---------- 运行：单进程，页面 + API 同一个端口 ----------
 FROM base AS runtime
 WORKDIR /app
-# 生产环境强制要求 COLLECTOR_ADMIN_TOKEN（≥8 字符，env.ts 里会直接抛错拒绝启动）：
-# 一个没有管理令牌的收集器 = 任何人都能改公共资料、封别人的实例，所以这里不给默认值。
+# 生产环境强制要求 COLLECTOR_ADMIN_PASSWORD（≥8 字符，env.ts 里会直接抛错拒绝启动）：
+# 一个连管理员都建不出来的收集器 = 启动即死，而一个没有口令的收集器 = 任何人都能改公共资料、
+# 封别人的实例，所以这里不给默认值。账号名默认 admin，可用 COLLECTOR_ADMIN_USERNAME 覆盖。
+# 首次启动（库里还没有管理员）时按这两项建号；之后在纠错台里改密码即可，
+# .env 里的口令不会覆盖已改过的密码（要强制改回用 COLLECTOR_ADMIN_FORCE_RESET=true）。
 ENV NODE_ENV=production \
     COLLECTOR_HOST=0.0.0.0 \
     COLLECTOR_PORT=3400 \

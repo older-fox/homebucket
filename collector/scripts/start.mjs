@@ -22,7 +22,7 @@ const env = { ...process.env };
  * 读 collector/.env 并只填**没有**的值。
  *
  * 开发态（nuxt dev）会自己加载 .env，但构建产物 `.output/server/index.mjs` 不会 ——
- * 如果这里不补一次，`npm start` 会静默用默认值（比如忘了 COLLECTOR_ADMIN_TOKEN 的生产校验）。
+ * 如果这里不补一次，`npm start` 会静默用默认值（比如忘了 COLLECTOR_ADMIN_PASSWORD 的生产校验）。
  * 与 dotenv 的行为对齐：不覆盖已存在的环境变量（`docker run -e` 优先于 .env 文件）。
  */
 function loadEnvFile() {

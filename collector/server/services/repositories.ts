@@ -1,9 +1,13 @@
 import type { EntityManager, Repository } from 'typeorm';
 import { getDataSource } from '../database/db';
 import {
+  AdminSession,
+  AdminUser,
   CatalogItem,
   CollectorInstance,
   Contribution,
+  type AdminSessionRow,
+  type AdminUserRow,
   type CatalogItemRow,
   type CollectorInstanceRow,
   type ContributionRow,
@@ -40,4 +44,12 @@ export function contributionsRepo(manager?: EntityManager): Repository<Contribut
 
 export function instancesRepo(manager?: EntityManager): Repository<CollectorInstanceRow> {
   return managerOf(manager).getRepository<CollectorInstanceRow>(CollectorInstance);
+}
+
+export function adminUsersRepo(manager?: EntityManager): Repository<AdminUserRow> {
+  return managerOf(manager).getRepository<AdminUserRow>(AdminUser);
+}
+
+export function adminSessionsRepo(manager?: EntityManager): Repository<AdminSessionRow> {
+  return managerOf(manager).getRepository<AdminSessionRow>(AdminSession);
 }

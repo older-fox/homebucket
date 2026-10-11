@@ -6,8 +6,8 @@ import { isAbsolute, resolve } from 'node:path';
  *
  * 两条与主仓库 server 一致的原则：
  *  1. **读不懂的值一律回退到默认值**，不静默放行成"看起来能用"的半配置状态。
- *  2. 例外是生产环境缺少管理令牌：那属于配置不完整，直接抛错拒绝启动 ——
- *     一个没有管理令牌的收集器，任何人都能改公共资料、封别人的实例。
+ *  2. 例外是生产环境缺少管理员口令：那属于配置不完整，直接抛错拒绝启动 ——
+ *     一个没有管理凭据的收集器，任何人都能改公共资料、封别人的实例。
  *
  * 迁移到 Nuxt 后的两处变化：
  *  · 相对路径按**启动时的工作目录**解析（Nitro 里没有稳定的 __dirname：
@@ -16,8 +16,18 @@ import { isAbsolute, resolve } from 'node:path';
  *    路由前缀由 server/api 的目录结构决定（/api/**）。
  */
 
-/** 开发默认管理令牌：只在非生产环境、且没配 COLLECTOR_ADMIN_TOKEN 时使用 */
-export const DEV_ADMIN_TOKEN = 'dev-admin-token';
+/**
+ * 开发默认管理员账号：只在非生产环境、且没配 COLLECTOR_ADMIN_USERNAME/PASSWORD 时使用。
+ * 生产环境不给默认值 —— 默认口令等于没有口令（见 adminCredentialsOf）。
+ */
+export const DEV_ADMIN_USERNAME = 'admin';
+export const DEV_ADMIN_PASSWORD = 'dev-admin-password';
+
+/** 口令最小长度：与旧的管理令牌一致，短于这个长度宁可拒绝启动 */
+export const MIN_ADMIN_PASSWORD_LENGTH = 8;
+
+/** 账号名允许的字符：够表达 admin / ops.lisi / backup-1，又不会带进奇怪的控制字符 */
+const ADMIN_USERNAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/;
 
 /** v1 只实现 sqlite。MySQL/Postgres 见 README 的 roadmap */
 export type DbProvider = 'sqlite';
@@ -113,14 +123,59 @@ export function packageVersion(root: string = SERVER_ROOT): string {
   }
 }
 
-/** 管理令牌：生产必须显式配置（≥8 字符），开发回退到固定默认值 */
-export function adminTokenOf(nodeEnv: string | undefined, raw: string | undefined): string {
-  const token = (raw ?? '').trim();
-  if (token.length >= 8) return token;
-  if ((nodeEnv ?? 'development').trim().toLowerCase() === 'production') {
-    throw new Error('NODE_ENV=production 时必须设置 COLLECTOR_ADMIN_TOKEN（至少 8 字符）');
+export interface AdminCredential {
+  username: string;
+  password: string;
+}
+
+/**
+ * 初始管理员凭据（.env 里的 COLLECTOR_ADMIN_USERNAME / COLLECTOR_ADMIN_PASSWORD）。
+ *
+ * ── 为什么生产环境必须显式配置 ──
+ * 这个账号能改公共资料、封别人的实例，所以：
+ *  · 生产环境没配口令 → 直接抛错拒绝启动（默认口令等于没有口令）；
+ *  · 口令短于 8 字符 → 任何环境都抛错（弱口令不该因为"这是测试环境"就放行）；
+ *  · 非生产环境完全没配 → 回退到固定默认值，`npm run dev` 开箱可用。
+ *
+ * 口令**不做 trim**：用户写进 .env 的空格也是口令的一部分，
+ * 悄悄裁掉会让"我明明配了同一个密码却登不上"变成一次无解的排查。
+ * 只判"是否为空"来决定要不要回退默认值。
+ */
+export function adminCredentialsOf(
+  nodeEnv: string | undefined,
+  usernameRaw: string | undefined,
+  passwordRaw: string | undefined,
+): AdminCredential {
+  const isProduction = (nodeEnv ?? 'development').trim().toLowerCase() === 'production';
+
+  const username = (usernameRaw ?? '').trim() || DEV_ADMIN_USERNAME;
+  if (!ADMIN_USERNAME_PATTERN.test(username)) {
+    throw new Error(
+      `COLLECTOR_ADMIN_USERNAME 不合法（收到 ${JSON.stringify(usernameRaw)}）：` +
+        '只允许 2-32 位的字母、数字、点、下划线、连字符，且以字母或数字开头',
+    );
   }
-  return DEV_ADMIN_TOKEN;
+
+  const password = passwordRaw ?? '';
+  if (password === '') {
+    if (isProduction) {
+      throw new Error(
+        `NODE_ENV=production 时必须设置 COLLECTOR_ADMIN_PASSWORD（至少 ${MIN_ADMIN_PASSWORD_LENGTH} 字符）`,
+      );
+    }
+    return { username, password: DEV_ADMIN_PASSWORD };
+  }
+  if (password.length < MIN_ADMIN_PASSWORD_LENGTH) {
+    throw new Error(
+      `COLLECTOR_ADMIN_PASSWORD 至少 ${MIN_ADMIN_PASSWORD_LENGTH} 个字符（当前 ${password.length} 个）`,
+    );
+  }
+  return { username, password };
+}
+
+/** 登录会话有效期（小时）：默认 7 天，允许 1 小时 ~ 1 年 */
+export function sessionTtlHoursOf(raw: string | undefined): number {
+  return parseIntIn(raw, 168, 1, 24 * 365);
 }
 
 /** CORS：`*` 或逗号分隔的来源列表（公开只读接口默认允许任何站点跨域调用） */
@@ -147,7 +202,31 @@ export const env = {
   dbProvider: parseDbProvider(process.env.COLLECTOR_DB_PROVIDER),
   dataFile: resolveDataFile(process.env.COLLECTOR_DB_FILE_PATH, SERVER_ROOT),
   autoMigrate: parseBool(process.env.COLLECTOR_AUTO_MIGRATE, true),
-  adminToken: adminTokenOf(nodeEnv, process.env.COLLECTOR_ADMIN_TOKEN),
+  /**
+   * 初始管理员账号：**只在库里还没有管理员时**用来建号（见 AuthService.bootstrapAdmin）。
+   * 已经有账号时这里配什么都不改库里的口令 —— 否则运维在界面上改的密码，
+   * 会被下一次重启悄悄改回 .env 里的值。
+   */
+  admin: adminCredentialsOf(
+    nodeEnv,
+    process.env.COLLECTOR_ADMIN_USERNAME,
+    process.env.COLLECTOR_ADMIN_PASSWORD,
+  ),
+  /**
+   * 忘了管理员密码时的兜底：true 则启动时用 .env 里的口令强制重置已存在的账号。
+   * 只该在"确实登不进去"时临时打开，重置完关掉（README 里有说明）。
+   */
+  adminForceReset: parseBool(process.env.COLLECTOR_ADMIN_FORCE_RESET, false),
+  /** 登录会话有效期（小时） */
+  sessionTtlHours: sessionTtlHoursOf(process.env.COLLECTOR_SESSION_TTL_HOURS),
+  /** 登录尝试限流：默认 10 次 / 10 分钟（按来源 IP），比全局预算严得多 */
+  loginRateLimit: parseIntIn(process.env.COLLECTOR_LOGIN_RATE_LIMIT, 10, 1, 1000),
+  loginRateWindowMs: parseIntIn(
+    process.env.COLLECTOR_LOGIN_RATE_WINDOW_MS,
+    10 * 60_000,
+    1000,
+    24 * 3600_000,
+  ),
   /** 关掉后新实例拿不到 key（老实例照常上报）—— 用于临时止血 */
   registrationOpen: parseBool(process.env.COLLECTOR_REGISTRATION_OPEN, true),
   corsOrigin: parseCorsOrigin(process.env.COLLECTOR_CORS_ORIGIN),

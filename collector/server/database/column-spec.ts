@@ -29,4 +29,12 @@ export const LENGTH = {
   instanceVersion: 32,
   source: 32,
   blockReason: 200,
+  /** 管理员账号名 */
+  adminUsername: 32,
+  /** 口令哈希：`scrypt$N$r$p$<saltB64>$<hashB64>`，参数升级后还要放得下 */
+  passwordHash: 240,
+  /** 会话令牌的 sha256（十六进制 64 字符）：库里不存明文令牌 */
+  sessionTokenHash: 64,
+  /** 登录请求的 User-Agent（只用于"这是哪台设备登录的"） */
+  userAgent: 200,
 } as const;

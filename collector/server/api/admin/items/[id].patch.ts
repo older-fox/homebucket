@@ -1,5 +1,5 @@
 import { apiHandler, readJsonBody } from '../../../utils/http';
-import { requireAdminToken } from '../../../utils/auth';
+import { requireAdminSession } from '../../../services/auth.service';
 import { pathInt } from '../../../dto/validation';
 import { parsePatchItem } from '../../../dto/admin';
 import { AdminService } from '../../../services/admin.service';
@@ -13,7 +13,7 @@ import { AdminService } from '../../../services/admin.service';
  */
 export default defineEventHandler(
   apiHandler(async (event) => {
-    requireAdminToken(event);
+    await requireAdminSession(event);
     const id = pathInt('id', getRouterParam(event, 'id'));
     const body = await readJsonBody<Record<string, unknown>>(event);
     const dto = parsePatchItem(body);

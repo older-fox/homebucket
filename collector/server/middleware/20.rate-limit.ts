@@ -7,8 +7,9 @@ import { env } from '../utils/env';
  * 三处与旧实现对齐的细节，别"顺手优化"掉：
  *  1. **查询/注册/上报共用一份预算**（都按 IP 计数）。分开计数只会让刷量者
  *     用三倍预算达成同样效果。
- *  2. **管理接口完全不限流**（旧代码用 @SkipRateLimit 标注）。管理接口已经有
- *     admin token 这道门，再限流只会在运维批量纠错时咬到自己。
+ *  2. **管理接口完全不限流**（旧代码用 @SkipRateLimit 标注）。管理接口已经有登录会话
+ *     这道门，再限流只会在运维批量纠错时咬到自己；唯一例外是登录接口本身，
+ *     它在路由内单独限流（见 api/admin/login.post.ts），否则猜口令没有任何成本。
  *  3. 命中与否都回 `x-ratelimit-limit` / `x-ratelimit-remaining`，超限时额外回
  *     `retry-after`，并且错误体里带 `retryAfterSeconds`（前端要拿它说人话）。
  *

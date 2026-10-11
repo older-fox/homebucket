@@ -1,5 +1,5 @@
 import { apiHandler } from '../../../utils/http';
-import { requireAdminToken } from '../../../utils/auth';
+import { requireAdminSession } from '../../../services/auth.service';
 import { parseQueryItems } from '../../../dto/items';
 import { AdminService } from '../../../services/admin.service';
 
@@ -11,7 +11,7 @@ import { AdminService } from '../../../services/admin.service';
  */
 export default defineEventHandler(
   apiHandler(async (event) => {
-    requireAdminToken(event);
+    await requireAdminSession(event);
     const query = parseQueryItems(getQuery(event) as Record<string, unknown>);
     return new AdminService().items(query);
   }),

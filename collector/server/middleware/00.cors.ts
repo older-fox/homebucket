@@ -21,7 +21,7 @@ export default defineEventHandler((event) => {
   setResponseHeaders(event, {
     'access-control-allow-origin': allowed,
     vary: 'origin',
-    'access-control-allow-headers': 'content-type,x-collector-key,x-admin-token',
+    'access-control-allow-headers': 'content-type,x-collector-key',
     'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'access-control-max-age': 600,
   });

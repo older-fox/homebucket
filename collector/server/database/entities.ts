@@ -230,4 +230,92 @@ export const CollectorInstance = new EntitySchema<CollectorInstanceRow>({
   indices: [{ columns: ['blocked'] }, { columns: ['keyHash'], unique: true }],
 });
 
-export const entities = [CatalogItem, Contribution, CollectorInstance];
+export interface AdminUserRow {
+  id: number;
+  username: string;
+  passwordHash: string;
+  passwordChangedAt: string | null;
+  lastLoginAt: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * 管理员账号（纠错台的登录凭据）。
+ *
+ * ── 为什么账号在库里，而不是像旧版那样只放一个环境变量里的令牌 ──
+ * 需求是"账号密码由 .env 提供，初始化时直接创建，之后可以改密码"。
+ * 改密码意味着凭据必须能被**写**下来，环境变量做不到（进程改不了自己的 .env），
+ * 所以第一次启动时按 .env 建号，之后口令牌就归数据库管：
+ * `.env` 只在"库里还没有账号"时生效，改过密码之后重启不会把密码改回去。
+ *
+ * ── 口令怎么存 ──
+ * 只存 scrypt 哈希（每个账号一份随机盐，见 utils/auth.ts 的 hashPassword）。
+ * 与实例 key 的思路一致：库泄露 ≠ 凭据泄露。明文口令只在 .env 和登录请求里存在过。
+ */
+export const AdminUser = new EntitySchema<AdminUserRow>({
+  name: 'AdminUser',
+  tableName: 'AdminUser',
+  columns: {
+    id: { type: 'integer', primary: true, generated: true },
+    username: { type: 'varchar', length: LENGTH.adminUsername, unique: true },
+    /** `scrypt$N$r$p$<saltB64>$<hashB64>`：算法参数写进字符串，将来换参数老口令仍可校验 */
+    passwordHash: { type: 'varchar', length: LENGTH.passwordHash },
+    /** 最近一次改密码时间（ISO 字符串，理由见 CatalogItem） */
+    passwordChangedAt: { type: 'varchar', length: LENGTH.isoTime, nullable: true },
+    /** 最近一次成功登录时间 */
+    lastLoginAt: { type: 'varchar', length: LENGTH.isoTime, nullable: true },
+    createdAt: { type: 'datetime', createDate: true },
+    updatedAt: { type: 'datetime', updateDate: true },
+  },
+  // username 的唯一性用列上的 unique 表达（下面的迁移里是一条 UNIQUE 约束）：
+  // 再补一条唯一索引就是同一件事写两遍，徒增表结构噪音。
+  indices: [],
+});
+
+export interface AdminSessionRow {
+  tokenHash: string;
+  adminUserId: number;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  userAgent: string | null;
+  createdAt: Date;
+}
+
+/**
+ * 登录会话（服务端会话表 + httpOnly cookie）。
+ *
+ * ── 为什么用服务端会话，而不是签名过的自包含令牌 ──
+ *  1. **能立刻吊销**：改密码、点退出登录都要"现在就不认这个会话"，签名令牌做不到；
+ *  2. **浏览器里没有可被 JS 读到的凭据**：令牌放在 httpOnly cookie 里，
+ *     前端一行代码都拿不到它，XSS 也偷不走（旧版的 localStorage 令牌是可以被读走的）；
+ *  3. 单进程 + SQLite 本来就有一个共享的存储，多存一张表的成本可以忽略。
+ *
+ * tokenHash 直接做主键：它天然唯一，也省掉一个额外索引。
+ * 库里同样只存 sha256 —— 有人读到这张表也伪造不出会话。
+ */
+export const AdminSession = new EntitySchema<AdminSessionRow>({
+  name: 'AdminSession',
+  tableName: 'AdminSession',
+  columns: {
+    tokenHash: { type: 'varchar', length: LENGTH.sessionTokenHash, primary: true },
+    /** 属于哪个账号（改密码时按它吊销"除当前之外"的会话） */
+    adminUserId: { type: 'integer' },
+    /** 过期时间（ISO 字符串，字典序即时间序，比较不用解析） */
+    expiresAt: { type: 'varchar', length: LENGTH.isoTime },
+    /** 最近一次用它通过鉴权的时间（节流写入，见 AuthService.verify） */
+    lastUsedAt: { type: 'varchar', length: LENGTH.isoTime, nullable: true },
+    /** 登录时的 User-Agent，运维想知道"这条会话是哪台设备" */
+    userAgent: { type: 'varchar', length: LENGTH.userAgent, nullable: true },
+    createdAt: { type: 'datetime', createDate: true },
+  },
+  indices: [{ columns: ['adminUserId'] }, { columns: ['expiresAt'] }],
+});
+
+export const entities = [
+  CatalogItem,
+  Contribution,
+  CollectorInstance,
+  AdminUser,
+  AdminSession,
+];
