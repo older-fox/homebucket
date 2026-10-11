@@ -1,10 +1,43 @@
 <script setup lang="ts">
+import type { OverdueEntry } from '~/composables/useNotifications';
+
 const { t } = useI18n();
+const toast = useToast();
 const api = useApi();
 const { relative } = useFormat();
 const { count, entries, overdue, loading, refresh } = useNotifications();
 
 const open = ref(false);
+/** 正在提交的那一条（同一个面板里可能有多条，只禁用被点的那一条） */
+const busy = ref('');
+
+function rowKey(entry: OverdueEntry) {
+  return `${entry.kind}-${entry.itemId}-${entry.unitId ?? 'item'}`;
+}
+
+/**
+ * 就地标记遗失：提醒面板里的条目不必先跳进详情页。
+ *
+ * 单元条目只标记那一个序列号，整件条目才标记整件物品；两者都是幂等且可逆的，
+ * 所以不弹确认框（与物品详情页的 toggleLost 保持一致）。成功后重拉提醒，
+ * 该条目随即从列表和角标里消失。
+ */
+async function markLost(entry: OverdueEntry) {
+  const key = rowKey(entry);
+  busy.value = key;
+  try {
+    if (entry.kind === 'unit' && entry.unitId) {
+      await api.post(`/items/${entry.itemId}/units/${entry.unitId}/lost`, {});
+    } else {
+      await api.post(`/items/${entry.itemId}/lost`, {});
+    }
+    await refresh();
+  } catch (error) {
+    toast.add({ title: (error as { message?: string }).message ?? t('errors.unknown'), color: 'error' });
+  } finally {
+    busy.value = '';
+  }
+}
 
 /**
  * 打开就重问一次：后端按需计算，本地缓存只在两次打开之间有效。
@@ -70,7 +103,7 @@ function goSettings() {
         </div>
 
         <ul v-else class="panel-list">
-          <li v-for="entry in entries" :key="`${entry.kind}-${entry.itemId}-${entry.unitId ?? 'item'}`">
+          <li v-for="entry in entries" :key="rowKey(entry)" class="entry-row">
             <NuxtLink
               :to="`/items/${entry.itemId}`"
               class="entry hb-tap"
@@ -86,6 +119,16 @@ function goSettings() {
                 <span class="entry-sub hb-muted">{{ t('notifications.takenOutAt', { time: relative(entry.takenOutAt) }) }}</span>
               </span>
             </NuxtLink>
+            <button
+              type="button"
+              class="entry-action hb-tap"
+              :disabled="busy === rowKey(entry)"
+              :aria-label="`${t('item.markLost')} — ${entry.itemName}`"
+              :title="t('item.markLost')"
+              @click="markLost(entry)"
+            >
+              <UIcon name="i-lucide-search-x" />
+            </button>
           </li>
         </ul>
 
@@ -222,17 +265,55 @@ function goSettings() {
   list-style: none;
 }
 
+.entry-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  border-bottom: 1px solid var(--hb-border);
+}
+
 .entry {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--hb-border);
   text-decoration: none;
   color: inherit;
 }
 
 .entry:hover {
   background: var(--hb-surface-2);
+}
+
+.entry-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--hb-r-full);
+  background: transparent;
+  color: var(--hb-text-2);
+  cursor: pointer;
+}
+
+.entry-action:hover {
+  background: var(--hb-surface-2);
+  color: var(--hb-warning);
+}
+
+.entry-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.entry-action :deep(svg) {
+  width: 16px;
+  height: 16px;
 }
 
 .entry-main {
