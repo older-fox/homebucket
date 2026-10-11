@@ -15,6 +15,15 @@
       />
       <!-- 该序列号件当前的取走状态；没取走时组件自身不渲染 -->
       <TakenOutChip :taken-out-at="unit.takenOutAt" />
+      <LostChip :lost-at="unit.lostAt" />
+      <UButton
+        :color="unit.lostAt ? 'warning' : 'neutral'"
+        variant="ghost"
+        :icon="unit.lostAt ? 'i-lucide-undo-2' : 'i-lucide-search-x'"
+        :aria-label="unit.lostAt ? t('item.markUnitFound') : t('item.markUnitLost')"
+        :title="unit.lostAt ? t('item.markUnitFound') : t('item.markUnitLost')"
+        @click="toggleLost(unit)"
+      />
       <UButton
         color="neutral"
         variant="ghost"
@@ -48,6 +57,8 @@ interface Unit {
   locationId: number | null;
   location: { id: number; name: string } | null;
   takenOutAt: string | null;
+  /** 非空 = 该件已标记遗失 */
+  lostAt: string | null;
 }
 
 const props = defineProps<{ itemId: number; units: Unit[] }>();
@@ -108,6 +119,17 @@ async function saveLocation(unit: Unit, value: number | null) {
 async function remove(unitId: number) {
   try {
     await api.del(`/items/${props.itemId}/units/${unitId}`);
+    emit('changed');
+  } catch (error) {
+    fail(error);
+  }
+}
+
+/** 标记 / 取消某一件的遗失（可逆，二次点击即取消，所以不弹确认框） */
+async function toggleLost(unit: Unit) {
+  try {
+    if (unit.lostAt) await api.del(`/items/${props.itemId}/units/${unit.id}/lost`);
+    else await api.post(`/items/${props.itemId}/units/${unit.id}/lost`, {});
     emit('changed');
   } catch (error) {
     fail(error);

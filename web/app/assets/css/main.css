@@ -529,6 +529,13 @@ samp {
   color: var(--hb-warning);
 }
 
+/* 「已遗失」状态胶囊：比「已取走」更重的红，表示"确认找不回来了" */
+.hb-chip.lost {
+  border-color: var(--hb-danger);
+  background: var(--hb-surface-2);
+  color: var(--hb-danger);
+}
+
 /* 列表行右侧的次要文字（如数量 ×N） */
 .hb-list-note {
   font-size: var(--hb-fs-xs);

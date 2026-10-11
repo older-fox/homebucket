@@ -10,11 +10,26 @@
         <UButton color="neutral" variant="soft" icon="i-lucide-qr-code" class="hb-tap" @click="showQr = true">
           <span class="hide-sm">{{ t('item.qrCode') }}</span>
         </UButton>
+        <UButton
+          :color="item.lostAt ? 'warning' : 'neutral'"
+          variant="soft"
+          :icon="item.lostAt ? 'i-lucide-undo-2' : 'i-lucide-search-x'"
+          class="hb-tap"
+          @click="toggleLost"
+        >
+          <span class="hide-sm">{{ item.lostAt ? t('item.markFound') : t('item.markLost') }}</span>
+        </UButton>
         <UButton color="error" variant="soft" icon="i-lucide-trash-2" class="hb-tap" @click="remove">
           <span class="hide-sm">{{ t('common.delete') }}</span>
         </UButton>
       </template>
     </PageHeader>
+
+    <!-- 遗失中的物品照常留在列表里，但要在详情顶部讲清"它不再进取走提醒" -->
+    <p v-if="item.lostAt" class="lost-note hb-card">
+      <UIcon name="i-lucide-search-x" class="lost-note-icon" />
+      <span>{{ t('item.lostHint') }}</span>
+    </p>
 
     <div class="meta hb-card">
       <div class="meta-item">
@@ -55,6 +70,7 @@
     <div class="stock-actions">
       <!-- 当前取走状态（整件追踪看 takenOutAt，按件追踪看 takenOutUnitCount）；没取走时组件自身不渲染 -->
       <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
+      <LostChip :lost-at="item.lostAt" />
       <UButton color="primary" variant="soft" icon="i-lucide-minus" @click="openAdjust('consume')">
         {{ t('item.consume') }}
       </UButton>
@@ -141,12 +157,15 @@ interface ItemDetail {
   traceCode: string | null;
   takenOutAt: string | null;
   takenOutUnitCount: number;
+  /** 非空 = 已标记遗失（不再进取走过久提醒，但仍在列表里） */
+  lostAt: string | null;
   units: {
     id: number;
     sn: string | null;
     locationId: number | null;
     location: { id: number; name: string } | null;
     takenOutAt: string | null;
+    lostAt: string | null;
   }[];
 }
 
@@ -178,6 +197,23 @@ async function unpack() {
   try {
     await api.post(`/items/${itemId}/unpack`, {});
     toast.add({ title: t('item.unpackDone'), color: 'success' });
+    await reload();
+  } catch (error) {
+    toast.add({ title: (error as { message?: string }).message ?? t('errors.unknown'), color: 'error' });
+  }
+}
+
+/**
+ * 标记遗失 / 取消遗失。
+ *
+ * 这里不弹确认框：遗失是**可逆**的（同一颗按钮再点一次就取消），而且后端幂等；
+ * 真正的破坏性动作（删除）才走 window.confirm —— 与项目其它地方一致。
+ */
+async function toggleLost() {
+  const lost = Boolean(item.value?.lostAt);
+  try {
+    if (lost) await api.del(`/items/${itemId}/lost`);
+    else await api.post(`/items/${itemId}/lost`, {});
     await reload();
   } catch (error) {
     toast.add({ title: (error as { message?: string }).message ?? t('errors.unknown'), color: 'error' });
@@ -312,6 +348,24 @@ h2 {
 .muted {
   color: var(--hb-muted);
   font-size: var(--hb-fs-sm);
+}
+
+/* 遗失提示条：与 meta 卡片同一套卡片样式，红色描边强调状态 */
+.lost-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: var(--hb-gap-lg);
+  border-color: var(--hb-danger);
+  color: var(--hb-danger);
+  font-size: var(--hb-fs-sm);
+}
+
+.lost-note-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
 }
 
 .qr-box {
