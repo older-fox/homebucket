@@ -1,0 +1,21 @@
+# 构建上下文瘦身：node_modules / 构建产物 / 数据库文件都不该进镜像上下文
+node_modules
+.nuxt
+.output
+dist
+data
+test
+coverage
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+*.log
+.git
+.gitignore
+Dockerfile
+.dockerignore
+README.md

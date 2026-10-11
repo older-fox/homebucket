@@ -116,6 +116,17 @@ Once you own enough things, "where did I put this?" becomes a recurring question
         └── pages/                   # index / login / register / locations[index,[id]]
                                      # items[index,new,[id]] / templates / settings
                                      # search / scan / activity / invite/[token] / r/[code]
+└── collector/               # HomeBucket Collector: the shared barcode → product-info service
+    ├── nuxt.config.ts               # one process serves both the pages and the API
+    ├── server/                      # Nitro
+    │   ├── api/v1/                  # items / contributions / instances / stats + the legacy client contract
+    │   ├── api/admin/               # correction desk (x-admin-token)
+    │   ├── database/                # TypeORM EntitySchema + better-sqlite3 + migrations
+    │   ├── services/  utils/  middleware/
+    │   └── plugins/database.ts      # migrates and opens the DB before the first request
+    ├── app/                         # Nuxt 4 app dir (pages / components / composables, Tailwind v4)
+    ├── scripts/{start.mjs,check-drift.mjs}
+    └── test/                        # node:test suites (`npm test`)
 ```
 
 ## Quick start
@@ -348,7 +359,7 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 `.gitlab-ci.yml` has two stages, `check` then `image`:
 
-**`check:types`** (stage `check`, runs on every push / manual pipeline): a plain Node container that runs the same checks as the local loop above — `npm ci` in both packages, `npm run typecheck` in both, `npm run db:check-drift` and `npm test` on the server. It catches type errors, schema drift and contract regressions in a couple of minutes, before the (much slower) image build starts; it cannot cover MySQL, because that needs an external server (`db:check-drift` runs against a throwaway SQLite file instead).
+**`check:types`** (stage `check`, runs on every push / manual pipeline): a plain Node container that runs the same checks as the local loop above — `npm ci` in all three packages (`server`, `web`, `collector`), `npm run typecheck` in all three, and `npm run db:check-drift` plus `npm test` in `server` and `collector`, followed by the collector's HTTP end-to-end suite (`npm run test:e2e`, which boots a throwaway Nuxt dev server on a random port and exercises all 22 routes and both wire protocols). It catches type errors, schema drift and contract regressions in a couple of minutes, before the (much slower) image build starts; it cannot cover MySQL, because that needs an external server (`db:check-drift` runs against a throwaway SQLite file instead).
 
 The server install there must stay `npm ci --ignore-scripts`. `better-sqlite3` ships a `binding.gyp` but no install script, so npm implicitly runs `node-gyp rebuild`, and the slim base image has neither Python nor a compiler: the job dies with `gyp ERR! find Python … Could not find any Python installation to use`. Skipping install scripts is safe — `lib/binding.js` loads `prebuilds/*.node` straight from the package, no `build/` directory needed. The Dockerfile passes the same flag for the same reason, and `server/test/ci-install-scripts.test.mjs` guards both files against losing it.
 
@@ -359,6 +370,8 @@ The server install there must stay `npm ci --ignore-scripts`. `better-sqlite3` s
 - **Zero artifacts**: the only output is an image pushed to the **project container registry** (`$CI_REGISTRY_IMAGE`). Compilation happens inside `docker build` (`nest build` / `nuxt build`); if it fails, the job fails.
 - **Tag policy**: always pushes `sha-<short>`; the default branch additionally pushes `latest`; a git tag additionally pushes the version; other branches additionally push the branch slug.
 - **Triggers**: push to any branch / tag / Run pipeline in the UI / API.
+
+**`docker:collector`** (stage `image`): the same kaniko recipe applied to the collection service — context `collector/`, Dockerfile `collector/Dockerfile`, pushed to `$CI_REGISTRY_IMAGE/collector` with the same tag policy and its own cache repository. See [collector/README.md](collector/README.md).
 
 Acceleration mirrors (override via CI/CD Variables):
 
@@ -451,7 +464,9 @@ Pages declare their scrolling mode via `definePageMeta`, and the shell switches 
 
 ## Barcode data collection
 
-A **separate service** (provided by the developer) collects "barcode → product info", aggregates it, and syncs it to instances so that creating an item can auto-fill name / manufacturer / model. The switch and URL are in `.env` and it is **enabled by default**; `DATA_COLLECTION_ENDPOINT` is a placeholder — replace it with your own service.
+A **separate service** collects "barcode → product info", aggregates it, and syncs it to instances so that creating an item can auto-fill name / manufacturer / model. The switch and URL are in `.env` and it is **enabled by default**; `DATA_COLLECTION_ENDPOINT` is a placeholder — replace it with your own service.
+
+This repository ships a **reference implementation** of that service in [`collector/`](collector/README.md) (a single Nuxt 4 process: SSR pages + API). Point `DATA_COLLECTION_ENDPOINT` at `http://<collector-host>:3400/api/v1` and already-deployed instances keep working unchanged: the collector implements the contract below verbatim (those two endpoints take no credentials, because that is what the shipped client sends).
 
 The endpoint this instance exposes (used by the frontend):
 

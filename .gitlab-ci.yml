@@ -88,6 +88,28 @@ check:types:
     - cd ../web
     - npm ci --no-audit --no-fund --registry "$NPM_REGISTRY"
     - npm run typecheck
+    # 收集器（collector/）是第三个独立包：单个 Nuxt 4 应用同时提供页面（SSR）与 API（Nitro）。
+    # 这里跑同样"便宜但拦得住人"的三件事：类型检查、结构漂移探针、单测。
+    # nuxt build 由 vite/esbuild 只转译不做类型检查，所以 vue-tsc 是拦类型错误的唯一关卡。
+    #
+    # --ignore-scripts 的理由同 server（better-sqlite3 带 binding.gyp，slim 镜像里没有
+    # Python/编译器），而 13.x 的 tarball 自带 prebuilds/*.node，跳过安装脚本照样能开库。
+    # 依赖必须留在 13.x：12.x 的 tarball 里没有 .node，二进制靠安装脚本下载，
+    # --ignore-scripts 下这三步会直接报 "Could not locate the bindings file"。
+    # nuxt typecheck 需要的 esbuild 二进制随可选依赖 @esbuild/linux-x64 一起装好，不依赖安装脚本。
+    - cd ../collector
+    - npm ci --ignore-scripts --no-audit --no-fund --registry "$NPM_REGISTRY"
+    - npm run typecheck
+    - npm run db:check-drift
+    - npm test
+    # 收集器的端到端：脚本自己拉一个 nuxt dev（随机端口 + 临时 SQLite 库），跑完就关，
+    # 所以这一步不需要额外服务。为什么值得在 CI 里多花这一两分钟 —— 单体测试盯不到
+    # "接缝"：路由文件路径与导入深度、Nitro 的请求/响应形状、老契约
+    # （GET /api/v1/barcodes/:code + POST /api/v1/observations）的向后兼容、
+    # SSR 首屏与静态资源 MIME、CORS 预检、未知接口回 JSON 404。
+    # 历史上正是它抓到了"两处列表查询漏了 LIKE 通配符导致 ?q= 恒 0 条"和
+    # "路由 import 相对深度写错（dev 才报 Could not resolve）"。
+    - npm run test:e2e
   rules:
     - if: $CI_PIPELINE_SOURCE == "push"
     - if: $CI_PIPELINE_SOURCE == "web"
@@ -200,6 +222,62 @@ docker:image:
         --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
         --cache=true \
         --cache-repo "$CI_REGISTRY_IMAGE/cache" \
+        --snapshot-mode=redo \
+        --use-new-run \
+        --compressed-caching=false \
+        --ignore-path=/root/.npm \
+        --image-download-retry=3 \
+        --image-fs-extract-retry=3 \
+        --push-retry=3 \
+        $dests
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "api"
+
+# 收集器镜像：单个进程同时提供页面与 API（Nuxt SSR + Nitro），与上面的根镜像同一套 kaniko 写法。
+#
+# 与 docker:image 的三处差异：
+#   · 构建上下文是 collector/ 子目录（Dockerfile 里所有 COPY 路径都相对它，不含 server/ 与 web/）
+#   · 目标仓库是 $CI_REGISTRY_IMAGE/collector（同一项目下另一个镜像名，tag 规则与根镜像一致）
+#   · 缓存仓库同样独立，避免和根镜像的层互相干扰
+# 其余参数（--snapshot-mode=redo / --use-new-run / --compressed-caching=false /
+# --ignore-path=/root/.npm / 三个 retry）的理由见上面 docker:image 里的长注释，完全复用同一套结论。
+docker:collector:
+  stage: image
+  image:
+    name: gcr.m.daocloud.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  interruptible: true
+  retry:
+    max: 2
+  variables:
+    GIT_STRATEGY: clone
+  script:
+    - |
+      base="$CI_REGISTRY_IMAGE/collector"
+      dests="--destination $base:sha-$CI_COMMIT_SHORT_SHA"
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        dests="$dests --destination $base:$CI_COMMIT_TAG"
+      elif [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        dests="$dests --destination $base:latest"
+      else
+        dests="$dests --destination $base:$CI_COMMIT_REF_SLUG"
+      fi
+      echo "[ci] collector ref=${CI_COMMIT_REF_NAME} destinations: $dests"
+    - mkdir -p /kaniko/.docker
+    - |
+      cat > /kaniko/.docker/config.json <<EOF
+      {"auths":{"$CI_REGISTRY":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"}}}
+      EOF
+    - |
+      /kaniko/executor \
+        --context "$CI_PROJECT_DIR/collector" \
+        --dockerfile "$CI_PROJECT_DIR/collector/Dockerfile" \
+        --build-arg NODE_IMAGE="$NODE_IMAGE" \
+        --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
+        --cache=true \
+        --cache-repo "$CI_REGISTRY_IMAGE/collector/cache" \
         --snapshot-mode=redo \
         --use-new-run \
         --compressed-caching=false \

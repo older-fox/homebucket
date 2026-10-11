@@ -108,6 +108,17 @@
         └── pages/                   # index / login / register / locations[index,[id]]
                                      # items[index,new,[id]] / templates / settings
                                      # search / scan / invite/[token] / r/[code]
+└── collector/               # HomeBucket 收集器：所有实例共享的「条码 → 商品信息」服务
+    ├── nuxt.config.ts               # 一个进程同时提供页面（SSR）与 API（Nitro）
+    ├── server/                      # Nitro
+    │   ├── api/v1/                  # 查询/上报/实例注册/统计 + 兼容老实例客户端的契约
+    │   ├── api/admin/               # 纠错台（x-admin-token）
+    │   ├── database/                # TypeORM EntitySchema + better-sqlite3 + 迁移
+    │   ├── services/  utils/  middleware/
+    │   └── plugins/database.ts      # 第一个请求之前先跑迁移并打开数据库
+    ├── app/                         # Nuxt 4 应用目录（页面/组件/composable，Tailwind v4）
+    ├── scripts/{start.mjs,check-drift.mjs}
+    └── test/                        # node:test 套件（`npm test`）
 ```
 
 ## 快速开始
@@ -321,7 +332,7 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 
 `.gitlab-ci.yml` 分两个 stage：`check` → `image`（`check` 全绿才进镜像构建）。
 
-**`check:types`**（stage `check`，push 任意分支 / 页面手动触发都会跑）：普通 Node 容器，把本地那套检查原样跑一遍 —— 两个包各自 `npm ci`，两边各跑 `npm run typecheck`，server 侧再跑 `npm run db:check-drift` 与 `npm test`。类型错误、结构漂移、契约回归都在这里几分钟内拦住，不必等（慢得多的）镜像构建；MySQL 覆盖不到，因为需要外部实例（`db:check-drift` 改为对一次性 SQLite 文件跑迁移 + `schema:log`）。
+**`check:types`**（stage `check`，push 任意分支 / 页面手动触发都会跑）：普通 Node 容器，把本地那套检查原样跑一遍 —— 三个包（`server`、`web`、`collector`）各自 `npm ci` 并各跑 `npm run typecheck`，`server` 与 `collector` 再各跑 `npm run db:check-drift` 与 `npm test`，最后跑收集器的 HTTP 端到端（`npm run test:e2e`：脚本自己拉一个随机端口的一次性 Nuxt dev 服务，把 22 条路由与两套协议都打一遍）。类型错误、结构漂移、契约回归都在这里几分钟内拦住，不必等（慢得多的）镜像构建；MySQL 覆盖不到，因为需要外部实例（`db:check-drift` 改为对一次性 SQLite 文件跑迁移 + `schema:log`）。
 
 server 的安装在 CI 里必须写成 `npm ci --ignore-scripts`：`better-sqlite3` 的 npm 包带 `binding.gyp` 却没有 install 脚本，npm 会按默认行为补跑一次 `node-gyp rebuild`，而基础镜像是 slim 版（既没有 Python 也没有编译器），会以 `gyp ERR! find Python … Could not find any Python installation to use` 直接失败；跳过安装脚本即可 —— 运行期 `lib/binding.js` 直接加载包内 `prebuilds/*.node`，不需要 `build/` 目录。Dockerfile 里两处 server 安装出于同样原因也带着这个参数，改 CI 时别把它漏掉（`server/test/ci-install-scripts.test.mjs` 会盯着）。
 
@@ -420,6 +431,8 @@ kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:d
 ## 条码数据收集
 
 由开发者提供的**独立服务**收集「条码 → 商品信息」，综合判定后同步给各实例，创建物品时可自动补全名称/厂商/型号。开关与地址都在 `.env`，**默认开启**；`DATA_COLLECTION_ENDPOINT` 是占位地址，请替换成你自己的服务。
+
+本仓库自带该服务的**参考实现**，在 [`collector/`](collector/README.md)（单个 Nuxt 4 进程同时提供页面与 API）。把 `DATA_COLLECTION_ENDPOINT` 指向 `http://<收集器地址>:3400/api/v1`，**已经部署出去的实例无需改动**即可接入 —— 收集器逐字实现了下面这份契约（这两个接口不带凭据，因为客户端就是这么发的）。
 
 本实例对外的接口（前端用）：
 
