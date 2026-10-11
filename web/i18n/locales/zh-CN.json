@@ -303,6 +303,21 @@
     "deleteConfirm": "确定删除通知器「{name}」？",
     "adminOnly": "只有家庭所有者可以管理成员与邀请"
   },
+  "notifications": {
+    "title": "提醒",
+    "overdue": "取走过久",
+    "empty": "没有需要处理的事项",
+    "disabled": "取走过久提醒已关闭",
+    "disabledHint": "把「取走过久提醒」调到大于 0 天就会开始提醒。",
+    "threshold": "超过 {days} 天未归位",
+    "wholeItem": "整件取走",
+    "unit": "序列号 {sn}",
+    "noSn": "未登记 SN",
+    "takenOutAt": "取走于 {time}",
+    "days": "{days} 天",
+    "goSettings": "提醒设置",
+    "refresh": "刷新"
+  },
   "scan": {
     "title": "扫码",
     "hint": "对准二维码或条码，也可以手动输入",

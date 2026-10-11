@@ -71,6 +71,7 @@
             <UIcon name="i-lucide-scan-line" />
           </button>
           <UColorModeButton class="icon-btn" />
+          <NotificationsBell />
           <LocaleSwitcher />
           <button type="button" class="avatar hb-tap" :aria-label="user?.username" @click="userMenuOpen = true">
             {{ initial }}

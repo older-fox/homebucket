@@ -303,6 +303,21 @@
     "deleteConfirm": "Delete notifier \"{name}\"?",
     "adminOnly": "Only the family owner can manage members and invitations"
   },
+  "notifications": {
+    "title": "Alerts",
+    "overdue": "Taken out too long",
+    "empty": "Nothing needs your attention",
+    "disabled": "Taken-out reminders are off",
+    "disabledHint": "Set the taken-out reminder to more than 0 days to turn it on.",
+    "threshold": "Taken out for more than {days} days",
+    "wholeItem": "Whole item",
+    "unit": "Serial {sn}",
+    "noSn": "No serial number",
+    "takenOutAt": "Taken out {time}",
+    "days": "{days} days",
+    "goSettings": "Alert settings",
+    "refresh": "Refresh"
+  },
   "scan": {
     "title": "Scan",
     "hint": "Point at a QR code or barcode, or type it in",
