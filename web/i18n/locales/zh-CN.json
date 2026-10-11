@@ -452,7 +452,8 @@
       "image": "图片",
       "template": "来源模板",
       "baseUnit": "最小单位",
-      "packLevels": "包装层级"
+      "packLevels": "包装层级",
+      "lost": "遗失"
     },
     "action": {
       "item_create": "新增物品",
@@ -469,7 +470,11 @@
       "location_delete": "删除位置",
       "item_consume": "用掉",
       "item_restock": "补货",
-      "item_unpack": "拆箱"
+      "item_unpack": "拆箱",
+      "item_lose": "标记遗失",
+      "item_find": "取消遗失",
+      "unit_lose": "序列号遗失",
+      "unit_find": "序列号找回"
     }
   },
   "api": {
@@ -495,6 +500,11 @@
     "invite.revoked": "邀请链接已被撤销",
     "invite.expired": "邀请链接已过期",
     "upload.notFound": "文件不存在",
+    "apiKey.missing": "缺少 API key",
+    "apiKey.invalid": "API key 无效、已撤销或已过期",
+    "apiKey.notFound": "API key 不存在",
+    "apiKey.limitReached": "最多只能同时保留 20 把未撤销的 key",
+    "apiKey.invalidExpiry": "到期时间格式不正确或已过期",
     "upload.fileRequired": "请选择要上传的文件",
     "location.notFound": "位置不存在",
     "location.cycle": "不能移动到自己的子位置下",

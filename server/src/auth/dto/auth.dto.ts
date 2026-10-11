@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, Length, MinLength } from 'class-validator';
+import { IsEmail, IsInt, IsOptional, IsString, Length, Max, Min, MinLength } from 'class-validator';
 
 export class RegisterDto {
   /** 用户名即登录账号 */
@@ -29,4 +29,20 @@ export class LoginDto {
 
   @IsString()
   password: string;
+}
+
+/** 账号资料（头像 + 「取走过久」提醒阈值）：只允许改自己的这两项 */
+export class UpdateProfileDto {
+  /** 取走过久提醒阈值（天）：0 = 关闭提醒 */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  takenOutAlertDays?: number;
+
+  /** 头像附件 id（来自 POST /uploads）；显式传 null 表示清空头像 */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  avatarId?: number | null;
 }

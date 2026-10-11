@@ -452,7 +452,8 @@
       "image": "Image",
       "template": "Source template",
       "baseUnit": "Base unit",
-      "packLevels": "Packaging"
+      "packLevels": "Packaging",
+      "lost": "Lost"
     },
     "action": {
       "item_create": "Item created",
@@ -469,7 +470,11 @@
       "location_delete": "Location deleted",
       "item_consume": "Used",
       "item_restock": "Restocked",
-      "item_unpack": "Unpacked"
+      "item_unpack": "Unpacked",
+      "item_lose": "Marked lost",
+      "item_find": "Unmarked lost",
+      "unit_lose": "Serial number lost",
+      "unit_find": "Serial number found"
     }
   },
   "api": {
@@ -495,6 +500,11 @@
     "invite.revoked": "This invitation was revoked",
     "invite.expired": "This invitation has expired",
     "upload.notFound": "File not found",
+    "apiKey.missing": "Missing API key",
+    "apiKey.invalid": "The API key is invalid, revoked, or expired",
+    "apiKey.notFound": "API key not found",
+    "apiKey.limitReached": "You can keep at most 20 active API keys",
+    "apiKey.invalidExpiry": "The expiry date is invalid or already in the past",
     "upload.fileRequired": "Please choose a file to upload",
     "location.notFound": "Location not found",
     "location.cycle": "You cannot move a location into its own descendant",

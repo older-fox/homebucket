@@ -98,7 +98,54 @@ export class ItemsController {
     return this.items.remove(family.id, actorOf(user), id);
   }
 
-  // ---------- SN 单元 ----------
+  // ---------- 遗失标记：物品仍可见，只是不再算进「取走未归位」提醒 ----------
+
+  @FamilyScoped()
+  @Post(':id/lost')
+  markLost(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.items.markLost(family.id, actorOf(user), id);
+  }
+
+  /** 取消遗失标记（东西又找到了） */
+  @FamilyScoped()
+  @Delete(':id/lost')
+  markFound(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.items.markFound(family.id, actorOf(user), id);
+  }
+
+  // ---------- 遗失标记（放在 :unitId 路由之前，否则 lost 会被当成 unitId） ----------
+
+  /** 给某个 SN 标记已遗失（整件追踪的物品按件记状态） */
+  @FamilyScoped()
+  @Post(':id/units/:unitId/lost')
+  markUnitLost(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('unitId', ParseIntPipe) unitId: number,
+  ) {
+    return this.items.markUnitLost(family.id, actorOf(user), id, unitId);
+  }
+
+  /** 取消某个 SN 的遗失标记 */
+  @FamilyScoped()
+  @Delete(':id/units/:unitId/lost')
+  markUnitFound(
+    @CurrentFamily() family: FamilyContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('unitId', ParseIntPipe) unitId: number,
+  ) {
+    return this.items.markUnitFound(family.id, actorOf(user), id, unitId);
+  }
 
   @FamilyScoped()
   @Post(':id/units')

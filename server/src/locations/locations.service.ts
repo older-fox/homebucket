@@ -9,6 +9,7 @@ import { ActivityService, diffFields, type ActivityActor } from '../activity/act
 import { shortToken } from '../common/id';
 import { mediaUrl } from '../common/media';
 import { countByForeignKey } from '../common/relation-count';
+import { alive } from '../common/soft-delete';
 import { parsePackLevels } from '../items/packaging';
 import type { CreateLocationDto, MoveLocationDto, UpdateLocationDto } from './dto';
 
@@ -105,12 +106,12 @@ export class LocationsService {
         relations: { image: true },
       }),
       this.items.find({
-        where: { familyId, locationId: In(ids) },
+        where: { ...alive(), familyId, locationId: In(ids) },
         order: { name: 'ASC' },
         relations: { location: true, tags: true },
       }),
       this.units.find({
-        where: { familyId, locationId: In(ids) },
+        where: { ...alive(), familyId, locationId: In(ids) },
         order: { id: 'ASC' },
         relations: { item: true, location: true },
       }),
@@ -118,10 +119,18 @@ export class LocationsService {
 
     // 原先由 `_count: { select: { units: true } }` 提供；TypeORM 1.x 删了
     // loadRelationCountAndMap，改用一次 GROUP BY 聚合（见 common/relation-count.ts）
-    const unitCounts = await countByForeignKey(this.units, 'itemId', itemRows.map((row) => row.id));
+    const unitCounts = await countByForeignKey(
+      this.units,
+      'itemId',
+      itemRows.map((row) => row.id),
+      (qb) => qb.andWhere('row.deletedAt IS NULL'),
+    );
     // 位置详情也要显示"已取走"：按件追踪的物品取走的是 unit，单独数一次（见 relation-count.ts）
-    const outUnitCounts = await countByForeignKey(this.units, 'itemId', itemRows.map((row) => row.id), (qb) =>
-      qb.andWhere('row.takenOutAt IS NOT NULL'),
+    const outUnitCounts = await countByForeignKey(
+      this.units,
+      'itemId',
+      itemRows.map((row) => row.id),
+      (qb) => qb.andWhere('row.takenOutAt IS NOT NULL').andWhere('row.deletedAt IS NULL'),
     );
     const nodes = await this.toNodes(locationRows);
 
@@ -346,9 +355,9 @@ export class LocationsService {
   private async toNodes(rows: Location[]): Promise<LocationNode[]> {
     const ids = rows.map((row) => row.id);
     const [itemCounts, childCounts, unitCounts] = await Promise.all([
-      countByForeignKey(this.items, 'locationId', ids),
+      countByForeignKey(this.items, 'locationId', ids, (qb) => qb.andWhere('row.deletedAt IS NULL')),
       countByForeignKey(this.locations, 'parentId', ids),
-      countByForeignKey(this.units, 'locationId', ids),
+      countByForeignKey(this.units, 'locationId', ids, (qb) => qb.andWhere('row.deletedAt IS NULL')),
     ]);
 
     return rows.map((row) => ({

@@ -61,22 +61,33 @@ export async function countByForeignKey<T extends ObjectLiteral>(
  *   const counts = await countByJoin(this.tags, { relation: 'items', ids: tagIds });
  *   counts.get(tag.id) ?? 0
  *
+ *   // 带条件：软删除的物品不该计入标签的物品数
+ *   const counts = await countByJoin(this.tags, { relation: 'items', ids: tagIds }, (qb) =>
+ *     qb.andWhere('child.deletedAt IS NULL'),
+ *   );
+ *
  * 约定：子实体必须有 `id` 主键列（`COUNT(child.id)` 数的是非空子行），父表主键默认 'id'。
  * relation / parentKey 都是代码里写死的字面量，不接受外部输入（会拼进 SQL）。
+ *
+ * @param refine 追加条件（可选）。查询别名固定是 `child`（父表是 `parent`），只应调用 andWhere 之类的追加方法
  */
 export async function countByJoin<T extends ObjectLiteral>(
   repo: Repository<T>,
   options: { relation: string; ids: number[]; parentKey?: string },
+  refine?: (qb: SelectQueryBuilder<T>) => SelectQueryBuilder<T>,
 ): Promise<Map<number, number>> {
   const { relation, ids, parentKey = 'id' } = options;
   if (ids.length === 0) return new Map();
 
-  const rows = await repo
+  let builder = repo
     .createQueryBuilder('parent')
     .innerJoin(`parent.${relation}`, 'child')
     .select(`parent.${parentKey}`, 'parentId')
     .addSelect('COUNT(child.id)', 'total')
-    .where(`parent.${parentKey} IN (:...ids)`, { ids })
+    .where(`parent.${parentKey} IN (:...ids)`, { ids });
+  if (refine) builder = refine(builder);
+
+  const rows = await builder
     .groupBy(`parent.${parentKey}`)
     .getRawMany<{ parentId: number | string; total: number | string }>();
 

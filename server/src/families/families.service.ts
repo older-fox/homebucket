@@ -97,7 +97,8 @@ export class FamiliesService {
     // TypeORM 1.x 删掉了 loadRelationCountAndMap，这里各用一次聚合查询代替
     const [memberCounts, itemCounts, locationCounts] = await Promise.all([
       countByForeignKey(this.familyMembers, 'familyId', familyIds),
-      countByForeignKey(this.items, 'familyId', familyIds),
+      // 家庭列表的 itemCount 只数未软删除的物品
+      countByForeignKey(this.items, 'familyId', familyIds, (qb) => qb.andWhere('row.deletedAt IS NULL')),
       countByForeignKey(this.locations, 'familyId', familyIds),
     ]);
 

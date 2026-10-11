@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { type Repository } from 'typeorm';
 import { Item } from '../entities/item.entity';
 import { Template } from '../entities/template.entity';
+import { alive } from '../common/soft-delete';
 import { env } from '../config/env';
 import { parsePackLevels } from '../items/packaging';
 
@@ -98,7 +99,7 @@ export class CollectionService {
    */
   async local(familyId: number, barcode: string) {
     const item = await this.items.findOne({
-      where: { familyId, barcode },
+      where: { ...alive(), familyId, barcode },
       relations: { location: true },
     });
     if (!item) return null;

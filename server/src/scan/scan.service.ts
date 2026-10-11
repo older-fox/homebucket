@@ -11,6 +11,7 @@ import { ActivityService, type ActivityActor } from '../activity/activity.servic
 import { parsePackLevels } from '../items/packaging';
 import { isTakeable, nextTakenOutAt, notTakeableMessage, takeOutAction } from './take-out';
 import { mediaUrl } from '../common/media';
+import { alive } from '../common/soft-delete';
 import { env } from '../config/env';
 
 /**
@@ -166,14 +167,14 @@ export class ScanService {
     } as const;
 
     const byBarcode = await this.items.findOne({
-      where: { familyId, barcode: code },
+      where: { ...alive(), familyId, barcode: code },
       select: itemColumns,
     });
     if (byBarcode) return this.itemTarget(familyId, byBarcode, 'barcode');
 
     // 追溯码统一大写存储；这里也归一化，避免手输小写时 MySQL/SQLite 行为不一致
     const byTraceCode = await this.items.findOne({
-      where: { familyId, traceCode: code.trim().toUpperCase() },
+      where: { ...alive(), familyId, traceCode: code.trim().toUpperCase() },
       select: itemColumns,
     });
     if (byTraceCode) return this.itemTarget(familyId, byTraceCode, 'traceCode');
@@ -237,7 +238,7 @@ export class ScanService {
     }
 
     const item = await this.items.findOne({
-      where: { familyId, qrToken: code },
+      where: { ...alive(), familyId, qrToken: code },
       select: itemColumns,
     });
     if (item) return this.itemTarget(familyId, item, 'qrcode');
@@ -245,7 +246,7 @@ export class ScanService {
     // SN 分支要拿物品名，必须加载关系；关系字段的 select 窄化在 TypeORM 没有等价物
     // （会读回整行），所以这里不用 select，改为显式映射（见 brief 地雷 4）
     const unit = await this.units.findOne({
-      where: { familyId, sn: code },
+      where: { ...alive(), familyId, sn: code },
       relations: { item: true },
     });
     if (unit) return this.unitTarget(familyId, unit);
@@ -262,7 +263,7 @@ export class ScanService {
     const [locationName, imageUrl, unitCount] = await Promise.all([
       this.locationName(familyId, item.locationId),
       this.imageUrl(familyId, item.coverImageId),
-      this.units.count({ where: { familyId, itemId: item.id } }),
+      this.units.count({ where: { ...alive(), familyId, itemId: item.id } }),
     ]);
 
     return {
@@ -298,7 +299,7 @@ export class ScanService {
     const [locationName, imageUrl, unitCount] = await Promise.all([
       this.locationName(familyId, unit.locationId),
       this.imageUrl(familyId, unit.item.coverImageId),
-      this.units.count({ where: { familyId, itemId: unit.itemId } }),
+      this.units.count({ where: { ...alive(), familyId, itemId: unit.itemId } }),
     ]);
 
     return {
@@ -353,7 +354,7 @@ export class ScanService {
 
   async itemQr(familyId: number, id: number) {
     const item = await this.items.findOne({
-      where: { id, familyId },
+      where: { ...alive(), id, familyId },
       select: { qrToken: true },
     });
     if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });

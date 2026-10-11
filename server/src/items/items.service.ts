@@ -13,6 +13,7 @@ import { shortToken, traceCode } from '../common/id';
 import { mediaUrl } from '../common/media';
 import { normalizePaging } from '../common/pagination';
 import { countByForeignKey } from '../common/relation-count';
+import { alive } from '../common/soft-delete';
 import {
   factorOf,
   formatBreakdown,
@@ -56,10 +57,13 @@ export class ItemsService {
     // loadRelationCountAndMap，这里用一次聚合查询替代（见 common/relation-count.ts）
     const ids = rows.map((row) => row.id);
     const [unitCounts, outCounts] = await Promise.all([
-      countByForeignKey(this.units, 'itemId', ids),
+      // 软删除的件不算数，否则「删了一件但计数还是 3」
+      countByForeignKey(this.units, 'itemId', ids, (qb) => qb.andWhere('row.deletedAt IS NULL')),
       // 「已取走」当前状态：有 SN 的物品按件追踪，取走的是 unit 而不是 item，
       // 所以列表除了 item.takenOutAt 还要带上"有几件正被拿走"，两条聚合并行发出
-      countByForeignKey(this.units, 'itemId', ids, (qb) => qb.andWhere('row.takenOutAt IS NOT NULL')),
+      countByForeignKey(this.units, 'itemId', ids, (qb) =>
+        qb.andWhere('row.deletedAt IS NULL').andWhere('row.takenOutAt IS NOT NULL'),
+      ),
     ]);
 
     return {
@@ -82,6 +86,8 @@ export class ItemsService {
         unitCount: unitCounts.get(row.id) ?? 0,
         // 整件追踪（无 SN）时取走的是物品本身；takenOutAt 非空 = 当前已拿走使用
         takenOutAt: row.takenOutAt,
+        // 已遗失：物品还在库里、前端还看得到（带标记），只是"确认找不回来了"
+        lostAt: row.lostAt,
         takenOutUnitCount: outCounts.get(row.id) ?? 0,
       })),
       total,
@@ -92,7 +98,7 @@ export class ItemsService {
 
   async detail(familyId: number, id: number) {
     const item = await this.items.findOne({
-      where: { id, familyId },
+      where: { id, familyId, ...alive() },
       relations: {
         location: true,
         template: true,
@@ -104,6 +110,9 @@ export class ItemsService {
       order: { units: { id: 'ASC' } },
     });
     if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });
+
+    // 关系加载不支持按条件过滤，软删除的件在这里剔掉
+    const units = item.units.filter((unit) => !unit.deletedAt);
 
     return {
       id: item.id,
@@ -126,16 +135,18 @@ export class ItemsService {
       updatedAt: item.updatedAt,
       // 当前取走状态：整件追踪看 item.takenOutAt，按件追踪看每个 unit 的 takenOutAt
       takenOutAt: item.takenOutAt,
-      takenOutUnitCount: item.units.filter((unit) => unit.takenOutAt).length,
+      lostAt: item.lostAt,
+      takenOutUnitCount: units.filter((unit) => unit.takenOutAt).length,
       location: item.location ? { id: item.location.id, name: item.location.name } : null,
       template: item.template ? { id: item.template.id, name: item.template.name } : null,
       tags: item.tags,
-      units: item.units.map((unit) => ({
+      units: units.map((unit) => ({
         id: unit.id,
         sn: unit.sn,
         locationId: unit.locationId,
         note: unit.note,
         takenOutAt: unit.takenOutAt,
+        lostAt: unit.lostAt,
         location: unit.location ? { id: unit.location.id, name: unit.location.name } : null,
       })),
       coverImageUrl: mediaUrl(item.coverImage),
@@ -298,13 +309,24 @@ export class ItemsService {
     return this.detail(familyId, id);
   }
 
+  /**
+   * 删除 = 软删除：只打 `deletedAt`，行留在库里。
+   *
+   * 为什么不再硬删：活动历史里的物品名是快照、但序列号/图片关联是外键，硬删会连带
+   * 抹掉它们，而且删掉的物品仍然占着 `(familyId, barcode)` / `(familyId, traceCode)`
+   * 的唯一槽位（见 assertBarcodeAvailable 的注释）。软删除之后所有读接口靠 `alive()`
+   * 过滤，效果就是"删了就看不见"。
+   */
   async remove(familyId: number, actor: ActivityActor, id: number) {
     const before = await this.itemSnapshotById(familyId, id);
     const changes = diffFields(before, {});
 
     await this.dataSource.transaction(async (manager) => {
-      await manager.delete(Item, { id });
-      // 名下的 SN 随外键级联删除，不逐条记历史；整件删除记一条即可
+      const now = new Date();
+      await manager.update(Item, { id, familyId }, { deletedAt: now });
+      // 名下的 SN 一起软删除（不逐条记历史；整件删除记一条即可），
+      // 否则它们还能被扫码与搜索找到
+      await manager.update(ItemUnit, { itemId: id, familyId }, { deletedAt: now });
       await this.activity.record(
         familyId,
         actor,
@@ -321,6 +343,89 @@ export class ItemsService {
     });
 
     return { ok: true };
+  }
+
+  // ---------- 遗失标记（物品还在，只是确认找不回来了） ----------
+
+  /**
+   * 标记遗失 / 取消遗失。
+   *
+   * 与删除的区别：遗失的物品**仍然可见**（列表与详情带「已遗失」标记），只是不再算进
+   * 「取走未归位」提醒；两个方向都幂等，重复调用不写流水。`takenOutAt` 一律不动 ——
+   * 那是"当时确实被拿走了"的事实，提醒那边按 `lostAt` 过滤。
+   */
+  async markLost(familyId: number, actor: ActivityActor, id: number) {
+    return this.setItemLost(familyId, actor, await this.mustExist(familyId, id), true);
+  }
+
+  async markFound(familyId: number, actor: ActivityActor, id: number) {
+    return this.setItemLost(familyId, actor, await this.mustExist(familyId, id), false);
+  }
+
+  private async setItemLost(familyId: number, actor: ActivityActor, item: Item, lost: boolean) {
+    if (Boolean(item.lostAt) === lost) return this.detail(familyId, item.id);
+
+    const changes: ActivityChange[] = [{ field: 'lost', from: !lost, to: lost }];
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(Item, { id: item.id, familyId }, { lostAt: lost ? new Date() : null });
+      await this.activity.record(
+        familyId,
+        actor,
+        {
+          targetType: 'item',
+          targetId: item.id,
+          itemId: item.id,
+          itemName: item.name,
+          action: lost ? 'item.lose' : 'item.find',
+          changes,
+        },
+        manager,
+      );
+    });
+
+    return this.detail(familyId, item.id);
+  }
+
+  /** 整件追踪的物品按件记状态，所以遗失也支持落到具体某个 SN 上 */
+  async markUnitLost(familyId: number, actor: ActivityActor, itemId: number, unitId: number) {
+    return this.setUnitLost(familyId, actor, itemId, await this.mustUnit(familyId, itemId, unitId), true);
+  }
+
+  async markUnitFound(familyId: number, actor: ActivityActor, itemId: number, unitId: number) {
+    return this.setUnitLost(familyId, actor, itemId, await this.mustUnit(familyId, itemId, unitId), false);
+  }
+
+  private async setUnitLost(
+    familyId: number,
+    actor: ActivityActor,
+    itemId: number,
+    unit: ItemUnit,
+    lost: boolean,
+  ) {
+    if (Boolean(unit.lostAt) === lost) return unit;
+
+    const changes: ActivityChange[] = [{ field: 'lost', from: !lost, to: lost }];
+    const itemName = await this.itemName(familyId, itemId);
+
+    await this.dataSource.transaction(async (manager) => {
+      unit.lostAt = lost ? new Date() : null;
+      await manager.update(ItemUnit, { id: unit.id, familyId }, { lostAt: unit.lostAt });
+      await this.activity.record(
+        familyId,
+        actor,
+        {
+          targetType: 'unit',
+          targetId: unit.id,
+          itemId,
+          itemName,
+          action: lost ? 'unit.lose' : 'unit.find',
+          changes,
+        },
+        manager,
+      );
+    });
+
+    return unit;
   }
 
   // ---------- 序列号单元（每个 SN 可以放在不同位置） ----------
@@ -404,6 +509,9 @@ export class ItemsService {
     const itemName = await this.itemName(familyId, itemId);
 
     await this.dataSource.transaction(async (manager) => {
+      // 这里保持硬删（与 remove() 的软删除不同）：单件删除没有图片/子行等关联，历史靠
+      // ActivityLog 的快照渲染，而且硬删会把 (familyId, sn) 的唯一槽位腾出来 —— 软删除
+      // 反而会让用户「删掉 SN 之后再也加不回同一个 SN」（见 assertSnAvailable 的注释）。
       await manager.delete(ItemUnit, { id: unitId });
       await this.activity.record(
         familyId,
@@ -529,7 +637,7 @@ export class ItemsService {
   /** 加载物品（含标签/图集）并解析成历史快照，作为 diff 的 before */
   private async itemSnapshotById(familyId: number, id: number): Promise<Record<string, unknown>> {
     const item = await this.items.findOne({
-      where: { id, familyId },
+      where: { id, familyId, ...alive() },
       relations: { tags: true, images: true },
     });
     if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });
@@ -610,7 +718,7 @@ export class ItemsService {
   }
 
   private async itemName(familyId: number, itemId: number): Promise<string | null> {
-    const row = await this.items.findOne({ where: { id: itemId, familyId }, select: { name: true } });
+    const row = await this.items.findOne({ where: { id: itemId, familyId, ...alive() }, select: { name: true } });
     return row?.name ?? null;
   }
 
@@ -637,17 +745,20 @@ export class ItemsService {
       '标签',
       '序列号/条码',
       '取走状态',
+      '遗失',
       '描述',
       '创建时间',
     ];
 
     const lines = rows.map((row) => {
-      const outUnitCount = row.units.filter((unit) => unit.takenOutAt).length;
+      // 软删除的件不导出
+      const units = row.units.filter((unit) => !unit.deletedAt);
+      const outUnitCount = units.filter((unit) => unit.takenOutAt).length;
       // 整件追踪看 item.takenOutAt；按件追踪看有多少件正被拿走
       const takenOut = row.takenOutAt
         ? `已取走（${row.takenOutAt.toISOString()}）`
         : outUnitCount > 0
-          ? `部分取走（${outUnitCount}/${row.units.length}）`
+          ? `部分取走（${outUnitCount}/${units.length}）`
           : '在库';
 
       return [
@@ -662,7 +773,7 @@ export class ItemsService {
         row.traceCode ?? '',
         row.location?.name ?? '',
         row.tags.map((tag) => tag.name).join(' / '),
-        row.units
+        units
           .map((unit) => {
             const label = unit.location ? `${unit.sn ?? ''}@${unit.location.name}` : (unit.sn ?? '');
             // 序列号列顺带标出正在被拿走的那几件，导出后也能一眼看出状态
@@ -670,6 +781,7 @@ export class ItemsService {
           })
           .join(' | '),
         takenOut,
+        row.lostAt ? row.lostAt.toISOString() : '',
         row.description ?? '',
         row.createdAt.toISOString(),
       ]
@@ -692,11 +804,11 @@ export class ItemsService {
    *      默认是 "throw"，where 里出现 null/undefined 会直接抛 TypeORMError（Prisma 会忽略）
    */
   private buildWhere(familyId: number, query: QueryItemsDto): FindOptionsWhere<Item>[] | FindOptionsWhere<Item> {
-    const base: FindOptionsWhere<Item> = { familyId };
+    const base: FindOptionsWhere<Item> = { familyId, ...alive() };
 
     if (query.locationId) base.locationId = query.locationId;
     if (query.tagId) base.tags = { id: query.tagId };
-    if (query.sn) base.units = { sn: Like(`%${query.sn}%`) };
+    if (query.sn) base.units = { sn: Like(`%${query.sn}%`), ...alive() };
 
     if (!query.q) return base;
 
@@ -716,13 +828,13 @@ export class ItemsService {
   }
 
   private async mustExist(familyId: number, id: number): Promise<Item> {
-    const item = await this.items.findOne({ where: { id, familyId } });
+    const item = await this.items.findOne({ where: { id, familyId, ...alive() } });
     if (!item) throw new NotFoundException({ code: 'item.notFound', message: '物品不存在' });
     return item;
   }
 
   private async mustUnit(familyId: number, itemId: number, unitId: number): Promise<ItemUnit> {
-    const unit = await this.units.findOne({ where: { id: unitId, itemId, familyId } });
+    const unit = await this.units.findOne({ where: { id: unitId, itemId, familyId, ...alive() } });
     if (!unit) throw new NotFoundException({ code: 'item.unitNotFound', message: '序列号记录不存在' });
     return unit;
   }

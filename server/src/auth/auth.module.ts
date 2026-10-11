@@ -18,5 +18,7 @@ import { env } from '../config/env';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard],
+  // v1 只读接口要复用账号资料（含头像）的映射，避免两处各写一份
+  exports: [AuthService],
 })
 export class AuthModule {}

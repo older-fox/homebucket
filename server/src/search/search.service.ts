@@ -7,6 +7,7 @@ import { Location } from '../entities/location.entity';
 import { Tag } from '../entities/tag.entity';
 import { mediaUrl } from '../common/media';
 import { countByForeignKey } from '../common/relation-count';
+import { alive } from '../common/soft-delete';
 import { parsePackLevels } from '../items/packaging';
 
 /**
@@ -35,10 +36,10 @@ export class SearchService {
     const [items, locations, tags, units] = await Promise.all([
       this.items.find({
         where: [
-          { familyId, name: Like(keyword) },
-          { familyId, model: Like(keyword) },
-          { familyId, manufacturer: Like(keyword) },
-          { familyId, description: Like(keyword) },
+          { ...alive(), familyId, name: Like(keyword) },
+          { ...alive(), familyId, model: Like(keyword) },
+          { ...alive(), familyId, manufacturer: Like(keyword) },
+          { ...alive(), familyId, description: Like(keyword) },
         ],
         take: 20,
         order: { createdAt: 'DESC' },
@@ -59,7 +60,7 @@ export class SearchService {
         order: { name: 'ASC' },
       }),
       this.units.find({
-        where: { familyId, sn: Like(keyword) },
+        where: { ...alive(), familyId, sn: Like(keyword) },
         take: 20,
         relations: { item: true, location: true },
       }),
@@ -68,12 +69,14 @@ export class SearchService {
     // 原 `_count: { items/children }`：Item.locationId / Location.parentId 都是外键列，
     // 直接用聚合查询（见 common/relation-count.ts）
     const [locationItemCounts, locationChildCounts, tagItemCounts, takenOutUnitCounts] = await Promise.all([
-      countByForeignKey(this.items, 'locationId', locations.map((row) => row.id)),
+      countByForeignKey(this.items, 'locationId', locations.map((row) => row.id), (qb) =>
+        qb.andWhere('row.deletedAt IS NULL'),
+      ),
       countByForeignKey(this.locations, 'parentId', locations.map((row) => row.id)),
       this.countTagItems(tags.map((row) => row.id)),
       // 按件追踪的物品只有「部分取走」时 item.takenOutAt 仍为 null，前端胶囊需要件数才知道要显示什么
       countByForeignKey(this.units, 'itemId', items.map((row) => row.id), (qb) =>
-        qb.andWhere('row.takenOutAt IS NOT NULL'),
+        qb.andWhere('row.takenOutAt IS NOT NULL').andWhere('row.deletedAt IS NULL'),
       ),
     ]);
 
@@ -137,6 +140,7 @@ export class SearchService {
       .select('tag.id', 'tagId')
       .addSelect('COUNT(item.id)', 'total')
       .where('tag.id IN (:...ids)', { ids: tagIds })
+      .andWhere('item.deletedAt IS NULL')
       .groupBy('tag.id')
       .getRawMany<{ tagId: number | string; total: number | string }>();
 

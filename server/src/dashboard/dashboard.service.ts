@@ -7,6 +7,7 @@ import { ItemUnit } from '../entities/item-unit.entity';
 import { Location } from '../entities/location.entity';
 import { Tag } from '../entities/tag.entity';
 import { countByForeignKey, countByJoin } from '../common/relation-count';
+import { alive } from '../common/soft-delete';
 import { parsePackLevels } from '../items/packaging';
 
 /** 首页概览服务（职责：聚合家庭维度的统计、最近物品、位置与标签计数） */
@@ -24,13 +25,13 @@ export class DashboardService {
     const [family, itemCount, locationCount, tagCount, priceRows, recentItems, locations, tags] =
       await Promise.all([
         this.families.findOne({ where: { id: familyId } }),
-        this.items.count({ where: { familyId } }),
+        this.items.count({ where: { ...alive(), familyId } }),
         this.locations.count({ where: { familyId } }),
         this.tags.count({ where: { familyId } }),
         // 只要金额和数量参与汇总，没必要把每条物品整行读回来
-        this.items.find({ where: { familyId }, select: { price: true, quantity: true } }),
+        this.items.find({ where: { ...alive(), familyId }, select: { price: true, quantity: true } }),
         this.items.find({
-          where: { familyId },
+          where: { ...alive(), familyId },
           order: { createdAt: 'DESC' },
           take: 8,
           relations: { location: true, tags: true },
@@ -44,15 +45,18 @@ export class DashboardService {
     const tagIds = tags.map((tag) => tag.id);
 
     // Prisma 的 `_count` 在 TypeORM 1.x 没有等价物（loadRelationCountAndMap 已删除），
-    // 计数一律走 common/relation-count.ts 的聚合查询：有外键列用 countByForeignKey，
-    // 隐式多对多（标签↔物品）用 countByJoin。
+    // 计数一律走聚合查询：有外键列用 common/relation-count.ts 的 countByForeignKey，
+    // 隐式多对多（标签↔物品）用下边的 tagItemCounts。
     const [unitCounts, outUnitCounts, childCounts, itemCountsByLocation, itemCountsByTag] = await Promise.all([
-      countByForeignKey(this.units, 'itemId', recentItemIds),
+      // 聚合计数同样只数未软删除的行（Item / ItemUnit 都有 deletedAt）
+      countByForeignKey(this.units, 'itemId', recentItemIds, (qb) => qb.andWhere('row.deletedAt IS NULL')),
       // 首页也要能看到"已取走"：按件追踪的物品取走的是 unit，这里单独数一次
-      countByForeignKey(this.units, 'itemId', recentItemIds, (qb) => qb.andWhere('row.takenOutAt IS NOT NULL')),
+      countByForeignKey(this.units, 'itemId', recentItemIds, (qb) =>
+        qb.andWhere('row.takenOutAt IS NOT NULL').andWhere('row.deletedAt IS NULL'),
+      ),
       countByForeignKey(this.locations, 'parentId', locationIds),
-      countByForeignKey(this.items, 'locationId', locationIds),
-      countByJoin(this.tags, { relation: 'items', ids: tagIds }),
+      countByForeignKey(this.items, 'locationId', locationIds, (qb) => qb.andWhere('row.deletedAt IS NULL')),
+      this.tagItemCounts(tagIds),
     ]);
 
     // price 列挂了 decimal transformer，两个 provider 读回来都已经是 number（见 brief 地雷 6）
@@ -100,10 +104,13 @@ export class DashboardService {
   }
 
   /**
-   * 统计每个标签关联了多少物品：委托给 common/relation-count.ts 的 countByJoin
-   * （标签与物品是隐式多对多，连接表 _ItemTags 没有实体，只能 join 关系属性再 GROUP BY）。
+   * 统计每个标签关联了多少物品（只数未软删除的）：委托给 common/relation-count.ts 的 countByJoin
+   * （标签与物品是隐式多对多，连接表 _ItemTags 没有实体，只能 join 关系属性再 GROUP BY；
+   * refine 里用别名 `child` 过滤掉软删除的物品）。
    */
   private tagItemCounts(tagIds: number[]): Promise<Map<number, number>> {
-    return countByJoin(this.tags, { relation: 'items', ids: tagIds });
+    return countByJoin(this.tags, { relation: 'items', ids: tagIds }, (qb) =>
+      qb.andWhere('child.deletedAt IS NULL'),
+    );
   }
 }
