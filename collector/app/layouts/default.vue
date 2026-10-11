@@ -1,18 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import AdminTokenDialog from '../components/AdminTokenDialog.vue';
 import { capture, useApi } from '../composables/useApi';
 import type { HealthView, Loaded } from '../composables/useApi';
-import { loadToken, session } from '../composables/useAdminToken';
+import { adminSession as session, logout, refresh } from '../composables/useAdminSession';
 
 const api = useApi();
 const route = useRoute();
 const colorMode = useColorMode();
 
-const showToken = ref(false);
-
 /** 页脚的版本号与注册开关：公开接口，SSR 期就能取（走 Nitro 内部请求）。 */
-const { data: healthData, refresh: refreshHealth } = await useAsyncData<Loaded<HealthView>>(
+const { data: healthData } = await useAsyncData<Loaded<HealthView>>(
   'health',
   () => capture(() => api.health()),
   { default: (): Loaded<HealthView> => ({ data: null, error: '', status: 0 }) },
@@ -30,10 +27,27 @@ function isActive(path: string): boolean {
   return route.path === path || route.path.startsWith(`${path}/`);
 }
 
-// 令牌只在浏览器本地：挂在 mounted 之后再读，避免 SSR/水合不一致。
+// 会话状态只属于浏览器：SSR 拿不到 httpOnly cookie，所以探测放在 mounted 之后。
+// 公开页面（/、/stats）不主动探测 —— 那里没有要展示的账号信息，探一次只会白拿一个 401。
+const PROTECTED_PATHS = ['/admin', '/audit', '/password'];
+/**
+ * 顶栏的账号区必须等挂载后再渲染。
+ *
+ * 原因：首屏是 SSR 出来的（服务端没有 cookie，渲染成「登录」），但客户端路由中间件会在
+ * **首次渲染之前**就问到会话，于是客户端第一帧想渲染账号名 —— 与服务端 HTML 对不上，
+ * Vue 报 "Hydration completed but contains mismatches"。挂载标记把第一帧压回同一个形状。
+ */
+const mounted = ref(false);
 onMounted(() => {
-  loadToken();
+  mounted.value = true;
+  const needsAuth = PROTECTED_PATHS.some((path) => route.path === path || route.path.startsWith(`${path}/`));
+  if (!session.checked && needsAuth) void refresh();
 });
+
+async function onLogout(): Promise<void> {
+  await logout();
+  await navigateTo('/login');
+}
 
 const navLink =
   'rounded-full px-3 py-1.5 text-sm text-slate-600 no-underline transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800';
@@ -79,12 +93,22 @@ const chipWarn = 'border-amber-500/30 bg-amber-50 text-amber-700 dark:bg-amber-5
       </nav>
 
       <div class="ml-auto flex items-center gap-2 sm:ml-0">
-        <button data-testid="token-button" :class="smallButton" type="button" @click="showToken = true">
-          <span :class="[chip, session.token ? chipAccent : '']">
-            {{ session.token ? (session.verified ? '令牌已校验' : '令牌已保存') : '未填令牌' }}
+        <template v-if="mounted && session.user">
+          <span :class="[chip, chipAccent]" data-testid="nav-account" :title="`已登录：${session.user.username}`">
+            {{ session.user.username }}
           </span>
-          管理令牌
-        </button>
+          <NuxtLink data-testid="nav-password" to="/password" :class="smallButton">修改密码</NuxtLink>
+          <button
+            data-testid="nav-logout"
+            :class="smallButton"
+            type="button"
+            :disabled="session.pending"
+            @click="onLogout"
+          >
+            退出登录
+          </button>
+        </template>
+        <NuxtLink v-else data-testid="nav-login" to="/login" :class="smallButton">登录</NuxtLink>
         <button
           data-testid="theme-toggle"
           :class="smallButton"
@@ -120,6 +144,4 @@ const chipWarn = 'border-amber-500/30 bg-amber-50 text-amber-700 dark:bg-amber-5
       <span v-else>{{ healthMessage }}</span>
     </footer>
   </div>
-
-  <AdminTokenDialog v-if="showToken" @close="showToken = false" @verified="refreshHealth" />
 </template>

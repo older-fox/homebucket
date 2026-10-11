@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
 import ContributionList from '../components/ContributionList.vue';
 import FieldSourceTable from '../components/FieldSourceTable.vue';
 import Pager from '../components/Pager.vue';
 import { errorMessage, useApi } from '../composables/useApi';
 import type { AdminContribution, AdminItem, AdminItemDetail, InstanceRow, ItemPatchBody } from '../composables/useApi';
-import { loadToken, session } from '../composables/useAdminToken';
+import { adminSession } from '../composables/useAdminSession';
 
 type Tab = 'items' | 'instances';
+
+/** 需要登录：未登录时 admin-auth 中间件会把人送到 /login?redirect=/admin。 */
+definePageMeta({ middleware: 'admin-auth' });
 
 const api = useApi();
 
@@ -60,9 +63,8 @@ function fillForm(item: AdminItemDetail): void {
 }
 
 async function searchItems(): Promise<void> {
-  // 令牌在 localStorage：绝不在 SSR 期请求管理接口
+  // 会话在 httpOnly cookie 里：绝不在 SSR 期请求管理接口（401 由 useApi 统一送回登录页）
   if (import.meta.server) return;
-  if (!loadToken()) return;
   itemsLoading.value = true;
   error.value = '';
   try {
@@ -220,7 +222,6 @@ const instancesLoading = ref(false);
 
 async function loadInstances(): Promise<void> {
   if (import.meta.server) return;
-  if (!loadToken()) return;
   instancesLoading.value = true;
   error.value = '';
   try {
@@ -259,18 +260,11 @@ function openItems(): void {
   tab.value = 'items';
 }
 
+// 页面由 admin-auth 中间件保护：进得来就说明会话已经确认过，直接拉列表。
+// 请求途中若会话失效（401），useApi 会把人送回 /login?redirect=…
 onMounted(async () => {
-  loadToken();
-  if (session.token) await searchItems();
+  if (adminSession.user) await searchItems();
 });
-
-// 同上：在顶栏补了令牌之后直接把条目列表拉出来
-watch(
-  () => session.token,
-  (token) => {
-    if (token && items.value.length === 0 && !itemsLoading.value) void searchItems();
-  },
-);
 
 useHead({ title: '纠错台' });
 
@@ -292,7 +286,6 @@ const chip = 'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bo
 const chipWarn = 'border-amber-500/30 bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
 const chipDanger = 'border-red-500/30 bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300';
 const chipOk = 'border-emerald-500/30 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-const warnNotice = 'rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2.5 text-[13.5px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
 const errorNotice = 'mt-2.5 rounded-lg border border-red-500/30 bg-red-50 px-3 py-2.5 text-[13.5px] text-red-700 dark:bg-red-500/10 dark:text-red-300';
 const okNotice = 'mt-2.5 rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2.5 text-[13.5px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
 const tableWrap = 'w-full max-w-full overflow-x-auto rounded-[10px] border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900';
@@ -318,12 +311,7 @@ const tableCell = 'border-b border-slate-200 px-3 py-2 align-top text-[13.5px] d
     每次改完都会立刻按剩余流水重算，所以"隐藏一条脏数据"不需要手工回滚别的字段。
   </p>
 
-  <p v-if="!session.token" :class="warnNotice" data-testid="notice">
-    需要管理令牌：点右上角「管理令牌」填入服务端的 <code class="font-mono">COLLECTOR_ADMIN_TOKEN</code>。
-  </p>
-
-  <template v-else>
-    <div class="mb-4 flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800">
+  <div class="mb-4 flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800">
       <button
         data-testid="tabs-items"
         class="-mb-px cursor-pointer border-none border-b-2 bg-transparent px-3.5 py-2 text-[15px]"
@@ -602,5 +590,4 @@ const tableCell = 'border-b border-slate-200 px-3 py-2 align-top text-[13.5px] d
         "
       />
     </template>
-  </template>
 </template>

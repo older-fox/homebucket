@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { onMounted, ref } from 'vue';
 import ContributionList from '../components/ContributionList.vue';
 import Pager from '../components/Pager.vue';
 import { errorMessage, useApi } from '../composables/useApi';
 import type { AdminContribution } from '../composables/useApi';
-import { loadToken, session } from '../composables/useAdminToken';
+import { adminSession } from '../composables/useAdminSession';
 
 const api = useApi();
+
+/** 需要登录：未登录时 admin-auth 中间件会把人送到 /login?redirect=/audit。 */
+definePageMeta({ middleware: 'admin-auth' });
 
 const entries = ref<AdminContribution[]>([]);
 const total = ref(0);
@@ -22,13 +25,8 @@ const error = ref('');
 const notice = ref('');
 
 async function load(): Promise<void> {
-  // 令牌在 localStorage：绝不在 SSR 期请求管理接口
+  // 会话在 httpOnly cookie 里：绝不在 SSR 期请求管理接口（401 由 useApi 统一送回登录页）
   if (import.meta.server) return;
-  if (!loadToken()) {
-    entries.value = [];
-    total.value = 0;
-    return;
-  }
   loading.value = true;
   error.value = '';
   try {
@@ -75,18 +73,11 @@ function applyFilters(): void {
   void load();
 }
 
+// 页面由 admin-auth 中间件保护：进得来就说明会话已确认，直接拉流水。
+// 请求途中若会话失效（401），useApi 会把人送回 /login?redirect=…
 onMounted(async () => {
-  loadToken();
-  await load();
+  if (adminSession.user) await load();
 });
-
-// 令牌是在顶栏弹窗里补的：填完立刻把数据拉出来，不必手动刷新页面
-watch(
-  () => session.token,
-  (token) => {
-    if (token && entries.value.length === 0) void load();
-  },
-);
 
 useHead({ title: '上报审计' });
 
@@ -96,7 +87,6 @@ const input =
 const label = 'block text-[12.5px] text-slate-500 dark:text-slate-400';
 const primaryButton =
   'inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50';
-const warnNotice = 'rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2.5 text-[13.5px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
 const errorNotice = 'mt-3.5 rounded-lg border border-red-500/30 bg-red-50 px-3 py-2.5 text-[13.5px] text-red-700 dark:bg-red-500/10 dark:text-red-300';
 const okNotice = 'mt-3.5 rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2.5 text-[13.5px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
 </script>
@@ -112,12 +102,7 @@ const okNotice = 'mt-3.5 rounded-lg border border-emerald-500/30 bg-emerald-50 p
     每一条上报都是不可改的流水。这里是"谁在什么时候报了什么"的完整账本 —— 屏蔽某条上报后，相关字段会立刻按剩余流水重算。
   </p>
 
-  <p v-if="!session.token" :class="warnNotice" data-testid="notice">
-    需要管理令牌：点右上角「管理令牌」填入服务端的 <code class="font-mono">COLLECTOR_ADMIN_TOKEN</code>。
-  </p>
-
-  <template v-else>
-    <div :class="card" data-testid="card">
+  <div :class="card" data-testid="card">
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label class="block">
           <span :class="label">来源</span>
@@ -185,5 +170,4 @@ const okNotice = 'mt-3.5 rounded-lg border border-emerald-500/30 bg-emerald-50 p
         }
       "
     />
-  </template>
 </template>

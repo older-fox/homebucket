@@ -1,6 +1,7 @@
 import { useRequestFetch } from '#imports';
 import type { $Fetch } from 'ofetch';
-import { loadToken } from './useAdminToken';
+import { handleUnauthorized, isSessionErrorCode } from './useAdminSession';
+import type { AdminSessionView } from './useAdminSession';
 
 export interface ItemSummary {
   id: number;
@@ -132,13 +133,6 @@ export interface HealthView {
   storage: { provider: string; dataFile: string; items: number; contributions: number; instances: number };
 }
 
-export interface AdminSessionView {
-  ok: boolean;
-  version: string;
-  registrationOpen: boolean;
-  scope: string;
-}
-
 export interface ItemPatchBody {
   name?: string;
   description?: string;
@@ -179,7 +173,6 @@ type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 interface RequestOptions {
   method?: HttpMethod;
   body?: unknown;
-  admin?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -227,7 +220,14 @@ function buildApiError(caught: unknown): ApiError {
 
 function normalizeError(caught: unknown): Error {
   if (caught instanceof ApiError) return caught;
-  if (hasResponse(caught)) return buildApiError(caught);
+  if (hasResponse(caught)) {
+    const error = buildApiError(caught);
+    // 会话没了（未登录 / 过期 / 被吊销）：清掉本地状态并把人送回登录页，原页面进 redirect。
+    if (isSessionErrorCode(error.code)) {
+      handleUnauthorized(import.meta.client ? `${window.location.pathname}${window.location.search}` : undefined);
+    }
+    return error;
+  }
   const cause = isRecord(caught) ? caught.cause : undefined;
   if (cause instanceof Error) return cause;
   return caught instanceof Error ? caught : new Error(String(caught));
@@ -240,13 +240,7 @@ function normalizeError(caught: unknown): Error {
 async function request<T>(path: string, init: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers['content-type'] = 'application/json';
-  if (init.admin) {
-    const token = loadToken();
-    if (!token) {
-      throw new ApiError(401, 'admin.tokenMissing', '还没有填写管理令牌');
-    }
-    headers['x-admin-token'] = token;
-  }
+  // 管理接口靠 httpOnly cookie 鉴权：同源 fetch 会自动带上，这里不手动加任何令牌头。
   // useRequestFetch() 运行时就是 ofetch 实例（SSR 期是 Nitro 的内部 $fetch，相对路径直接命中同进程 /api），
   // 但它的类型被 Nitro 的路由表收窄成了字面量路径；这里按 ofetch 的公开类型使用它。
   const fetcher = useRequestFetch() as $Fetch;
@@ -286,43 +280,39 @@ export const api = {
   stats: () => request<StatsView>('/api/v1/stats'),
 
   admin: {
-    session: () => request<AdminSessionView>('/api/admin/session', { admin: true }),
+    session: () => request<AdminSessionView>('/api/admin/session'),
     items: (q: string, page = 1, pageSize = 20) =>
-      request<AdminItemListPage>(`/api/admin/items${query({ q, page, pageSize })}`, { admin: true }),
-    item: (id: number) => request<AdminItemDetail>(`/api/admin/items/${id}`, { admin: true }),
+      request<AdminItemListPage>(`/api/admin/items${query({ q, page, pageSize })}`),
+    item: (id: number) => request<AdminItemDetail>(`/api/admin/items/${id}`),
     patchItem: (id: number, body: ItemPatchBody) =>
       request<{ item: ItemDetail; applied: string[] }>(`/api/admin/items/${id}`, {
         method: 'PATCH',
         body,
-        admin: true,
       }),
     merge: (targetId: number, sourceItemId: number) =>
       request<{ target: ItemDetail; source: { id: number; barcode: string | null; mergedIntoId: number | null } }>(
         `/api/admin/items/${targetId}/merge`,
-        { method: 'POST', body: { sourceItemId }, admin: true },
+        { method: 'POST', body: { sourceItemId } },
       ),
     recomputeItem: (id: number) =>
       request<{ recomputedItems: number; requested: number; note: string }>(`/api/admin/items/${id}/recompute`, {
         method: 'POST',
-        admin: true,
       }),
     contributions: (params: AdminContributionQuery) =>
-      request<AdminContributionListPage>(`/api/admin/contributions${query({ ...params })}`, { admin: true }),
+      request<AdminContributionListPage>(`/api/admin/contributions${query({ ...params })}`),
     blockContribution: (id: number, blocked: boolean, reason?: string) =>
       request<{ contribution: AdminContribution; item: ItemSummary }>(`/api/admin/contributions/${id}/block`, {
         method: 'POST',
         body: { blocked, reason },
-        admin: true,
       }),
     instances: (page = 1, pageSize = 20) =>
-      request<InstanceListPage>(`/api/admin/instances${query({ page, pageSize })}`, { admin: true }),
+      request<InstanceListPage>(`/api/admin/instances${query({ page, pageSize })}`),
     blockInstance: (id: number, blocked: boolean, reason?: string) =>
       request<{ instance: InstanceRow; recomputedItems: number }>(`/api/admin/instances/${id}/block`, {
         method: 'POST',
         body: { blocked, reason },
-        admin: true,
       }),
-    recomputeAll: () => request<{ items: number }>('/api/admin/recompute', { method: 'POST', admin: true }),
+    recomputeAll: () => request<{ items: number }>('/api/admin/recompute', { method: 'POST' }),
   },
 };
 
@@ -334,8 +324,7 @@ export function useApi() {
 /** 把任何异常变成一句可以显示的话（ApiError 用服务端消息，其它用兜底文案） */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.code === 'admin.tokenMissing') return '先在右上角填写管理令牌';
-    if (error.code === 'admin.tokenInvalid') return '管理令牌不对';
+    if (isSessionErrorCode(error.code)) return '登录已失效，请重新登录';
     return error.message;
   }
   if (error instanceof TypeError) return '连不上收集器服务，检查它是否在运行';
