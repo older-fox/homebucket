@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": false,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "incremental": true,
+    "skipLibCheck": true,
+    // 只列真正提供全局类型的包；TypeScript 6 起 @types 不再被隐式全部加载
+    "types": ["node"],
+    "strictNullChecks": true,
+    "noImplicitAny": false,
+    // 实体（@Column）与 DTO（class-validator）都是先声明、由框架赋值的，严格属性初始化会全报错
+    "strictPropertyInitialization": false,
+    "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false
+  },
+  // typeorm CLI（db:*）用 ts-node 加载 data-source.ts；迁移脚本本身不需要类型检查
+  "ts-node": {
+    "transpileOnly": true
+  }
+}

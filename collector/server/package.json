@@ -1,0 +1,49 @@
+{
+  "name": "homebucket-collector-server",
+  "version": "0.0.1",
+  "private": true,
+  "description": "HomeBucket 物品信息收集器（后端）：公开的物品资料库 + 实例自动上报接口 + 人工纠错台 API",
+  "scripts": {
+    "build": "nest build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"test/*.test.mjs\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "db:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
+    "db:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
+    "db:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
+    "db:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
+    "db:check-drift": "node scripts/check-drift.mjs"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.2",
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-fastify": "^12.1.2",
+    "@nestjs/typeorm": "^12.0.2",
+    "better-sqlite3": "^13.0.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "dotenv": "^17.0.0",
+    "fastify": "^5.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "typeorm": "^1.1.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^12.0.8",
+    "@nestjs/schematics": "^12.0.6",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^24.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "better-sqlite3": "$better-sqlite3"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true
+  }
+}
