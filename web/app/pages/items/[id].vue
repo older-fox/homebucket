@@ -226,9 +226,22 @@ const historyPage = ref(1);
 const historyPageSize = 10;
 const historyLoading = ref(true);
 
-async function load() {
-  item.value = await api.get<ItemDetail>(`/items/${itemId}`);
+/**
+ * 读详情；物品不存在（例如已被删除，接口一律 404）时退回列表。
+ *
+ * 删除是软删除：行还在库里，但接口查不到，所以旧链接、浏览器历史、
+ * 别人的收藏夹都会打到这个 404 上——给一句提示比留一张白屏好。
+ */
+async function load(): Promise<boolean> {
+  try {
+    item.value = await api.get<ItemDetail>(`/items/${itemId}`);
+  } catch (error) {
+    toast.add({ title: (error as { message?: string }).message ?? t('errors.notFound'), color: 'error' });
+    await navigateTo('/items');
+    return false;
+  }
   if (showQr.value) await loadQr();
+  return true;
 }
 
 async function loadHistory() {
@@ -245,9 +258,9 @@ async function loadHistory() {
   }
 }
 
-/** 物品或 SN 变动后，详情与历史一起刷新 */
+/** 物品或 SN 变动后，详情与历史一起刷新（物品已不存在时只跳回列表，不再问历史） */
 async function reload() {
-  await Promise.all([load(), loadHistory()]);
+  if (await load()) await loadHistory();
 }
 
 function onHistoryPage(next: number) {
