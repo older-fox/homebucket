@@ -1,5 +1,6 @@
 import { Attachment } from './attachment.entity';
 import { ActivityLog } from './activity-log.entity';
+import { ApiKey } from './api-key.entity';
 import { Family } from './family.entity';
 import { FamilyInvite } from './family-invite.entity';
 import { FamilyMember } from './family-member.entity';
@@ -50,11 +51,13 @@ export const entities = [
   Template,
   NotificationChannel,
   ActivityLog,
+  ApiKey,
 ];
 
 export {
   Attachment,
   ActivityLog,
+  ApiKey,
   Family,
   FamilyInvite,
   FamilyMember,

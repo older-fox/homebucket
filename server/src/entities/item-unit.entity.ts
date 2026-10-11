@@ -58,6 +58,14 @@ export class ItemUnit {
   @Column({ type: 'datetime', precision: 3, nullable: true })
   takenOutAt: Date | null;
 
+  /** 这一个 SN 被标记为遗失（同上：软标记，仍留在库里，前端可见带标记） */
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  lostAt: Date | null;
+
+  /** 这一个 SN 被软删除：读接口一律过滤（前端不可访问） */
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  deletedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

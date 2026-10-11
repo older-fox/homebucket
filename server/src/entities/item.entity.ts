@@ -118,6 +118,24 @@ export class Item {
   @Column({ type: 'datetime', precision: 3, nullable: true })
   takenOutAt: Date | null;
 
+  /**
+   * 遗失时间：非空表示这件物品被标记为「已遗失」——取走太久没归还时用户选择的处理方式。
+   *
+   * 遗失不算删除：物品仍在库里（前端可见、带「已遗失」标记），用户之后可以选择删除。
+   * 与 `FamilyInvite.revokedAt` 一样用时间戳软标记，保留审计痕迹。
+   */
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  lostAt: Date | null;
+
+  /**
+   * 删除时间：非空表示这件物品已被软删除 —— **所有读接口都必须把它过滤掉（前端不可访问）**。
+   *
+   * 为什么不用硬删：操作历史靠 `ActivityLog` 的 actorName/itemName 快照保证可读，
+   * 物品行的删除时间也是审计信息；而且硬删会连带删掉它的 SN 与图片关联，误删无法挽回。
+   */
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  deletedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

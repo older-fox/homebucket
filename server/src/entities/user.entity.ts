@@ -12,6 +12,7 @@ import { Family } from './family.entity';
 import { FamilyMember } from './family-member.entity';
 import { FamilyInvite } from './family-invite.entity';
 import { Attachment } from './attachment.entity';
+import { ApiKey } from './api-key.entity';
 import { ForeignKeyIndex } from './foreign-key-index';
 import { STRING_LENGTH } from './column-spec';
 
@@ -43,6 +44,29 @@ export class User {
   @Column({ type: 'int', nullable: true })
   defaultFamilyId: number | null;
 
+  /**
+   * 超期未归位提醒阈值（天）：物品被取走超过这么多天就进消息中心提醒。
+   * 默认 7 天；`0` 表示关闭提醒（用户自己在前端设置）。
+   */
+  @Column({ type: 'int', default: 7 })
+  takenOutAlertDays: number;
+
+  /**
+   * 头像附件 id；没设头像时前端回退到用户名首字母。
+   *
+   * 为什么不像 `Item.coverImageId` 那样声明成 `@ManyToOne` 关系（即没有数据库外键）：
+   * 给**已存在**的表加外键，SQLite 只能整表重建（它没有 ALTER TABLE … ADD CONSTRAINT）。
+   * 而 TypeORM 的 revert 路径是**先** `startTransaction()` 再 `beforeMigration()`
+   * （node_modules/typeorm/migration/MigrationExecutor.js:317-324），此时 `PRAGMA foreign_keys = OFF`
+   * 已经落在事务里、是空操作 —— 重建时 `DROP TABLE "User"` 会真的触发子表的 ON DELETE 动作与约束检查：
+   * 实测报 `SqliteError: FOREIGN KEY constraint failed`（Family.ownerId 指向 User），
+   * 而 foreign_keys 一旦是开的，级联删除还会顺手清掉 FamilyMember 等子表数据。
+   * 既然 up 与 down 都得能在两种方言上安全跑完，这里就只存 id：
+   * 完整性由服务层保证（设置头像时校验附件属于同一家庭，附件被删则视为没有头像）。
+   */
+  @Column({ type: 'int', nullable: true })
+  avatarId: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -66,4 +90,7 @@ export class User {
 
   @OneToMany(() => Attachment, (attachment) => attachment.uploadedBy)
   uploads: Attachment[];
+
+  @OneToMany(() => ApiKey, (apiKey) => apiKey.user)
+  apiKeys: ApiKey[];
 }
