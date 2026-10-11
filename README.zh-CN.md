@@ -357,6 +357,7 @@ kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:d
 - 需要登录态的数据都在客户端加载（`onMounted` / `useAsyncData(..., { server: false })`），SSR 只渲染外壳，避免 SSR 阶段没有 cookie 时的 401。
 - 未登录直接 302 到登录页（鉴权中间件在服务端也执行）。
 - `npm run typecheck`（`nuxt typecheck`，vue-tsc），当前零错误。
+- **dev 冷启动的依赖预扫描报错**（`Failed to run dependency scan. Skipping dependency pre-bundling.` + `Missing "#components" specifier in "@nuxtjs/i18n" package`）是上游 nuxt + @nuxtjs/i18n + vite(rolldown) 组合的问题，只在 dev 冷启动（含清掉 `node_modules/.cache/vite` 后重启）出现，构建与 CI 都不跑这个扫描，报错时页面也照常打开，只是丢掉预打包、首次访问变慢。`nuxt.config.ts` 里用 `vite.optimizeDeps.rollupOptions.external: ['#components']` 绕过：全依赖树里只有 `@nuxtjs/i18n/dist/runtime/components/NuxtLinkLocale.js` 这样导入，而本项目没用它，把该说明符当外部依赖跳过后扫描恢复、42 个依赖照常预打包（`optimizeDeps.exclude: ['@nuxtjs/i18n']` 实测无效，`noDiscovery: true` 会完全关掉预打包）。上游修好后可以删掉这段配置。
 - Nuxt 为 **4.6.0**，`vue-router` 为 `^5.3.1`（此前固定 `^4.5.0`，而 Nuxt 已要求 5.x，`node_modules` 里因此存在两份副本）；`nuxt.config.ts` 增加 `sourcemap: { server: false }`，生产构建不再输出服务端 `.map` 文件。`/api/**` 代理 `routeRules` 与 `icon` / `colorMode` / `i18n` 配置均未改动。
 
 ### 布局模式

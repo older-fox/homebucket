@@ -86,4 +86,31 @@ export default defineNuxtConfig({
   routeRules: {
     '/api/**': { proxy: `${apiProxyTarget}/api/**` },
   },
+
+  // 绕开上游的一个 dev 启动报错（只影响 dev 冷启动，构建与 CI 都不跑这个扫描）。
+  //
+  // 现象：冷启动 dev（或清掉 node_modules/.cache/vite 后重启）时打印
+  //   ERROR (!) Failed to run dependency scan. Skipping dependency pre-bundling.
+  //   [plugin vite:dep-scan:resolve] Error: Missing "#components" specifier in "@nuxtjs/i18n" package
+  // 原因：依赖预扫描读到 @nuxtjs/i18n 运行时组件里的 `import { NuxtLink } from '#components'`。
+  //   `#components` 是 Nuxt 的虚拟模块，只在 transform 阶段被重写成真实导入；扫描阶段不跑
+  //   transform，裸 `#` 说明符就落到 Node 的 package imports 解析，@nuxtjs/i18n 的 imports 里
+  //   没有 `#components`，于是直接抛错，整个扫描失败（随之丢掉预打包，dev 首次访问变慢）。
+  // 为什么这样修：全依赖树里只有
+  //   @nuxtjs/i18n/dist/runtime/components/NuxtLinkLocale.js
+  // 这一处这样导入，而本项目（web/ 下）没有任何地方用到 NuxtLinkLocale / SwitchLocalePathLink，
+  // 所以在扫描时把 `#components` 当外部依赖跳过是安全的：扫描通过，42 个依赖照常预打包，
+  // 产物里不含 `#components`。曾试过 optimizeDeps.exclude: ['@nuxtjs/i18n'] —— 实测无效，
+  // exclude 只过滤「被爬到的依赖」，拦不住扫描对 `#` 说明符的解析；optimizeDeps.noDiscovery
+  // 虽不报错但会完全关掉预打包，代价更大。
+  // 上游 nuxt 4.6.0 + @nuxtjs/i18n 10.6.0 + vite 8.3.2（rolldown 1.2.12/1.2.13）均已是各自
+  // 最新版，问题仍在：nuxt/nuxt#33032 与提交 32d5655 只处理了「包自己在 imports 里声明
+  // #components」的情形。等上游修好后可以删掉这段配置。
+  vite: {
+    optimizeDeps: {
+      rollupOptions: {
+        external: ['#components'],
+      },
+    },
+  },
 });
