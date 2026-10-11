@@ -7,7 +7,7 @@
 </template>
 
 <script setup lang="ts">
-const { locale, locales, t } = useI18n();
+const { locale, locales, t, setLocale } = useI18n();
 
 const items = computed(() => [
   locales.value.map((item) => {
@@ -15,8 +15,11 @@ const items = computed(() => [
     const name = typeof item === 'string' ? item : (item.name ?? item.code);
     return {
       label: `${code === locale.value ? '● ' : '○ '}${name}`,
+      // 必须用 setLocale：@nuxtjs/i18n 默认懒加载语言包，直接写 locale.value 只会改标记，
+      // 不会把目标语言的 messages 拉下来，页面于是显示原始 key（dev 下还会刷一堆
+      // `[intlify] Not found 'auth.login' key in 'zh' locale messages.`）。
       onSelect: () => {
-        locale.value = code;
+        void setLocale(code);
       },
     };
   }),

@@ -455,6 +455,8 @@ POST {DATA_COLLECTION_ENDPOINT}/observations
 
 翻译文件只有一份，放在 `web/i18n/locales/`（主 `zh-CN`、次 `en`）。后端不做翻译，只返回机器可读的 `code`（如 `location.notFound`），前端按 code 查表，查不到才回退后端的中文兜底 `message`。
 
+切换语言走 `web/app/components/LocaleSwitcher.vue` 里的 `setLocale()`：`@nuxtjs/i18n` 默认懒加载语言文件，直接给 `locale.value` 赋值只改语言标记、不会加载目标语言的 messages，界面会回退成原始 key（如 `auth.login`）；`server/test/locale-coverage.test.mjs` 里有护栏拦住这种写法。
+
 新增语言：复制 `web/i18n/locales/en.json` → 改名 → 翻译 → 在 `nuxt.config.ts` 的 `locales` 里注册。详见 `web/i18n/README.md`。
 
 ## 演示数据（Mock）
@@ -480,5 +482,5 @@ cd server && npm run build && npm run seed   # seed 跑的是 dist/，需先构�
 - **启动即迁移**：空 sqlite 库启动 → 自动建库建表并直接注册成功；二次启动输出 `[migrate] provider=sqlite 没有待执行的迁移`；`AUTO_MIGRATE=false` 时跳过。
 - **Prisma 老库升级**：`db:baseline` 在不改动任何表的前提下登记 `Init` 并保留增量迁移待执行，随后 `db:run` 应用 `NormalizeFromPrisma` + `RenamePrismaFkIndexes`；该路径先做了演练、再实际执行，无数据丢失，完成后库结构与全新安装一致。
 - **Docker**：镜像用 BuildKit 构建成功，单容器同时起前后端，`0.0.0.0:3000` 可访问、`/api` 代理通、后端连上 dev MySQL（`db:true`）；`docker build --check` 无告警。
-- **CI**：两个 job 已在真实 GitLab runner 上跑起来（check → image，容器内执行、无 artifacts）。首次运行在 `check` 阶段就失败：server 的 `npm ci` 触发了 `better-sqlite3` 的隐式 `node-gyp rebuild`，而 slim 基础镜像没有 Python（`gyp ERR! find Python … Could not find any Python installation to use`）—— 已按 Dockerfile 里同样的做法加 `--ignore-scripts`，并按 CI 的步骤在干净目录逐条复跑通过（`typecheck`、`db:check-drift` 零漂移、`npm test` 51/51、web 侧 `npm ci` + `nuxt typecheck`）。
+- **CI**：两个 job 已在真实 GitLab runner 上跑起来（check → image，容器内执行、无 artifacts）。首次运行在 `check` 阶段就失败：server 的 `npm ci` 触发了 `better-sqlite3` 的隐式 `node-gyp rebuild`，而 slim 基础镜像没有 Python（`gyp ERR! find Python … Could not find any Python installation to use`）—— 已按 Dockerfile 里同样的做法加 `--ignore-scripts`，并按 CI 的步骤在干净目录逐条复跑通过（`typecheck`、`db:check-drift` 零漂移、`npm test` 54/54、web 侧 `npm ci` + `nuxt typecheck`）。
 

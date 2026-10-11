@@ -144,7 +144,7 @@ cd server && npm run typecheck && npm test && npm run db:check-drift
 cd web    && npm run typecheck
 ```
 
-`npm test` is a [node:test](https://nodejs.org/api/test.html) suite (49 assertions, no test dependencies); `db:check-drift` migrates a throwaway SQLite file and fails if `schema:log` is not empty, which catches "entity changed but no migration written".
+`npm test` is a [node:test](https://nodejs.org/api/test.html) suite (54 assertions, no test dependencies); `db:check-drift` migrates a throwaway SQLite file and fails if `schema:log` is not empty, which catches "entity changed but no migration written".
 
 Endpoints: `GET /api` (info), `GET /api/health` (health check), `POST /api/auth/register` (username + password, email optional), `POST /api/auth/login` (**username** + password), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
 
@@ -489,6 +489,8 @@ There is exactly one set of translation files, in `web/i18n/locales/` (primary `
 
 That contract is checked by `server/test/locale-coverage.test.mjs` (part of `npm test`), which fails when the two files drift apart, when a placeholder is lost in translation, when English text still contains CJK characters, when a `code` returned by the backend has no `api.*` entry, or when a DTO uses a class-validator constraint with no `validation.*` entry. Note that a constraint name is not the decorator name: `@Length` reports `isLength`.
 
+Switching the language at runtime goes through `setLocale()` in `web/app/components/LocaleSwitcher.vue`: `@nuxtjs/i18n` lazy-loads the locale files, so assigning `locale.value` directly changes only the locale marker — the target messages are never fetched and the UI falls back to raw keys (`auth.login`). The same test file guards against that pattern.
+
 To add a language: copy `web/i18n/locales/en.json` → rename → translate → register it in the `locales` array of `nuxt.config.ts`. See `web/i18n/README.md`.
 
 ## Demo data
@@ -526,4 +528,4 @@ Everything in this section was run against this repository; the first group is a
 - **Frontend runtime**: register / login / me, item CRUD with SN units, packaging editor, take-out and put-back from the scan sheet (including unknown codes offering "create an item"), the activity timeline, both locales (including the punctuation that follows the locale), and hydration mismatches on eight routes — none left. `nuxt typecheck` and `nuxt build` pass.
 - **Migrate on boot**: starting against an empty SQLite database creates the file and tables and registration succeeds immediately; a second start logs `[migrate] provider=sqlite 没有待执行的迁移`; `AUTO_MIGRATE=false` skips it.
 - **Docker**: the image builds with BuildKit; one container serves both apps with `0.0.0.0:3000` reachable, the `/api` proxy working and the backend connected to the dev MySQL (`db:true`); `docker build --check` reports no warnings.
-- **CI**: both jobs have now been exercised on a real GitLab runner (check → image, in-container, no artifacts). The first run failed inside `check`: the server `npm ci` triggered the implicit `better-sqlite3` `node-gyp rebuild` and the slim base image has no Python (`gyp ERR! find Python … Could not find any Python installation to use`). Fixed by installing the server with `--ignore-scripts`, exactly as the Dockerfile already does; every command of the job was then re-run in a clean directory — `typecheck`, `db:check-drift` (zero drift), `npm test` 51/51, plus web `npm ci` and `nuxt typecheck`.
+- **CI**: both jobs have now been exercised on a real GitLab runner (check → image, in-container, no artifacts). The first run failed inside `check`: the server `npm ci` triggered the implicit `better-sqlite3` `node-gyp rebuild` and the slim base image has no Python (`gyp ERR! find Python … Could not find any Python installation to use`). Fixed by installing the server with `--ignore-scripts`, exactly as the Dockerfile already does; every command of the job was then re-run in a clean directory — `typecheck`, `db:check-drift` (zero drift), `npm test` 54/54, plus web `npm ci` and `nuxt typecheck`.

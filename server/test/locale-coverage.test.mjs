@@ -219,3 +219,29 @@ test('validation 段不能有已经没人用的文案', () => {
     assert.deepEqual(stale, [], `${locale} 的 validation 段有多余文案（若是有意保留请加进 RESERVED）`);
   }
 });
+
+test('源码护栏：切语言要用 setLocale，别直接写 locale.value', () => {
+  // @nuxtjs/i18n 默认懒加载语言包。直接赋值 `locale.value = 'zh-CN'` 只改语言标记，
+  // 不会把目标语言的 messages 拉下来，页面就显示原始 key（如 `auth.login`），
+  // dev 控制台还会刷 `[intlify] Not found 'auth.login' key in 'zh' locale messages.`。
+  // 必须用 useI18n() 暴露的 setLocale()：它负责加载 messages 并写 hb_locale cookie。
+  const root = new URL('../../web/app/', import.meta.url);
+  const offenders = [];
+  for (const entry of readdirSync(root, { recursive: true })) {
+    const file = String(entry);
+    if (!file.endsWith('.vue') && !file.endsWith('.ts')) continue;
+    const source = readFileSync(new URL(file, root), 'utf8');
+    if (/locale\.value\s*=[^=]/.test(source)) offenders.push(file);
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些文件直接给 locale.value 赋值（懒加载的语言包不会生效，切完显示原始 key）：${offenders.join(', ')}`,
+  );
+
+  const switcher = readFileSync(
+    new URL('../../web/app/components/LocaleSwitcher.vue', import.meta.url),
+    'utf8',
+  );
+  assert.match(switcher, /setLocale\(/, '语言切换器必须调用 setLocale()，否则切完文案全变原始 key');
+});
