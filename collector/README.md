@@ -76,6 +76,20 @@ npm start                   # node scripts/start.mjs，3400 上同时提供 API 
 | `COLLECTOR_MAX_BODY_SIZE` | `64kb` | 请求体上限（无单位的数字按字节算）。 |
 | `COLLECTOR_RATE_LIMIT` | `240` | 每个来源 IP 在每个窗口内的请求数上限（查询/注册/上报共用）。 |
 | `COLLECTOR_RATE_WINDOW_MS` | `60000` | 限流窗口长度。 |
+| `COLLECTOR_TRUST_PROXY` | `false` | 是否信任 `x-forwarded-for`。**只在收集器确实位于可信反向代理之后时才开**，否则客户端可以自己伪造来源 IP。 |
+| `COLLECTOR_SOURCE_FINGERPRINT_VOTES` | `true` | 只靠 IP+UA 指纹认出来的来源是否参与计票。 |
+| `COLLECTOR_WEIGHT_INITIAL` / `_UP` / `_DOWN` / `_MIN` / `_MAX` | `1` / `1.2` / `1.5` / `0.05` / `5` | 反馈加权的基准与上下限（详见 [数据合并规则](#上报是分来源暂存的)）。 |
+| `COLLECTOR_PHOTO_DRIVER` | `local` | 照片存储驱动：`local` 或 `s3`（填别的显式启动失败）。 |
+| `COLLECTOR_PHOTO_LOCAL_DIR` | 库文件旁的 `photos/` | local 驱动的落盘目录。 |
+| `COLLECTOR_PHOTO_PUBLIC_BASE` | 空 | 图片对外地址前缀；留空返回本站相对路径。 |
+| `COLLECTOR_PHOTO_MAX_BYTES` / `_MAX_FILES` | `8mb` / `20000` | 单图上限；local 驱动下的文件总数上限。 |
+| `COLLECTOR_PHOTO_ALLOW_ANONYMOUS` | `true` | 是否允许不带实例身份的匿名图片上传。 |
+| `COLLECTOR_S3_ENDPOINT` / `_REGION` / `_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | 空 / `us-east-1` / 空 / 空 / 空 | `s3` 驱动必填四项（endpoint/bucket/ak/sk），缺一即启动失败。 |
+| `COLLECTOR_S3_PREFIX` / `_FORCE_PATH_STYLE` / `_PUBLIC_BASE` | `photos/` / `true` / 空 | 对象键前缀；MinIO 等需要 path-style；直链前缀。 |
+| `COLLECTOR_SYNC_TRANSPORT` | `off` | 出站同步传输：`off` / `http` / `file`（选 http 必须配 ENDPOINT、file 必须配 DIR）。 |
+| `COLLECTOR_SYNC_ENDPOINT` / `_DIR` / `_TOKEN` | 空 | 推送目标地址 / file 传输目录 / 导出与导入所需令牌（留空即关闭导出接口）。 |
+| `COLLECTOR_SYNC_INTERVAL_MINUTES` | `0` | 自动同步间隔；**0 = 只手动**。 |
+| `COLLECTOR_SYNC_BATCH_SIZE` / `_TIMEOUT_MS` / `_MAX_ATTEMPTS` / `_INCLUDE_PHOTOS` | `200` / `10000` / `5` / `true` | 每批条目数 / 单次超时 / 重试上限 / 是否连图片一起传。 |
 | `NODE_ENV` | `development` | `production` 会收紧（管理员口令必须显式配置，不再回退开发默认值）。 |
 
 迁移到 Nuxt 之后**没有** `COLLECTOR_API_PREFIX` / `COLLECTOR_WEB_DIR`：接口路径由 `server/api/` 的目录结构决定（统一挂在 `/api/**`），页面由 Nuxt 自己提供。
@@ -117,9 +131,15 @@ services:
 
 镜像里已经设好 `COLLECTOR_DB_FILE_PATH=/data/collector.db` 与 `COLLECTOR_AUTO_MIGRATE=true`，
 所以只要挂 `/data` 就能持久化，`HEALTHCHECK` 打的是 `GET /api/health`。
+照片默认落在 `/data/photos/`（就在库旁边，跟着同一个卷一起备份）。
 
-**放到公网前请做两件事**：套一层 HTTPS 反代（nginx/Caddy/Cloudflare 都行，实例端走的是 http(s) 明文请求），
-以及确认反代把 `X-Forwarded-For` 传下来 —— 收集器读它做限流，否则所有实例会共用一份额度。
+要跟上级数据库对接，再加两个变量：`COLLECTOR_SYNC_TOKEN`（导出/导入接口的令牌，
+**不要**填管理员口令）与 `COLLECTOR_SYNC_TRANSPORT`（默认 `off` = 只提供导出接口、不主动外发）。
+
+**放到公网前请做三件事**：套一层 HTTPS 反代（实例端走的是 http(s) 明文请求），
+把 `COLLECTOR_TRUST_PROXY=true` 打开并确认反代确实传 `X-Forwarded-For` ——
+收集器读它做限流与来源指纹，不传的话所有实例会共用一份额度、也会被认成同一个来源；
+以及为收集器单独规划数据卷容量（含照片），必要时设 `COLLECTOR_PHOTO_MAX_FILES` 兜底。
 
 ## 两套协议
 
@@ -144,14 +164,23 @@ services:
 curl 'http://127.0.0.1:3400/api/v1/items?q=battery&page=1&pageSize=20'
 # → { "items": [...], "total": 12, "page": 1, "pageSize": 20 }
 
-# 详情：每个字段都带来源（谁报的、什么时候、是否被人工锁定）
+# 详情：每个字段都带来源（谁报的、什么时候、是否被人工锁定），以及投票情况
 curl http://127.0.0.1:3400/api/v1/items/6901234567890
 # → { "barcode": "6901234567890", "name": "...", "fields": [ { "field": "name", "value": "...",
-#      "source": "instance", "instanceId": 3, "instanceName": "书房那台", "observedAt": "...", "locked": false }, ... ],
+#      "source": "instance", "instanceId": 3, "instanceName": "书房那台", "observedAt": "...", "locked": false,
+#      "voted": true, "decided": false, "voteCount": 2, "voteWeight": 2.4, "totalWeight": 3.4,
+#      "candidates": [ { "value": "...", "weight": 1.2, "count": 1 }, ... ] }, ... ],
 #      "imageUrls": [...], "attributes": {...}, "lockedFields": [...], "mergedIntoId": null }
 
 # 某个条码的上报记录（审计，公开可读）
 curl http://127.0.0.1:3400/api/v1/items/6901234567890/contributions
+
+# 反馈某个来源报的值准不准（匿名可调；带实例 key 也行）
+curl -X POST http://127.0.0.1:3400/api/v1/feedback \
+  -H 'content-type: application/json' \
+  -d '{"barcode":"6901234567890","field":"name","value":"5 号碱性电池","accurate":true,"note":"我手上就是这个"}'
+# → { "recorded": true, "sourceKey": "f:…", "weight": 1.2, "upvotes": 1, "downvotes": 0 }
+# 同一个来源对同一字段重复提交同一个判断 → { "recorded": false, … }（幂等，不重复加权）
 
 # 统计概览（管理台首页那几张卡片用的就是它）
 curl http://127.0.0.1:3400/api/v1/stats
@@ -159,6 +188,23 @@ curl http://127.0.0.1:3400/api/v1/stats
 # 健康检查
 curl http://127.0.0.1:3400/api/health
 ```
+
+照片（`POST` 是 multipart，字段名 `file`）：
+
+```bash
+# 上传一张图：按内容寻址去重，返回可长期引用的地址
+curl -X POST http://127.0.0.1:3400/api/v1/photos \
+  -H 'x-collector-key: hbc_...' -F 'file=@/path/to/photo.jpg'
+# → 201 { "url": "/api/photos/ab/cd/abcdef….jpg", "hash": "abcdef…", "bytes": 84213, "contentType": "image/jpeg" }
+# 只信 magic bytes（png/jpeg/webp/gif），不看扩展名也不看声明的 content-type
+
+# 抓取外链图片转存到本站（实例只能给外链、又不想对方失联时用）
+curl -X POST http://127.0.0.1:3400/api/v1/photos/import \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/p.jpg","sourceId":"homebucket-living-room"}'
+```
+
+上报里的 `imageUrls` 可以**混用**外链与本站地址（`/api/photos/…` 会被放行，不再当成非法相对路径）。
 
 需要身份的写入：
 
@@ -212,6 +258,47 @@ curl -X POST http://127.0.0.1:3400/api/v1/observations \
 2. 返回体里多了 `description` / `attributes` / `updatedAt` 三个字段。老客户端只读它认识的键，多余字段无害；
    收集器自己的前端则可以直接复用同一个响应。
 
+### C. 与上级数据库之间（`COLLECTOR_SYNC_*` 配置）
+
+"上级数据库"是**另一个独立项目**，接口由对方定 —— 所以这里只提供规则化的传输，
+载荷格式由 `server/services/sync.service.ts` 定义并与传输解耦，换传输方式不用改业务映射。
+
+**只有带条码的条目**会参与同步（没有条码的身份是本地指纹，换一套库就没有意义了）。
+同步范围是**每次全量**：`payloadHash` 没变的条目跳过重传，`force` 可以强制覆盖。
+
+```bash
+# 对方来拉（只读导出）：需要同步令牌，不是管理员口令
+curl -H 'authorization: Bearer <COLLECTOR_SYNC_TOKEN>' \
+  'http://127.0.0.1:3400/api/v1/export?page=1&pageSize=200'
+# → { "format": "homebucket.collector.sync/1", "generatedAt": "...",
+#      "collector": { "version": "0.1.0", "dataFile": "/data/collector.db" }, "count": 12,
+#      "items": [ { "barcode": "6901234567890", "name": "...", "imageUrls": [...],
+#                   "attributes": {...}, "provenance": [...] } ],
+#      "page": 1, "pageSize": 200, "total": 12, "hasMore": false }
+# 循环拉直到 hasMore=false
+
+curl -H 'authorization: Bearer <COLLECTOR_SYNC_TOKEN>' \
+  http://127.0.0.1:3400/api/v1/export/6901234567890        # 单条；没收录是 404 item.notFound
+
+# 对方推回来（同一套载荷格式）：顶层只要有 items 数组即可，单次最多 500 条
+curl -X POST http://127.0.0.1:3400/api/v1/import \
+  -H 'authorization: Bearer <COLLECTOR_SYNC_TOKEN>' -H 'content-type: application/json' \
+  -d '{"sourceId":"upstream-db","items":[{"barcode":"6901234567890","name":"...","attributes":{"电压":"18V"}}]}'
+# → 201 { "accepted": 1, "created": 0, "results": [ { "barcode": "...", "created": false, "itemId": 1 } ] }
+```
+
+几个刻意的取舍：
+
+- **同步令牌不复用管理员账号**。调用方是另一套系统，不该拿到纠错台的口令 —— 对方被攻破不该等于
+  收集器的纠错台被攻破。`COLLECTOR_SYNC_TOKEN` 留空时导出接口一律 401（不配就是关掉，
+  不要把"内网"当安全边界）。用 `Authorization: Bearer` 或 `x-collector-sync-token` 头传。
+- **推回来的数据走正常的 `contributions.create` 重放**，不直写物化列。`CatalogItem` 的字段值只能是
+  上报重放的结果，绕过重放会在下一轮重放被冲掉（表现为"同步成功了但数据过一会儿变回去"）。
+- **`COLLECTOR_SYNC_TRANSPORT=off` 是默认值**：只提供导出接口、不主动外发。要打开定时推送
+  先确认对方能收（`COLLECTOR_SYNC_INTERVAL_MINUTES=0` 表示只手动，在"上级数据库"页面点按钮）。
+- 每条同步都有账本（`OutboundSync`）：状态、尝试次数、最后错误、对方的 id。失败按指数退避重试，
+  超过 `COLLECTOR_SYNC_MAX_ATTEMPTS` 就留在失败清单里，界面上一眼能看见。
+
 ## 实例怎么接进来
 
 **已经部署出去的实例**不需要改代码：把它的 `DATA_COLLECTION_ENDPOINT` 指到收集器即可。
@@ -255,6 +342,34 @@ DATA_COLLECTION_TIMEOUT_MS=1500
 `CatalogItem` 只是这些观测**重放出来的物化投影**：屏蔽一条上报、改一次人工纠错、合并两个条目之后，
 都会重算投影 —— 所以不需要维护任何汇总表。全库重放（`POST /api/admin/recompute`）永远能重算出一致的结果。
 
+### 上报是分来源暂存的
+
+上面那套"最新非空观测胜出"是**回退口径**：每条上报都会先按来源单独存下来（`ItemObservation`
+一行 = 某来源对某物品某字段的一次证据），能计票时才按投票决定下发什么。
+
+**投票**（`server/utils/voting.ts`，纯函数、随机源可注入）：
+
+- 每个来源对每个字段**只持一票**。同一个来源先报 A 后报 B，只算它最后报的那个值 ——
+  否则一个来源改口一次就能给自己多投一票。
+- 按**权重和**排序，权重相同才看票数，再相同取最早报出的值。
+  所以"反馈能改变下发结果"是靠权重生效的，不是靠票数。
+- 只有唯一最高票（无并列、或权重/票数分出高下）时才 `decided`；
+  没有最高票时**按权重随机下发**其中一个被上报的值 —— 这里绝不编造一个值，
+  随机只在"真的报上来的那几个"之间选。
+
+**反馈加权**：
+
+- `POST /api/v1/feedback` 收"某个来源在某物品某字段上报的值准不准"，匿名可调。
+- 权重 = `initial × up^好评数 ÷ down^差评数`，再夹到 `[min, max]`（默认 1 / 1.2 / 1.5 / 0.05 / 5，
+  见 `COLLECTOR_WEIGHT_*`）。这是权重**唯一**的写入路径 —— 改判时按全部反馈重算，
+  不在旧值上做增量（改判要能反向纠回来）。
+- 好评、差评都按「一个来源对一个字段只有一票」去重：甲说乙不对、丙也说乙不对，只算乙一次差评。
+  所以界面上的"好评数"是**被认可的字段数**，不是"收到过几条好评"。
+
+**来源身份**：上报全是匿名的，投票身份只能从请求推导 —— 自报 ID
+（`x-collector-source` 头 / 请求体 `sourceId` / `?source=`）优先，否则退回 IP + User-Agent 指纹
+（只存 sha256）。两种都认不出来时该上报仍会入库、仍进审计，但**不参与投票**。
+
 ## 置信度怎么算
 
 老契约里的 `confidence` 是一个 0~1 的数，用来告诉实例"这份资料有多少来源在互相印证"：
@@ -272,22 +387,35 @@ confidence = 赞同当前值的观测数 / (可比较的观测数 + 1)
 
 ## 管理台
 
-浏览器打开收集器地址（生产形态即 `http://<host>:3400/`），页面有五个：
+浏览器打开收集器地址（生产形态即 `http://<host>:3400/`）。界面按 Design.md 的风格规范做了统一
+（单一蓝色强调色 + 中性灰、系统字体栈、内联 SVG 图标、class 驱动的明暗模式、文案全部走
+`@nuxtjs/i18n` 且顶栏可切换中/英），外壳是左侧 256px 固定侧栏 + 顶部 64px 栏，窄屏收成抽屉。
 
-| 页面 | 作用 |
-| --- | --- |
-| 查询 | 按条码/关键字搜物品，看详情 |
-| 详情 | 每个字段的值 + **来源**（人工纠错 / 实例名 / 未知来源）、观测时间、锁定状态 |
-| 审计 | 所有上报记录，可按实例 / 物品 / 来源 / 是否被屏蔽筛选，单条屏蔽或恢复 |
-| 纠错台 | 改字段（可同时锁定）、显式清空字段、屏蔽上报、合并重复条目、封禁/解封实例 |
-| 统计 | 物品/上报/实例总量与近期趋势（聚合 SQL 实时算，不落汇总表） |
+| 页面 | 需登录 | 作用 |
+| --- | --- | --- |
+| 查询 `/` | 否 | 按条码/关键字搜物品，看详情 |
+| 详情 `/items/:barcode` | 否 | 每个字段的值 + **来源**、观测时间、锁定状态，以及**投票情况**（票数/权重、是否已判出最高票） |
+| 统计 `/stats` | 否 | 物品/上报/实例总量与近期趋势（聚合 SQL 实时算，不落汇总表） |
+| 审计 `/audit` | 是 | 所有上报记录，可按实例 / 物品 / 来源 / 是否被屏蔽筛选，单条屏蔽或恢复 |
+| 纠错台 `/admin` | 是 | 改字段（可同时锁定）、显式清空字段、屏蔽上报、合并重复条目、封禁/解封实例 |
+| 来源管理 `/sources` | 是 | 每个上报来源的权重、好评/差评、证据数；可手改权重（会被下次自动重算覆盖） |
+| 上级数据库 `/upstream` | 是 | 待同步/已同步/失败清单、上行载荷预览（含图片）、手动触发同步 |
+| 登录 `/login` | — | 独立单页，不套应用外壳 |
+| 改密码 `/password` | 是 | 当前口令 + 新口令 |
 
-页面是 Nuxt SSR（公开页）+ Tailwind v4，深色模式用 `@nuxtjs/color-mode`（`.dark` class，跟随系统，可手动切换）。
+页面是 Nuxt SSR（公开页）+ Tailwind v4 + Nuxt UI v4，深色模式用 `@nuxtjs/color-mode`
+（`.dark` class，跟随系统，可手动切换）。
+
+**未登录时的拦截是服务端 302**：受保护路由由全局中间件 `app/middleware/login-gate.global.ts`
+在 SSR 阶段直接 `sendRedirect` 到 `/login?redirect=<原路径>`，**页面内容一帧都不渲染**（不是
+"先渲染再跳"）。公开页 `/`、`/stats`、`/items/*` 以及 `/api/*`、`/_nuxt/*` 不在拦截范围内。
+客户端侧另有 `useAuthGate()` 兜一道（处理会话中途失效），确认未登录时同样跳登录页。
 
 ### 登录与账号
 
-纠错台/审计/改密码这几个页面要登录才能用（公开查询不需要）：未登录访问会自动跳到 `/login`，
-登录后顶栏出现账号菜单（**修改密码** / **退出登录**）。
+纠错台/审计/来源管理/上级数据库/改密码这几个页面要登录才能用（公开查询与统计不需要）：
+未登录访问会由服务端 302 跳到 `/login?redirect=<原路径>`，登录后回跳原页；
+登录后侧栏底部出现账号区（**修改密码** / **退出登录**）。
 
 开发环境（非 `NODE_ENV=production`）不配 `COLLECTOR_ADMIN_PASSWORD` 也能直接登录：账号 `admin`、口令 `dev-admin-password`。
 
@@ -340,6 +468,15 @@ POST   /api/admin/contributions/:id/block  # { blocked, reason }
 GET    /api/admin/instances
 POST   /api/admin/instances/:id/block      # { blocked, reason }
 POST   /api/admin/recompute                # 全库重放
+
+GET    /api/admin/sources?page=&suspicious= # 来源列表（权重升序，可疑的在前）
+GET    /api/admin/sources/:key              # 来源详情（近期证据 + 收到的反馈）
+POST   /api/admin/sources/:key/weight       # { weight } 手改权重（会被下次自动重算覆盖）
+
+GET    /api/admin/sync                      # 同步总览：配置 + 计数 + 账本
+GET    /api/admin/sync/:id                  # 单条上行载荷预览（含图片）
+POST   /api/admin/sync/:id/reset            # 把这条的账本清回待同步
+POST   /api/admin/sync/run                  # { force, limit } 手动触发一轮同步
 ```
 
 接口的错误统一是 `{"statusCode":404,"code":"item.notFound","message":"..."}`，
