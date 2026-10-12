@@ -22,8 +22,10 @@ export default defineEventHandler((event) => {
   if (!path.startsWith('/api/')) return;
   if (path.startsWith('/api/admin')) return;
 
-  // 部署在 nginx/cloudflare 后面时必须信 X-Forwarded-For，否则所有实例共用一个额度
-  const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
+  // 只有在收集器确实位于可信反向代理之后时才信 X-Forwarded-For；否则这个头是
+  // 客户端随便写的 —— 拿它当限流键等于把"限流"变成"换个头就绕过"。与投票身份
+  // (utils/source.ts) 用同一个 COLLECTOR_TRUST_PROXY 开关，两处口径一致。
+  const ip = getRequestIP(event, { xForwardedFor: env.source.trustProxy }) ?? 'unknown';
   const decision = limiter.hit(ip);
 
   setResponseHeader(event, 'x-ratelimit-limit', decision.limit);

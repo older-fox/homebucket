@@ -23,6 +23,7 @@ import {
   type ItemSummaryView,
 } from './items.service';
 import { contributionsRepo, itemsRepo } from './repositories';
+import { normalizePaging } from '../utils/pagination';
 
 export interface AdminSessionView {
   ok: true;
@@ -116,8 +117,7 @@ export class AdminService {
     pageSize: number;
   }> {
     const needle = query.q?.trim().toLowerCase();
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
+    const { page, pageSize, skip, take } = normalizePaging(query);
     const qb = itemsRepo(this.source.manager).createQueryBuilder('i');
     if (needle) {
       const { sql, params } = searchClause('i', needle);
@@ -125,8 +125,8 @@ export class AdminService {
     }
     qb.orderBy('i.updatedAt', 'DESC')
       .addOrderBy('i.id', 'DESC')
-      .skip((page - 1) * pageSize)
-      .take(pageSize);
+      .skip(skip)
+      .take(take);
     const [rows, total] = await qb.getManyAndCount();
     return {
       items: rows.map((row) => ({
@@ -163,8 +163,7 @@ export class AdminService {
     page: number;
     pageSize: number;
   }> {
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
+    const { page, pageSize, skip, take } = normalizePaging(query);
     const qb = contributionsRepo(this.source.manager).createQueryBuilder('c');
     if (query.itemId !== undefined) {
       qb.andWhere('c.catalogItemId = :itemId', { itemId: query.itemId });
@@ -177,8 +176,8 @@ export class AdminService {
     }
     if (query.source !== undefined) qb.andWhere('c.source = :source', { source: query.source });
     qb.orderBy('c.id', 'DESC')
-      .skip((page - 1) * pageSize)
-      .take(pageSize);
+      .skip(skip)
+      .take(take);
     const [rows, total] = await qb.getManyAndCount();
 
     const briefs = await this.itemBriefs(rows.map((row) => row.catalogItemId));
@@ -370,6 +369,18 @@ export class AdminService {
       await this.itemsService.recomputeItem(Number(affectedRow.catalogItemId));
     }
     return { instance: this.instancesService.toView(row), recomputedItems: affected.length };
+  }
+
+  /**
+   * 重放**单个**条目。
+   *
+   * 屏蔽一条上报、封禁一个实例时，代码里已经在按"受影响条目"逐个 `recomputeItem`；
+   * 界面上的「重放这个条目」按钮自然也该只重放它自己，而不是把整库扫一遍。
+   * 复用 `ItemsService.recomputeItem`（唯一的写入点），条目不存在时由它抛 404。
+   */
+  async recomputeItem(id: number): Promise<{ recomputedItems: number; requested: number }> {
+    await this.itemsService.recomputeItem(id);
+    return { recomputedItems: 1, requested: id };
   }
 
   /** 全库重放：合并、手工改库、迁移之后用它把字段值统一对齐到上报序列 */

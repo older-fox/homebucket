@@ -16,7 +16,9 @@ const limiter = new FixedWindowRateLimiter(env.loginRateLimit, env.loginRateWind
 
 export default defineEventHandler(
   apiHandler(async (event) => {
-    const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
+    // 猜口令的限流键同样只在可信代理后才取 X-Forwarded-For，否则攻击者每次
+    // 换一个伪造头就绕过了限流（见 middleware/20.rate-limit.ts 的同一处说明）。
+    const ip = getRequestIP(event, { xForwardedFor: env.source.trustProxy }) ?? 'unknown';
     const decision = limiter.hit(ip);
     setResponseHeader(event, 'x-ratelimit-limit', decision.limit);
     setResponseHeader(event, 'x-ratelimit-remaining', decision.remaining);

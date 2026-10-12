@@ -29,6 +29,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EntityManager } from 'typeorm';
 import { env } from '../utils/env';
+import { conflict } from '../utils/http';
 import { isoNow } from '../utils/time';
 import { outboundSyncRepo, itemsRepo } from './repositories';
 import type { CatalogItemRow, OutboundSyncRow } from '../database/entities';
@@ -217,6 +218,16 @@ export interface SyncRunResult {
  * 下次跑（手动或定时）会把它重新纳入候选，attempts 累加，超过
  * `maxAttempts` 后仍在候选里但不再自动重试 —— 见 `isDue()`。
  */
+/**
+ * 同一进程内只允许一轮同步在跑。
+ *
+ * 定时器（plugins/upstream.ts）与"立即同步"接口（api/admin/sync/run.post.ts）都会
+ * `new SyncService().run()`，两边是不同实例，所以锁必须放在**模块作用域**而不是实例上。
+ * 没有它时，手动触发能撞进定时器那一轮，两轮各自读到同一批 due 条目、各自标记，
+ * 把 attempts / syncedAt 记成两份。
+ */
+let activeRun: Promise<SyncRunResult> | null = null;
+
 export class SyncService {
   private readonly items = new ItemsService();
 
@@ -349,8 +360,24 @@ export class SyncService {
    *
    * `force=true`（界面上"强制全量重传"）会忽略"载荷没变且上次成功"的跳过判定 ——
    * 对方数据库被清空重建时，没有这个开关就只能一条条去改数据触发重传。
+   *
+   * 串行化：并发调用时后到者直接 409（`sync.alreadyRunning`），不会和先到者并行跑。
    */
   async run(options: { limit?: number; force?: boolean; manager?: EntityManager } = {}): Promise<SyncRunResult> {
+    if (activeRun) {
+      throw conflict('sync.alreadyRunning', '同步正在进行中，请稍后重试');
+    }
+    const running = this.runOnce(options).finally(() => {
+      activeRun = null;
+    });
+    activeRun = running;
+    return running;
+  }
+
+  /** 一轮同步的实际实现。串行化由 `run()` 负责，这里只做业务。 */
+  private async runOnce(
+    options: { limit?: number; force?: boolean; manager?: EntityManager } = {},
+  ): Promise<SyncRunResult> {
     const transport = transportOf();
     const limit = options.limit ?? env.sync.batchSize * 10;
     const result: SyncRunResult = {

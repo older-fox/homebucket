@@ -4,17 +4,17 @@ import { pathInt } from '../../../../dto/validation';
 import { AdminService } from '../../../../services/admin.service';
 
 /**
- * `POST /api/admin/items/:id/recompute` —— 重放（200）。
+ * `POST /api/admin/items/:id/recompute` —— 重放**这一个**条目（200）。
  *
- * 迁移前就是这样：重放**永远是全库动作**，`:id` 只用来在日志里定位是谁点的按钮。
- * 之所以不实现"只重放一个物品"：屏蔽一条上报、封禁一个实例、合并两个条目都会
- * 牵连到别的物品（合并会把上报改挂到 target），只重放一个反而会留下不一致的库。
+ * 早先这里是"借 :id 定位、实际重放整库"，理由是"合并/屏蔽会牵连别的物品"。
+ * 但那些操作各自的接口本来就只重放**受影响**的条目（见 AdminService 的
+ * setContributionBlocked / setInstanceBlocked），"重放这个条目"这个按钮
+ * 却把整库扫一遍既慢又和界面上的文案对不上。现在按 id 精确重放。
  */
 export default defineEventHandler(
   apiHandler(async (event) => {
     await requireAdminSession(event);
     const id = pathInt('id', getRouterParam(event, 'id'));
-    const { items } = await new AdminService().recomputeAll();
-    return { recomputedItems: items, requested: id, note: '重放是全库动作，:id 只用于日志定位' };
+    return new AdminService().recomputeItem(id);
   }),
 );
