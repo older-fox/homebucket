@@ -97,6 +97,15 @@ check:types:
     # 依赖必须留在 13.x：12.x 的 tarball 里没有 .node，二进制靠安装脚本下载，
     # --ignore-scripts 下这三步会直接报 "Could not locate the bindings file"。
     # nuxt typecheck 需要的 esbuild 二进制随可选依赖 @esbuild/linux-x64 一起装好，不依赖安装脚本。
+    #
+    # 收集器的 package-lock.json **不要**用 `npm install --legacy-peer-deps` 重新生成。
+    # 它同时依赖 @nuxt/ui（对 @tiptap/* 那些是**必需** peer）和 typeorm（peerOptional
+    # better-sqlite3 ^12，与上面的 13.x 冲突），所以裸跑 `npm install` 会 ERESOLVE；
+    # 一旦为了绕开它加 --legacy-peer-deps，npm 会把**全部** peer 依赖丢掉，
+    # lock 里就只剩 dependencies 声明、没有对应条目 —— 而 npm ci（不带该 flag）
+    # 校验时直接 EUSAGE "Missing: @tiptap/y-tiptap@… from lock file" 让这条 job 挂掉。
+    # 冲突已经由 package.json 里的 overrides（better-sqlite3 固定成根声明的那一版，
+    # 同 server/）解决，正常 `npm install --package-lock-only` 即可生成完整 lock。
     - cd ../collector
     - npm ci --ignore-scripts --no-audit --no-fund --registry "$NPM_REGISTRY"
     - npm run typecheck

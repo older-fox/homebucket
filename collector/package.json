@@ -31,5 +31,15 @@
     "typescript": "^5.9.3",
     "vue-i18n": "^11.4.14",
     "vue-tsc": "^3.3.13"
+  },
+  "overrides": {
+    "better-sqlite3": "$better-sqlite3"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.27.7": true,
+    "esbuild@0.28.2": true,
+    "vue-demi@0.14.10": true
   }
 }
