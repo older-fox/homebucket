@@ -29,6 +29,20 @@ export function takeOutAction(takenOut: boolean): 'item.take_out' | 'item.put_ba
 }
 
 /**
+ * 消耗品（含它的 SN）不能被「取走」。
+ *
+ * 取走隐含"会放回"，而消耗品用掉就不回来了 —— 允许取走会出现语义自相矛盾的
+ * "已取走的消耗品"，还会被「取走过久」提醒盯上。**只拦取走方向**：放回方向不拦，
+ * 这样历史遗留的 takenOutAt 仍能被正常清掉（见 ItemsService.update 改成耗品时的清理）。
+ */
+export function consumableBlocksTakeOut(consumable: boolean, takenOut: boolean): boolean {
+  return consumable && takenOut;
+}
+
+/** 上面那条规则被触发时给用户看的中文兜底（前端优先按 code 查多语言文案） */
+export const CONSUMABLE_TAKE_MESSAGE = '消耗品不能取走，请用「用掉」';
+
+/**
  * 取走 = 记下此刻；放回 = 必须清成 null。
  *
  * 放回时若保留旧时间，列表/搜索/位置页的"已取走"角标就不会消失，而且相对时间会继续增长。

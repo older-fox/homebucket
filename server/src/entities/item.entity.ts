@@ -67,6 +67,17 @@ export class Item {
   packLevels: string | null;
 
   /**
+   * 是否消耗品：用完即消耗掉、永不归还。
+   *
+   * 与「取走」互斥：取走隐含"会放回"，而消耗品不会回来，所以全局禁止取走
+   * （scan.service.setTakenOut 拦截，web 与 v1 都走那一条路），扫码浮窗只提供「用掉」。
+   * 消耗只动 quantity；扣到 0 仍是合法状态，物品留在库里（可补货、可查历史），
+   * 不自动隐藏、也不标成遗失。
+   */
+  @Column({ type: 'boolean', default: false })
+  consumable: boolean;
+
+  /**
    * 单价（家庭主货币）。transformer 把 MySQL 的字符串 decimal 统一成 number，
    * 这样两个 provider 下调用方拿到的都是 number。
    */

@@ -74,6 +74,8 @@ export class ItemsService {
         quantity: row.quantity,
         baseUnit: row.baseUnit,
         packLevels: parsePackLevels(row.packLevels),
+        // 消耗品：不能取走，扫码只提供「用掉」；见 ScanService.setTakenOut 的拦截
+        consumable: row.consumable,
         price: row.price,
         model: row.model,
         manufacturer: row.manufacturer,
@@ -122,6 +124,7 @@ export class ItemsService {
       quantity: item.quantity,
       baseUnit: item.baseUnit,
       packLevels: parsePackLevels(item.packLevels),
+      consumable: item.consumable,
       price: item.price,
       model: item.model,
       manufacturer: item.manufacturer,
@@ -178,6 +181,7 @@ export class ItemsService {
         quantity: dto.quantity ?? 1,
         baseUnit: packaging.baseUnit,
         packLevels: packaging.packLevels,
+        consumable: dto.consumable ?? false,
         price: dto.price ?? 0,
         model: dto.model ?? null,
         manufacturer: dto.manufacturer ?? null,
@@ -274,6 +278,18 @@ export class ItemsService {
         item.images = dto.imageIds.length
           ? await manager.findBy(Attachment, { id: In(dto.imageIds), familyId })
           : [];
+      }
+      if (dto.consumable !== undefined) item.consumable = dto.consumable;
+      /*
+       * 改成消耗品时清掉"已取走"：取走隐含会放回，而消耗品不会回来，
+       * 留着 takenOutAt 会让列表/搜索/扫码浮窗显示"已取走"，语义自相矛盾
+       * （还会进"取走过久"提醒）。SN 行同理一起清。
+       *
+       * 注意这里只在**方向为 true** 时清：改成非消耗品不需要动取走状态。
+       */
+      if (dto.consumable === true) {
+        item.takenOutAt = null;
+        await manager.update(ItemUnit, { itemId: item.id, familyId }, { takenOutAt: null });
       }
       // updatedAt 由 @UpdateDateColumn 自动维护
       await manager.save(item);
@@ -618,6 +634,7 @@ export class ItemsService {
     coverImageId: number | null;
     baseUnit: string | null;
     packLevels: string | null;
+    consumable: boolean;
   }): Record<string, unknown> {
     return {
       name: item.name,
@@ -631,6 +648,7 @@ export class ItemsService {
       baseUnit: item.baseUnit ?? null,
       // 用可读串（箱=24, 提=6）而非原始 JSON，历史差异才看得懂
       packLevels: packLevelsLabel(parsePackLevels(item.packLevels)),
+      consumable: item.consumable,
     };
   }
 
@@ -662,6 +680,7 @@ export class ItemsService {
       barcode: dto.barcode?.trim() || null,
       baseUnit: dto.baseUnit?.trim() || null,
       packLevels: packLevelsLabel(normalizePackLevels(dto.packLevels)),
+      consumable: dto.consumable ?? false,
       location: await this.locationName(familyId, dto.locationId ?? null),
       tags: (await this.tagNames(familyId, dto.tagIds)).sort(),
       coverImage: Boolean(dto.coverImageId),
@@ -689,6 +708,7 @@ export class ItemsService {
       if (dto.packLevels !== undefined) after.packLevels = packLevelsLabel(normalizePackLevels(dto.packLevels));
       if (!nextBase) after.packLevels = null;
     }
+    if (dto.consumable !== undefined) after.consumable = dto.consumable;
     if (dto.locationId !== undefined) after.location = await this.locationName(familyId, dto.locationId ?? null);
     if (dto.tagIds !== undefined) after.tags = (await this.tagNames(familyId, dto.tagIds)).sort();
     if (dto.coverImageId !== undefined) after.coverImage = Boolean(dto.coverImageId);

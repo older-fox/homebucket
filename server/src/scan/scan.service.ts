@@ -9,7 +9,14 @@ import { Template } from '../entities/template.entity';
 import { Attachment } from '../entities/attachment.entity';
 import { ActivityService, type ActivityActor } from '../activity/activity.service';
 import { parsePackLevels } from '../items/packaging';
-import { isTakeable, nextTakenOutAt, notTakeableMessage, takeOutAction } from './take-out';
+import {
+  CONSUMABLE_TAKE_MESSAGE,
+  consumableBlocksTakeOut,
+  isTakeable,
+  nextTakenOutAt,
+  notTakeableMessage,
+  takeOutAction,
+} from './take-out';
 import { mediaUrl } from '../common/media';
 import { alive } from '../common/soft-delete';
 import { env } from '../config/env';
@@ -36,6 +43,11 @@ export interface ScanCard {
   sn: string | null;
   /** 该物品登记了几个 SN（0 = 不按件追踪）；位置与模板结果为 null */
   unitCount: number | null;
+  /**
+   * 是否消耗品。消耗品不能取走（只会被用掉），前端据此把主操作从「取走」换成「用掉」；
+   * 位置与模板结果恒为 false。
+   */
+  consumable: boolean;
 }
 
 /**
@@ -117,6 +129,13 @@ export class ScanService {
         message: notTakeableMessage(target.type),
       });
     }
+    // 消耗品永不归还 → 不允许"取走"；放回方向放行，便于清理历史状态
+    if (consumableBlocksTakeOut(target.card.consumable, takenOut)) {
+      throw new BadRequestException({
+        code: 'scan.consumableNotTakeable',
+        message: CONSUMABLE_TAKE_MESSAGE,
+      });
+    }
 
     const takenOutAt = nextTakenOutAt(takenOut);
     // 上面已把模板/位置拦掉，这里收窄成 'item' | 'unit'；在下面的闭包里 TS 不会保留对
@@ -164,6 +183,8 @@ export class ScanService {
       takenOutAt: true,
       locationId: true,
       coverImageId: true,
+      // 必须一起 select：漏了它 item.consumable 会是 undefined，浮窗就不会切成「用掉」
+      consumable: true,
     } as const;
 
     const byBarcode = await this.items.findOne({
@@ -205,6 +226,7 @@ export class ScanService {
           barcode: template.barcode,
           sn: null,
           unitCount: null,
+          consumable: false,
         },
       };
     }
@@ -233,6 +255,7 @@ export class ScanService {
           barcode: null,
           sn: null,
           unitCount: null,
+          consumable: false,
         },
       };
     }
@@ -280,6 +303,7 @@ export class ScanService {
         quantity: item.quantity,
         baseUnit: item.baseUnit,
         packLevels: parsePackLevels(item.packLevels),
+        consumable: item.consumable,
         price: item.price,
         locationName,
         imageUrl,
@@ -316,6 +340,7 @@ export class ScanService {
         quantity: null,
         baseUnit: unit.item.baseUnit,
         packLevels: parsePackLevels(unit.item.packLevels),
+        consumable: unit.item.consumable,
         price: unit.item.price,
         locationName,
         imageUrl,

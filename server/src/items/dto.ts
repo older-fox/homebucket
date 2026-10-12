@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsNumber,
   IsOptional,
@@ -116,6 +117,11 @@ export class CreateItemDto {
   @Type(() => PackLevelDto)
   packLevels?: PackLevelDto[];
 
+  /** 是否消耗品（用完即无、不再归还；不能取走） */
+  @IsOptional()
+  @IsBoolean()
+  consumable?: boolean;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -186,6 +192,11 @@ export class UpdateItemDto {
   @ValidateNested({ each: true })
   @Type(() => PackLevelDto)
   packLevels?: PackLevelDto[];
+
+  /** 是否消耗品；置 true 时会顺带清掉该物品（及其 SN）的"已取走"状态 */
+  @IsOptionalNotNull()
+  @IsBoolean()
+  consumable?: boolean;
 }
 
 /** 消耗 / 补货入参：按 level（包装层级名，缺省=最小单位）增减 amount 个 */

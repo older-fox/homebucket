@@ -16,6 +16,7 @@ const {
   notTakeableMessage,
   takeOutAction,
   nextTakenOutAt,
+  consumableBlocksTakeOut,
 } = await import('../src/scan/take-out.ts');
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -75,5 +76,28 @@ test('服务层用上了这些纯函数（回归护栏：别又写回内联三�
   assert.ok(
     !/takenOut \? new Date\(\) : null/.test(source),
     '时间戳逻辑不该再内联在服务里',
+  );
+});
+
+test('消耗品不能取走，但允许放回（否则历史状态清不掉）', () => {
+  // 取走方向：消耗品一律拦下
+  assert.equal(consumableBlocksTakeOut(true, true), true);
+  // 放回方向不拦：物品改成消耗品后，残留的 takenOutAt 还要能通过 return 清掉
+  assert.equal(consumableBlocksTakeOut(true, false), false);
+  // 非消耗品完全不受影响
+  assert.equal(consumableBlocksTakeOut(false, true), false);
+  assert.equal(consumableBlocksTakeOut(false, false), false);
+});
+
+test('服务层真的接上了消耗品拦截，并给了一个可翻译的 code', () => {
+  const source = readFileSync(join(here, '../src/scan/scan.service.ts'), 'utf8');
+  assert.ok(
+    source.includes('consumableBlocksTakeOut('),
+    'scan.service.ts 没有调用 consumableBlocksTakeOut —— 消耗品又能被取走了',
+  );
+  assert.match(
+    source,
+    /code: 'scan\.consumableNotTakeable'/,
+    '拦截用的 code 必须是 scan.consumableNotTakeable（前端按它查 api.* 文案）',
   );
 });
