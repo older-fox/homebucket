@@ -116,6 +116,7 @@ export class ObservationsService {
           sourceKind: input.source.kind,
           sourceLabel: input.source.label,
           sourceIpHash: input.source.ipHash,
+          userAgent: input.source.userAgent,
           field: row.field,
           value: row.value,
           observationHash: row.hash,
@@ -161,11 +162,37 @@ export class ObservationsService {
 
     const voteable = rows.filter((row) => ObservationsService.canVote(row));
     const weights = await this.weightMap(voteable.map((row) => row.sourceKey));
+
     const grouped = new Map<string, VoteCandidate>();
+    /** 每个来源当前"最后报出的那条"证据：用于实现"一个来源只投一票" */
+    const latestValueOf = new Map<string, (typeof voteable)[number]>();
     for (const row of voteable) {
       const sourceKey = row.sourceKey;
       if (sourceKey === null) continue;
-      const weight = weights.get(sourceKey) ?? env.feedback.initial;
+      /*
+       * 一个来源对一个字段**只能投一票**：它报了多个值时，只保留它最后报的那个
+       * （`observedAt` 最大，同一时刻取 id 大者），其余值直接丢掉。
+       *
+       * ── 这里曾写错（两处都错，留痕）──
+       * 原写法只按 `${sourceKey}\u0000${value}` 分组、对同一来源的另一个值不闻不问，
+       * 于是"一个来源报过 v1 又改口报 v2"会变成**两票** —— 单枪匹马就能把票箱
+       * 灌成 1:1，让本该判出最高票的字段永远 `decided=false`、永远走随机下发
+       * （表现为同一物品刷两次下发值不同）。而 voting.ts 开篇写明的契约是
+       * "每个**来源**对每个字段各持一票"。
+       * 中间还试过"先按来源聚成一个候选"，那会丢掉 tallyVotes 需要的
+       * 按值合并口径（count/weight 不再累加、sourceKeys 只剩一个），是另一种错。
+       * 正确做法就是这里：**按 (来源,值) 分组，但一个来源只留下它最后报的那个值**。
+       */
+      const existingSource = latestValueOf.get(sourceKey);
+      if (
+        existingSource !== undefined &&
+        (row.observedAt < existingSource.observedAt ||
+          (row.observedAt === existingSource.observedAt && row.id < existingSource.id))
+      ) {
+        continue;
+      }
+      latestValueOf.set(sourceKey, row);
+
       const key = `${sourceKey}\u0000${row.value}`;
       const existing = grouped.get(key);
       if (existing) {
@@ -178,10 +205,16 @@ export class ObservationsService {
         value: row.value,
         sourceKey,
         instanceId: row.instanceId,
-        weight,
+        weight: weights.get(sourceKey) ?? env.feedback.initial,
         observedAt: row.observedAt,
         count: 1,
       });
+    }
+
+    // 被"改口"淘汰掉的那些值要从结果里删掉：它们所在的分组已经在上面的循环里建好了
+    for (const [key, candidate] of grouped) {
+      const winner = latestValueOf.get(candidate.sourceKey ?? '');
+      if (winner !== undefined && winner.value !== candidate.value) grouped.delete(key);
     }
     return [...grouped.values()];
   }
@@ -304,15 +337,24 @@ export class FeedbackService {
   /**
    * 记录一条反馈并更新权重。
    *
-   * 幂等：同一**来源**对同一物品同一字段**只算一次**（重复点不会反复加权）。
+   * 幂等：**去重键是「被评价来源 + 物品 + 字段」** —— 这三者相同就只算一票。
+   * 重复点、或者换一个人来评同一个值，都是更新那一票，不会多出一票。
    * 重复点返回 `recorded: false`，让界面能提示"你已经评价过这条了"，
    * 而不是悄悄把它当成一次新的加权。
    *
    * ── 反馈"记在谁头上" ──
    * 记在被评价值所属的**来源键**上（`sourceKey`），不是 instanceId ——
-   * 上报全是匿名的，instanceId 恒为 null，按它记等于全丢。评价方自己是谁则由
-   * `reporterKey` 表示（去重用），两者刻意分开：同一个来源不能靠自己给自己刷好评，
-   * 但"哪个来源说的"和"哪个来源评的"本来就是两个问题。
+   * 上报全是匿名的，instanceId 恒为 null，按它记等于全丢。
+   *
+   * ── `reporterKey` 不是去重键（这里曾写错，留一行说明免得又改回去）──
+   * `reporterKey` 是**评价方**的来源键，只落库备查，不参与去重、不进权重计算。
+   * 即：甲说"乙这个值不对"、丙也说"乙这个值不对"，算乙的**一次**差评而不是两次。
+   * 这样是有意为之：
+   *   ① 防刷 —— 否则一个来源拉上一群同伙轮着评，就能把对手的权重压死；
+   *   ② 语义 —— 权重回答的是"这个来源有几个字段被人认可/否定"（见 recompute），
+   *      同一个字段上的同一个判断重复多少遍，并不增加任何信息量。
+   * 代价：「谁评的准」这类统计要另算 —— 界面上"好评数"是**被认可的字段数**，
+   * 不是"收到过几条好评"。这是刻意的取舍，不是漏算。
    */
   async submit(input: {
     itemId: number;
@@ -322,7 +364,7 @@ export class FeedbackService {
     observationId: number | null;
     /** 被评价值所属的来源键（不给则从证据反查） */
     sourceKey?: string | null;
-    /** 反馈方自己的来源键（去重键） */
+    /** 反馈方自己的来源键（只备查，不参与去重） */
     reporterKey: string | null;
     reporterInstanceId: number | null;
     note: string | null;
@@ -355,7 +397,8 @@ export class FeedbackService {
       return { recorded: true, sourceKey: null, weight: null, upvotes: 0, downvotes: 0 };
     }
 
-    // 同一来源对同一物品同一字段只算一次：找已有的就更新那一票
+    // 去重键 = 被评价来源 + 物品 + 字段（**不含** reporterKey，见上面的说明）：
+    // 找已有的就更新那一票
     const existing = await feedbackRepo().findOne({
       where: { sourceKey, catalogItemId: input.itemId, field: input.field },
     });
