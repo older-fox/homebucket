@@ -93,6 +93,22 @@ export class Validation {
     return typeof converted === 'number' ? converted : undefined;
   }
 
+  /**
+   * 必填**有限数**（SourceWeightDto.weight）。
+   *
+   * 与 requiredInt 分开是因为权重是小数（1.2 / 0.05），用整数校验器会把正常值拒掉；
+   * 而 `NaN`/`Infinity` 必须拒掉：`JSON.parse('{"weight":1e999}')` 会得到 Infinity，
+   * 一旦写进权重表，之后所有投票的权重比较都退化成 NaN 比较（永远判不出最高票）。
+   */
+  requiredFiniteNumber(field: string, value: unknown): number | undefined {
+    const converted = toNumberInput(value);
+    if (converted === undefined || typeof converted !== 'number' || !Number.isFinite(converted)) {
+      this.push(field, `${field} must be a number`);
+      return undefined;
+    }
+    return converted;
+  }
+
   private intValue(field: string, converted: number | string, min?: number): void {
     if (typeof converted !== 'number' || !Number.isFinite(converted)) {
       this.push(field, `${field} must be an integer number`);

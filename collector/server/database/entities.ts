@@ -325,6 +325,15 @@ export interface ItemObservationRow {
   sourceKind: string | null;
   sourceLabel: string | null;
   sourceIpHash: string | null;
+  /**
+   * 上报时的 User-Agent（原文，未哈希）。
+   *
+   * 为什么**存原文**而不是一起哈希掉：指纹是 `sha256(ip + ua)`，管理员看到
+   * `f:9a1c…` 时没有任何办法判断"这是浏览器刷新还是某个脚本在灌数据"。
+   * UA 本身不指向个人（它是客户端自报的软件标识），把它摆出来是"来源页"
+   * 能回答"这到底是谁"的关键。IP 则相反，只留哈希（见 sourceIpHash）。
+   */
+  userAgent: string | null;
   /** 字段名：标量字段名，或 `attributes.<key>` */
   field: string;
   /** 该字段在这条证据里的值（多值字段用 `\n` 连接的字符串，见 observations.service） */
@@ -373,6 +382,7 @@ export const ItemObservation = new EntitySchema<ItemObservationRow>({
     sourceKind: { type: 'varchar', length: LENGTH.sourceKind, nullable: true },
     sourceLabel: { type: 'varchar', length: LENGTH.sourceLabel, nullable: true },
     sourceIpHash: { type: 'varchar', length: LENGTH.sourceIpHash, nullable: true },
+    userAgent: { type: 'varchar', length: LENGTH.userAgent, nullable: true },
     field: { type: 'varchar', length: LENGTH.observationField },
     value: { type: 'varchar', length: LENGTH.observationValue },
     observationHash: { type: 'varchar', length: LENGTH.observationHash },

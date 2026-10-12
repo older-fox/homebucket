@@ -2,6 +2,7 @@ import { InitCollector1792400000000 } from './1792400000000-InitCollector';
 import { AdminAuth1792500000000 } from './1792500000000-AdminAuth';
 import { ObservationsPhotosSync1792600000000 } from './1792600000000-ObservationsPhotosSync';
 import { SourceIdentity1792700000000 } from './1792700000000-SourceIdentity';
+import { ObservationUserAgent1792800000000 } from './1792800000000-ObservationUserAgent';
 
 /**
  * 迁移清单：显式列出，不用 glob。
@@ -15,4 +16,5 @@ export const migrations = [
   AdminAuth1792500000000,
   ObservationsPhotosSync1792600000000,
   SourceIdentity1792700000000,
+  ObservationUserAgent1792800000000,
 ];

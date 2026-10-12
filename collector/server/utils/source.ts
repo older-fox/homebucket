@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import type { H3Event } from 'h3';
+// 显式导入而非依赖 Nitro 自动导入：utils/ 会被单测直接 import，
+// 而自动导入只在服务端运行时存在（见 sync-auth.ts 里同一处说明）。
+import { getHeader, getQuery, getRequestIP, type H3Event } from 'h3';
 
 import { badRequest } from './http';
 import { env } from './env';
@@ -82,8 +84,16 @@ export function resolveSourceIdentity(hints: SourceHints): SourceIdentity {
     return {
       key: `r:${shortHash(`reported\u0001${reported}`)}`,
       kind: 'reported',
-      // 展示名取前 8 位：既能对上人，又不至于把整个机器码铺在界面上
-      label: `自报 ${reported.slice(0, 8)}`,
+      /*
+       * 展示名保留前 24 位，**不能只取 8 位**。
+       *
+       * 自报 ID 在生产里是 homeBucket 的实例标识，前缀往往一样
+       * （`homebucket-living-room`、`homebucket-office` 前 8 位都是 `homebuck`）。
+       * 截到 8 位会让界面上并排出现多个一模一样的「自报 homebuck」，
+       * 管理员根本分不出哪个是哪个 —— 而这一页存在的全部意义就是"能对上人"。
+       * 24 位足够区分，又不至于把整个机器码铺在界面上（限长见 MAX_REPORTED_LENGTH）。
+       */
+      label: `自报 ${reported.slice(0, 24)}`,
       ipHash: ip ? shortHash(`ip\u0001${ip}`) : null,
       userAgent,
     };

@@ -1,5 +1,6 @@
 import { LENGTH } from '../database/column-spec';
 import { FIELD_LIMITS, MAX_IMAGE_URLS } from '../utils/identity';
+import { badRequest } from '../utils/http';
 import { Validation } from './validation';
 
 /** 纠错台的上报列表筛选 */
@@ -15,6 +16,17 @@ export interface QueryAdminContributionsDto {
 export interface QueryAdminInstancesDto {
   page?: number;
   pageSize?: number;
+}
+
+export interface QueryAdminSourcesDto {
+  page?: number;
+  pageSize?: number;
+  /** 只看权重低于初始值的来源（界面上叫"可疑来源"） */
+  suspicious?: boolean;
+}
+
+export interface SourceWeightDto {
+  weight: number;
 }
 
 /**
@@ -149,4 +161,71 @@ export function parseMergeItem(raw: Record<string, unknown>): MergeItemDto {
   const sourceItemId = v.requiredInt('sourceItemId', raw.sourceItemId);
   v.check();
   return { sourceItemId: sourceItemId ?? 0 };
+}
+
+export function parseQueryAdminSources(raw: Record<string, unknown>): QueryAdminSourcesDto {
+  const v = new Validation();
+  const page = v.optionalInt('page', raw.page, 1);
+  const pageSize = v.optionalInt('pageSize', raw.pageSize, 1);
+  v.optionalBoolean('suspicious', raw.suspicious);
+  v.check();
+  const dto: QueryAdminSourcesDto = {};
+  if (page.provided && page.value !== undefined) dto.page = page.value;
+  if (pageSize.provided && pageSize.value !== undefined) dto.pageSize = pageSize.value;
+  if (typeof raw.suspicious === 'boolean') dto.suspicious = raw.suspicious;
+  else if (raw.suspicious === 'true') dto.suspicious = true;
+  return dto;
+}
+
+/** 人工权重：必须落在 [min, max] 区间外时由 service 钳住，这里只校验是有限数 */
+export function parseSourceWeight(raw: Record<string, unknown>): SourceWeightDto {
+  const v = new Validation();
+  const weight = v.requiredFiniteNumber('weight', raw.weight);
+  v.check();
+  return { weight: weight ?? 0 };
+}
+
+/**
+ * 出站同步（"上级数据库"）的查询参数。
+ *
+ * `status` 只收三个已知值：未知值当场报 validation.failed，而不是静默当成"不过滤" ——
+ * 手抖写成 `?status=done` 却看到全部清单，比直接报错更难排查。
+ */
+export type SyncStatusFilter = 'pending' | 'ok' | 'failed';
+
+export interface QueryAdminSyncDto {
+  status?: SyncStatusFilter;
+}
+
+export function parseQueryAdminSync(raw: Record<string, unknown>): QueryAdminSyncDto {
+  const v = new Validation();
+  v.optionalString('status', raw.status, 16);
+  v.check();
+  const status = typeof raw.status === 'string' ? raw.status.trim() : '';
+  if (status === '') return {};
+  if (status !== 'pending' && status !== 'ok' && status !== 'failed') {
+    throw badRequest(
+      'validation.failed',
+      'status 只能是 pending、ok 或 failed',
+      [{ field: 'status', message: '只接受 pending / ok / failed' }],
+    );
+  }
+  return { status };
+}
+
+/** 手动触发同步：`force` 为 true 时忽略"载荷没变且上次成功"的跳过判定 */
+export interface RunSyncDto {
+  force: boolean;
+  /** 本轮最多处理多少条目；不传用服务端默认（batchSize × 10） */
+  limit?: number;
+}
+
+export function parseRunSync(raw: Record<string, unknown>): RunSyncDto {
+  const v = new Validation();
+  v.optionalBoolean('force', raw.force);
+  const limit = v.optionalInt('limit', raw.limit, 1);
+  v.check();
+  const dto: RunSyncDto = { force: raw.force === true || raw.force === 'true' };
+  if (limit.provided && limit.value !== undefined) dto.limit = limit.value;
+  return dto;
 }

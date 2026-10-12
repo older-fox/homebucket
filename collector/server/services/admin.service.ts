@@ -31,6 +31,13 @@ export interface AdminSessionView {
   scope: 'admin';
   /** 当前登录的账号（前端顶栏显示"以谁的身份在操作"） */
   user: AdminUserView;
+  /**
+   * 权重配置的当前值。
+   *
+   * 界面要显示"权重低于多少才算可疑"，而这个基准可配（`COLLECTOR_WEIGHT_INITIAL`）；
+   * 写死 1 的话，管理员改了配置后界面会一直说"没有可疑来源"，而服务端正按别的值判。
+   */
+  feedback: { initial: number; min: number; max: number };
 }
 
 export interface AdminItemRow extends ItemSummaryView {
@@ -83,6 +90,13 @@ export class AdminService {
     this.instancesService = new InstancesService(source);
   }
 
+  /**
+   * 会话信息（前端用它渲染顶栏/侧边栏）。
+   *
+   * 顺带把**权重基准值**带出去：界面上要显示"权重低于 1.00 才算可疑"，
+   * 而这个基准是可配的（`COLLECTOR_WEIGHT_INITIAL`）。写死 1 的话，
+   * 管理员改了配置之后界面会一直说"没有可疑来源"，而服务端其实在按别的值判。
+   */
   session(user: AdminUserView): AdminSessionView {
     return {
       ok: true,
@@ -90,6 +104,7 @@ export class AdminService {
       registrationOpen: env.registrationOpen,
       scope: 'admin',
       user,
+      feedback: { initial: env.feedback.initial, min: env.feedback.min, max: env.feedback.max },
     };
   }
 
