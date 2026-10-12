@@ -212,8 +212,26 @@ async function main() {
   check('根路径是 SSR 页面', root.status === 200 && /<html/i.test(root.text) && root.text.includes('收集器'), `${root.status} ${root.text.length}B`);
   const statsPage = await call('/stats');
   check('公开页面可直达（SSR，不是空壳）', statsPage.status === 200 && /<html/i.test(statsPage.text), `${statsPage.status}`);
-  const adminPage = await call('/admin');
-  check('纠错台页面可直达', adminPage.status === 200 && /<html/i.test(adminPage.text), `${adminPage.status}`);
+  /**
+   * 未登录访问受保护页必须直接 302 去登录页，而不是渲染了再跳。
+   * 注意 `call()` 内部用 fetch 默认行为（跟随跳转），会一路跟到 /login 返回 200 ——
+   * 所以这里必须用 `redirect: 'manual'` 才看得到那一跳本身。
+   */
+  const adminPage = await fetch(`${BASE}/admin`, { redirect: 'manual' });
+  const adminLocation = adminPage.headers.get('location') ?? '';
+  check(
+    '纠错台页面未登录 → 302 去登录页，不进首页',
+    adminPage.status === 302 && adminLocation.startsWith('/login?redirect=%2Fadmin'),
+    `${adminPage.status} ${adminLocation}`,
+  );
+  const unauthBody = await adminPage.text();
+  check(
+    '未登录时受保护页不渲染任何应用内容（连外壳都不给）',
+    !unauthBody.includes('data-testid="sidebar"') && !unauthBody.includes('data-testid="search-input"'),
+    `${unauthBody.length}B`,
+  );
+  const loginStandalone = await call('/login');
+  check('登录页是独立单页（无侧栏外壳）', loginStandalone.status === 200 && loginStandalone.text.includes('data-testid="login-form"') && !loginStandalone.text.includes('data-testid="sidebar"'), `${loginStandalone.status}`);
   const assetPath = root.text.match(/src="(\/_nuxt\/[^"]+\.js)"/)?.[1] ?? root.text.match(/href="(\/_nuxt\/[^"]+\.js)"/)?.[1];
   const asset = assetPath ? await call(assetPath) : { status: 0, headers: new Headers() };
   check('前端资源按 JS 的 MIME 返回', asset.status === 200 && /javascript/.test(asset.headers.get('content-type') ?? ''), `${assetPath} → ${asset.status} ${asset.headers.get('content-type')}`);
@@ -645,8 +663,27 @@ async function main() {
   check('方法不对 → JSON 404', wrongMethod.status === 404 && wrongMethod.json?.code === 'route.notFound', `${wrongMethod.status} ${wrongMethod.json?.code}`);
   // 注意：Nuxt 会按 Accept 头做内容协商 —— 不带 text/html 时未知页面回 JSON 错误体（curl 的默认行为）。
   // 浏览器一定带，所以这里也要带，否则断言的是我们并不关心的那条分支。
+  //
+  // 这条同时是**登录守卫的回归**：守卫最初写成"非公开即受保护"，于是这个不存在的
+  // 地址会被送去登录页 —— 匿名访客打错地址看到的不是 404 而是登录页。
+  //
+  // 这里**必须同时断言"没有 location 头"**，只看状态码是抓不到这个缺陷的：
+  // 实测带缺陷的构建返回的是 `404` **外加一个残留的 `location: /login`** ——
+  // `sendRedirect` 先写好了头，随后的 404 渲染路径只覆盖了状态码、没清掉那个头。
+  // 于是"status===404 && 有 html"对带缺陷的构建同样成立，断言形同虚设。
   const deepLink = await call('/nope/deep/link', { headers: { accept: 'text/html' } });
-  check('未知页面 → 404 页面（不是 API JSON）', deepLink.status === 404 && /<html/i.test(deepLink.text), `${deepLink.status}`);
+  check(
+    '未知页面 → 真 404（不是登录页，也不留重定向头）',
+    deepLink.status === 404 && /<html/i.test(deepLink.text) && deepLink.headers.get('location') === null,
+    `${deepLink.status} location=${deepLink.headers.get('location') ?? '(无)'}`,
+  );
+  // 受保护页必须仍然拦得住（别把上一条修成"谁都不拦"）。
+  const gateStillWorks = await fetch(`${BASE}/admin`, { redirect: 'manual', headers: { accept: 'text/html' } });
+  check(
+    '受保护页仍然拦在登录页（404 修复没有把守卫一起修掉）',
+    gateStillWorks.status === 302 && (gateStillWorks.headers.get('location') ?? '').startsWith('/login'),
+    `${gateStillWorks.status} ${gateStillWorks.headers.get('location') ?? ''}`,
+  );
   const cors = await call('/api/health', { headers: { origin: 'https://example.com' } });
   check('公开接口带 CORS 头', cors.headers.get('access-control-allow-origin') === '*', cors.headers.get('access-control-allow-origin'));
   const preflight = await fetch(`${BASE}/api/v1/items`, { method: 'OPTIONS', headers: { origin: 'https://example.com' } });

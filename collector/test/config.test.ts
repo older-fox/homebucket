@@ -122,3 +122,26 @@ test('CORS：默认全开，收紧时解析成白名单', () => {
     'https://b.example',
   ]);
 });
+
+test('.env.example 与 env.ts 里的变量名必须双向对齐（不能有文档里没有的、也不能有写了不读的）', () => {
+  const example = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../server/utils/env.ts', import.meta.url), 'utf8');
+
+  const documented = new Set([...example.matchAll(/^(COLLECTOR_[A-Z0-9_]+)=/gm)].map((match) => match[1] as string));
+  const used = new Set([...source.matchAll(/process\.env\.(COLLECTOR_[A-Z0-9_]+)/g)].map((match) => match[1] as string));
+
+  // 写了但没人读 —— 运维照着 .env.example 配了半天，实际毫无作用。这种"看起来能配"的
+  // 假旋钮比没有文档更糟：出问题时人会先怀疑自己的配置对不对，然后浪费半天。
+  assert.deepEqual(
+    [...documented].filter((name) => !used.has(name)).sort(),
+    [],
+    '下面的变量写进了 .env.example，但 env.ts 里根本没读它',
+  );
+
+  // 读了但没写 —— 部署时没人知道有这个东西可以调（比如照片驱动、同步开关）。
+  assert.deepEqual(
+    [...used].filter((name) => !documented.has(name)).sort(),
+    [],
+    '下面的变量 env.ts 会读，但 .env.example 里没有提到',
+  );
+});
