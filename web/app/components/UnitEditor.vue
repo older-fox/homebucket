@@ -4,7 +4,7 @@
       <UInput
         :model-value="unit.sn ?? ''"
         :placeholder="t('item.sn')"
-        size="lg"
+        size="xl"
         class="sn"
         @update:model-value="(value: string) => saveSn(unit, value)"
       />
@@ -36,11 +36,12 @@
     <EmptyState v-if="!units.length" :text="t('item.noUnits')" icon="i-lucide-barcode" />
 
     <div class="row add">
-      <UInput v-model="draft.sn" :placeholder="t('item.sn')" size="lg" class="sn" />
+      <!-- size 必须与同排的 SN 输入框、以及 LocationPicker（内部固定 xl）一致，
+           否则这一行里三个控件三种高度 -->
+      <UInput v-model="draft.sn" :placeholder="t('item.sn')" size="xl" class="sn" />
       <LocationPicker v-model="draft.locationId" class="location" />
-      <!-- size="lg" 与同排的 SN 输入框对齐；add-btn 负责阻止自己被输入框挤扁（见样式里的说明） -->
       <UButton
-        size="lg"
+        size="xl"
         icon="i-lucide-plus"
         class="add-btn hb-tap"
         :loading="adding"
@@ -171,9 +172,8 @@ async function toggleLost(unit: Unit) {
  *
  * 这个行里 SN(40%) + 位置(60%) 的 flex-basis 已经占满整行，如果按钮还允许收缩，
  * 它会被压到 ~61px，标签「添加」换行成两行，按钮高度变成 63px —— 而同排输入框
- * 只有 41px，视觉上就是个突兀的大方块。加上 flex-shrink: 0 后按钮保持自然宽度
- * （标签单行，37px→配 size="lg" 后 41px 与输入框齐平），空间不足时由两个输入框
- * 各自收缩让位。
+ * 只有 40px，视觉上就是个突兀的大方块。加上 flex-shrink: 0 后按钮保持自然宽度
+ * （标签单行），size="xl" 与同排输入框同高；空间不足时由两个输入框各自收缩让位。
  */
 .row.add .add-btn {
   flex-shrink: 0;

@@ -1,10 +1,15 @@
 <template>
+  <!--
+    三个输入框固定 size="xl"：本组件嵌在物品/模板表单里，周围的输入框都是 xl；
+    不写 size 会落到默认 md（32px vs 40px），整块包装编辑区看起来比表单其余部分矮一截。
+  -->
   <div class="ple">
     <label class="ple-field">
       <span class="ple-label">{{ t('item.baseUnit') }}</span>
       <UInput
         :model-value="baseUnit ?? ''"
         :placeholder="t('item.baseUnitPlaceholder')"
+        size="xl"
         @update:model-value="onBase"
       />
     </label>
@@ -13,6 +18,7 @@
       <UInput
         :model-value="level.name"
         :placeholder="t('item.packName')"
+        size="xl"
         @update:model-value="(value) => onName(index, value)"
       />
       <UInput
@@ -21,6 +27,7 @@
         min="2"
         inputmode="numeric"
         :placeholder="t('item.packFactor')"
+        size="xl"
         @update:model-value="(value) => onFactor(index, value)"
       />
       <UButton

@@ -1,4 +1,9 @@
 <template>
+  <!--
+    尺寸固定为 xl：本组件用在物品/模板表单里，和它并排（数量右边就是单价）以及
+    上下相邻的输入框都是 size="xl"。不写 size 会落到 Nuxt UI 默认的 md
+    （高 32px vs xl 的 40px），同一行里数量框比单价框矮一截。
+  -->
   <div class="uq">
     <template v-if="packaged">
       <div class="uq-row">
@@ -9,6 +14,7 @@
             type="number"
             min="0"
             inputmode="numeric"
+            size="xl"
             @update:model-value="(value) => setCount(field.key, value)"
           />
         </label>
@@ -22,6 +28,7 @@
       type="number"
       min="0"
       inputmode="numeric"
+      size="xl"
       @update:model-value="(value) => emit('update:modelValue', toInt(value))"
     />
   </div>

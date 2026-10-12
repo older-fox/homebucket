@@ -189,7 +189,8 @@
     <UFormField v-if="!itemId" :label="t('item.units')">
       <div class="units">
         <div v-for="(unit, index) in form.units" :key="index" class="unit-row">
-          <UInput v-model="unit.sn" :placeholder="t('item.sn')" size="lg" class="unit-sn" />
+          <!-- size 必须与同排的 LocationPicker（内部固定 xl）一致，否则 SN 框比位置框矮一截 -->
+          <UInput v-model="unit.sn" :placeholder="t('item.sn')" size="xl" class="unit-sn" />
           <LocationPicker v-model="unit.locationId" class="unit-location" />
           <UButton
             color="neutral"
