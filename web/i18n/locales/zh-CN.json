@@ -221,6 +221,7 @@
     "pricePerBase": "单价（每{unit}）",
     "consume": "用掉",
     "consumable": "消耗品",
+    "consumableToggle": "标记为消耗品",
     "consumableHint": "用完即无、不再归还；不能「取走」，扫码时只提供「用掉」。",
     "restock": "补货",
     "unpack": "拆箱",

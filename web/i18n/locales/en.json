@@ -221,6 +221,7 @@
     "pricePerBase": "Unit price (per {unit})",
     "consume": "Use",
     "consumable": "Consumable",
+    "consumableToggle": "Mark as consumable",
     "consumableHint": "Used up and never returned. It cannot be taken out; scanning only offers Use.",
     "restock": "Restock",
     "unpack": "Unpack",

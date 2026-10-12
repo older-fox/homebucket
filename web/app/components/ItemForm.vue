@@ -153,10 +153,17 @@
       />
     </UFormField>
 
-    <!-- 消耗品：勾上后不能取走，扫码浮窗的主操作会从「取走」变成「用掉」 -->
-    <UFormField :label="t('item.consumable')" :hint="t('item.consumableHint')">
+    <!--
+      消耗品开关：整块做成「卡片 + 开关 + 标题 + 右侧说明」，与扫码页的「扫码即建物品」
+      开关同一套观感。点卡片任意位置都能切换（点开关本体时交给它自己处理，见 handler）。
+      文案用独立的 item.consumableToggle，而不是列表/详情角标那个 item.consumable
+      （那是"消耗品"三个字），这里的动作语义是"标记为消耗品"。
+    -->
+    <label class="consumable hb-card hb-tap" :class="{ 'is-on': form.consumable }" @click="onConsumableCardClick">
       <USwitch v-model="form.consumable" />
-    </UFormField>
+      <strong class="consumable-title">{{ t('item.consumableToggle') }}</strong>
+      <small class="consumable-hint hb-muted">{{ t('item.consumableHint') }}</small>
+    </label>
 
     <UFormField :label="t('item.location')">
       <LocationPicker v-model="form.locationId" />
@@ -477,6 +484,17 @@ function addUnit() {
   form.units.push({ sn: '', locationId: null });
 }
 
+/**
+ * 点卡片任意位置都能切换消耗品。
+ *
+ * 点在开关本体上时它自己已经切换过了，这里跳过，否则会来回抵消（等于点不动）。
+ * reka 的 Switch 渲染成 <button>，所以用 closest('button') 判断。
+ */
+function onConsumableCardClick(event: MouseEvent) {
+  if ((event.target as HTMLElement).closest('button')) return;
+  form.consumable = !form.consumable;
+}
+
 async function submit() {
   saving.value = true;
   try {
@@ -555,6 +573,41 @@ async function submit() {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/*
+ * 消耗品开关：卡片形态（底色/描边/圆角来自 .hb-card），开启时换成品牌色描边+底色
+ * 作为状态反馈。说明跟在标题右侧，宽度不够时整段换到下一行，不去挤压标题。
+ */
+.consumable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition:
+    border-color var(--hb-dur) var(--hb-ease),
+    background-color var(--hb-dur) var(--hb-ease);
+}
+
+.consumable.is-on {
+  border-color: var(--hb-brand);
+  background: var(--hb-brand-soft);
+}
+
+.consumable-title {
+  flex: 0 0 auto;
+  color: var(--hb-text);
+  font-size: var(--hb-fs-body);
+  font-weight: var(--hb-fw-semibold);
+}
+
+.consumable-hint {
+  flex: 1 1 15rem;
+  min-width: 0;
+  font-size: var(--hb-fs-xs);
+  line-height: 1.5;
 }
 
 .unit-row {
