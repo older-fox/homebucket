@@ -4,7 +4,8 @@
       "applied": "已写入人工纠错（生效字段：{fields}）",
       "appliedNone": "无",
       "attrKeyValue": "键=值",
-      "attributesLabel": "attributes（每行 键=值）",
+      "attributesLabel": "attributes",
+      "attributesPlaceholder": "每行 键=值",
       "clear": "清空",
       "contributions": "这个条目的上报流水（{count}）",
       "currentlyLocked": "（当前锁定）",
@@ -12,7 +13,8 @@
       "editHint": "留空的字段＝不动它；勾「清空」＝把该字段置空（会自动删掉它的写入时间，之后自动上报可以重新填上）。\n图片一行一个 URL，扩展属性一行一条 {'{'}属性名=属性值{'}'}（例如 {'{'}电压=18V{'}'}）。",
       "emptyValue": "（空）",
       "identity": "身份键 {key} · {contributions} 次上报 · {instances} 个实例",
-      "imageUrlsLabel": "imageUrls（每行一个）",
+      "imageUrlsLabel": "imageUrls",
+      "imageUrlsPlaceholder": "每行一个",
       "lockHeading": "锁定字段（锁上后自动上报不再改写）",
       "lockedFieldPrefix": "locks.",
       "merge": "执行合并",
@@ -27,6 +29,12 @@
       "recomputed": "已按现有流水重放该条目",
       "save": "保存为人工纠错",
       "toggleNotice": "{action}上报 #{id}（物品 #{itemId}）"
+    },
+    "confirm": {
+      "blockContribution": "屏蔽上报 #{id}？相关字段会立刻重算。",
+      "blockInstance": "封禁实例「{name}」？它此前的上报将全部不参与合并，且之后的上报一律拒绝。",
+      "merge": "把 #{sourceId} 并入 #{targetId}？上报会改挂到目标条目，且难以撤销。",
+      "recomputeAll": "重放整库？条目多时可能需要一会儿，期间数据按剩余流水重算。"
     },
     "instances": {
       "block": "封禁",
@@ -76,6 +84,9 @@
   "audit": {
     "block": "屏蔽这条",
     "blocked": "已屏蔽",
+    "confirm": {
+      "blockContribution": "屏蔽上报 #{id}？相关字段会立刻重算。"
+    },
     "filterInstanceId": "实例 ID",
     "filterInstanceIdPlaceholder": "如 3",
     "filterItemId": "物品 ID",
@@ -102,15 +113,13 @@
     "changePassword": "修改密码",
     "invalidInput": "输入不合法",
     "login": {
-      "devHint": "开发默认：账号 admin（口令由服务端的 COLLECTOR_ADMIN_PASSWORD 决定）。",
-      "intro": "纠错台、上报审计与改密码需要管理员账号。登录状态保存在服务端的 httpOnly cookie 里，浏览器脚本读不到它。",
       "password": "口令",
       "passwordPlaceholder": "口令",
       "submit": "登录",
       "submitBusy": "登录中…",
       "title": "登录",
       "username": "账号",
-      "usernamePlaceholder": "admin",
+      "usernamePlaceholder": "账号",
       "browsePublic": "不登录，直接查条码"
     },
     "password": {
@@ -120,7 +129,8 @@
       "currentRequired": "请输入当前密码",
       "intro": "改成功后其它设备上的会话会被吊销，当前浏览器保持登录。",
       "mismatch": "两次输入的新密码不一致",
-      "newLabel": "新密码（至少 8 位）",
+      "newLabel": "新密码",
+      "newPlaceholder": "至少 8 位",
       "newTooShort": "新密码长度至少 8 位",
       "sameAsCurrent": "新密码不能与当前密码相同",
       "submit": "更新密码",
@@ -146,6 +156,7 @@
     "checking": "正在确认登录状态…"
   },
   "brand": {
+    "mark": "HB",
     "name": "HomeBucket 收集器",
     "short": "HomeBucket",
     "tagline": "物品信息收集器"
@@ -159,12 +170,16 @@
     "cancel": "取消",
     "close": "关闭",
     "confirm": "确定",
+    "dash": "——",
     "empty": "—",
     "filter": "筛选",
+    "labelSep": "：",
+    "listSep": " · ",
     "loading": "加载中…",
     "loadingShort": "载入中…",
     "merging": "合并中…",
     "open": "打开",
+    "pathSep": " / ",
     "processing": "处理中…",
     "replaying": "重放中…",
     "retry": "重试",
@@ -179,18 +194,14 @@
     "unknownUser": "?",
     "view": "查看"
   },
+  "confirm": {
+    "title": "请确认"
+  },
   "errors": {
     "adminSource": "人工纠错",
     "blockedReason": "人工判定为错误上报",
     "instance": "实例 #{id}",
     "sourceUnknown": "未知来源"
-  },
-  "footer": {
-    "registrationClosed": "实例注册已关闭",
-    "registrationOpen": "实例注册开放",
-    "serverNotReady": "服务端未就绪",
-    "totals": "{items} 条资料 / {contributions} 次上报 / {instances} 个实例",
-    "unavailable": "服务端未就绪"
   },
   "item": {
     "attributeField": "扩展属性 · {name}",
@@ -249,6 +260,11 @@
     "en": "English",
     "switch": "切换语言",
     "zh": "中文"
+  },
+  "meta": {
+    "description": "所有 HomeBucket 实例共享的物品资料库：按条码查询任何人都能补充的公共资料。",
+    "title": "HomeBucket 收集器",
+    "titleTemplate": "{title} · HomeBucket 收集器"
   },
   "nav": {
     "admin": "纠错台",
@@ -351,6 +367,7 @@
     "categoryHeader": "分类",
     "contributionsHeader": "上报",
     "coverage": "字段覆盖度",
+    "coverageValue": "{filled} · {percent}%",
     "daily": "最近 14 天上报量",
     "dailyTooltip": "{date}：{count} 次",
     "instancesHeader": "实例",
@@ -388,6 +405,8 @@
     "introNoBarcode": "没有条码的条目不上传 —— 上级库靠条码认人，没有条码就没法对上号。",
     "transportOff": "上行同步未启用",
     "transportOffHint": "当前 COLLECTOR_SYNC_TRANSPORT=off，收集器只会被动提供导出接口，不会主动外发数据。要开启就把环境变量改成 http 或 file 后重启。",
+    "transportHttp": "HTTP 推送",
+    "transportFile": "落盘文件",
     "intervalManual": "仅手动触发",
     "intervalManualHint": "传输方式已配置，但 COLLECTOR_SYNC_INTERVAL_MINUTES=0，不会有定时任务，只能在这里手动跑一轮。",
     "intervalHint": "每 {minutes} 分钟自动上传一轮",
@@ -448,8 +467,10 @@
     "payloadAttributes": "扩展属性",
     "payloadProvenance": "字段来源",
     "payloadRaw": "原始 JSON",
+    "provenanceLine": "{field} · {label} · {time}",
     "lastError": "最近错误",
     "attemptsTimes": "第 {count} 次",
+    "attributePair": "{key}：{value}",
     "fieldCompleteness": "字段完整度",
     "complete": "完整",
     "missingField": "缺 {field}",

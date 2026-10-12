@@ -14,7 +14,21 @@ export default defineAppConfig({
   ui: {
     colors: {
       primary: 'blue',
-      neutral: 'slate',
+      /*
+       * 中性色钉到 gray（不是 Nuxt UI 默认的 slate）：规范第 3 节给的中性阶是
+       * gray-50/200/500/900，页面里手写的也是 gray-*；用 slate 会让"组件的中性"
+       * 与"手写的中性"差一档，同一个徽标和旁边的文字对不上色。
+       */
+      neutral: 'gray',
+      /*
+       * 语义色：成功必须是 emerald（不是默认的 green），错误用 red。
+       * warning 留给 Nuxt UI 自身的提示态；规范第 6.4 节要求徽标只有"成功=绿、
+       * 其余=中性"，所以页面里的状态徽标一律走 success/neutral，不再自造黄色。
+       */
+      success: 'emerald',
+      error: 'red',
+      warning: 'amber',
+      info: 'blue',
     },
   },
 });

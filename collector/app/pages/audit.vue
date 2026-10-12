@@ -5,9 +5,11 @@ import Pager from '../components/Pager.vue';
 import { errorMessage, useApi } from '../composables/useApi';
 import type { AdminContribution } from '../composables/useApi';
 import { useAuthGate } from '../composables/useAuthGate';
+import { useConfirm } from '../composables/useConfirm';
 
 const api = useApi();
 const { t } = useI18n();
+const confirm = useConfirm();
 
 /** 未确认登录前不渲染页面内容（见 useAuthGate 的说明）。 */
 const { ready, checking } = useAuthGate();
@@ -29,9 +31,17 @@ const busyId = ref<number | null>(null);
 const error = ref('');
 const notice = ref('');
 
+/**
+ * 单调递增的请求序号：并发/乱序返回时，只有最后一次 `load()` 有权写状态。
+ * 过滤器会在每次 change 时触发一次 `load()`，慢的旧请求晚回来会把新结果覆盖掉，
+ * 页面就会显示与当前筛选不符的列表 —— 这里靠 seq 把晚到的旧响应直接丢掉。
+ */
+let loadSeq = 0;
+
 async function load(): Promise<void> {
   // 会话在 httpOnly cookie 里：绝不在 SSR 期请求管理接口（401 由 useApi 统一送回登录页）
   if (import.meta.server) return;
+  const seq = ++loadSeq;
   loading.value = true;
   error.value = '';
   try {
@@ -43,18 +53,29 @@ async function load(): Promise<void> {
       itemId: itemId.value ? Number(itemId.value) : undefined,
       instanceId: instanceId.value ? Number(instanceId.value) : undefined,
     });
+    if (seq !== loadSeq) return;
     entries.value = data.contributions;
     total.value = data.total;
   } catch (caught) {
+    if (seq !== loadSeq) return;
     entries.value = [];
     total.value = 0;
     error.value = errorMessage(caught);
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 }
 
 async function toggleBlock(entry: AdminContribution): Promise<void> {
+  // 屏蔽是破坏性操作（受影响字段会立即重算），先二次确认；恢复保持一键。
+  if (!entry.blocked) {
+    const confirmed = await confirm({
+      title: t('confirm.title'),
+      message: t('audit.confirm.blockContribution', { id: entry.id }),
+      tone: 'error',
+    });
+    if (!confirmed) return;
+  }
   busyId.value = entry.id;
   notice.value = '';
   error.value = '';
@@ -98,14 +119,12 @@ watch(ready, async (ok) => {
 
 useHead({ title: computed(() => t('audit.title')) });
 
-const card = 'rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900';
-const input =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 transition-colors duration-150 outline-none placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500';
-const label = 'mb-1.5 block text-xs font-medium tracking-wide text-gray-500 uppercase dark:text-gray-400';
-const primaryButton =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-gray-950';
-const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
-const okNotice = 'flex items-start gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400';
+/**
+ * 例外：两个筛选控件刻意保留原生 `<select>`（e2e 直接驱动它），
+ * 所以这里手写一份与 `UInput size="lg"` 对齐的外观（同样的圆角/ring/字号）。
+ */
+const select =
+  'w-full rounded-md bg-white px-3 py-2 text-base/5 text-gray-900 ring-1 ring-inset ring-gray-300 transition-colors outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-900 dark:text-white dark:ring-gray-700';
 </script>
 
 <template>
@@ -126,67 +145,66 @@ const okNotice = 'flex items-start gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 
     {{ t('audit.intro') }}
   </p>
 
-  <div :class="card" data-testid="card">
+  <AppCard data-testid="card">
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <label class="block">
-        <span :class="label">{{ t('audit.filterSource') }}</span>
-        <select v-model="source" :class="input" data-testid="audit-source" @change="applyFilters">
+      <UFormField :label="t('audit.filterSource')">
+        <select v-model="source" :class="select" data-testid="audit-source" @change="applyFilters">
           <option value="">{{ t('common.all') }}</option>
           <option value="api">{{ t('audit.filterSourceApi') }}</option>
           <option value="admin">{{ t('audit.filterSourceAdmin') }}</option>
         </select>
-      </label>
-      <label class="block">
-        <span :class="label">{{ t('audit.filterVisibility') }}</span>
-        <select v-model="blocked" :class="input" data-testid="audit-visibility" @change="applyFilters">
+      </UFormField>
+      <UFormField :label="t('audit.filterVisibility')">
+        <select v-model="blocked" :class="select" data-testid="audit-visibility" @change="applyFilters">
           <option value="">{{ t('common.all') }}</option>
           <option value="visible">{{ t('audit.visibilityVisible') }}</option>
           <option value="blocked">{{ t('audit.visibilityBlocked') }}</option>
         </select>
-      </label>
-      <label class="block">
-        <span :class="label">{{ t('audit.filterItemId') }}</span>
-        <input
+      </UFormField>
+      <UFormField :label="t('audit.filterItemId')">
+        <UInput
           v-model="itemId"
-          :class="[input, 'font-mono']"
+          size="lg"
+          class="w-full font-mono"
           data-testid="audit-item-id"
           inputmode="numeric"
           :placeholder="t('audit.filterItemIdPlaceholder')"
           @keyup.enter="applyFilters"
         />
-      </label>
-      <label class="block">
-        <span :class="label">{{ t('audit.filterInstanceId') }}</span>
-        <input
+      </UFormField>
+      <UFormField :label="t('audit.filterInstanceId')">
+        <UInput
           v-model="instanceId"
-          :class="[input, 'font-mono']"
+          size="lg"
+          class="w-full font-mono"
           data-testid="audit-instance-id"
           inputmode="numeric"
           :placeholder="t('audit.filterInstanceIdPlaceholder')"
           @keyup.enter="applyFilters"
         />
-      </label>
+      </UFormField>
     </div>
     <div class="mt-4 flex flex-wrap items-center gap-2.5">
-      <button :class="primaryButton" data-testid="audit-apply" type="button" :disabled="loading" @click="applyFilters">
+      <UButton color="primary" size="lg" data-testid="audit-apply" type="button" :disabled="loading" @click="applyFilters">
         {{ t('common.apply') }}
-      </button>
+      </UButton>
       <span class="flex-1" />
       <span v-if="loading" class="text-sm text-gray-500 dark:text-gray-400">{{ t('common.loadingShort') }}</span>
     </div>
-  </div>
+  </AppCard>
 
-  <p v-if="error" :class="[errorNotice, 'mt-4']" data-testid="notice">
-    <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-    <span>{{ error }}</span>
-  </p>
-  <p v-if="notice" :class="[okNotice, 'mt-4']" data-testid="notice">
-    <AppIcon name="check" class="mt-0.5 h-4 w-4 shrink-0" />
-    <span>{{ notice }}</span>
-  </p>
+  <AppNotice v-if="error" tone="error" class="mt-4" data-testid="notice">{{ error }}</AppNotice>
+  <AppNotice v-if="notice" tone="success" class="mt-4" data-testid="notice">{{ notice }}</AppNotice>
 
   <div class="mt-6">
-    <ContributionList :contributions="entries" admin :busy-id="busyId" @toggle-block="toggleBlock" />
+    <ContributionList
+      v-if="loading || entries.length > 0"
+      :contributions="entries"
+      admin
+      :busy-id="busyId"
+      @toggle-block="toggleBlock"
+    />
+    <AppEmpty v-else icon="clipboard">{{ t('item.contribution.empty') }}</AppEmpty>
   </div>
 
   <Pager

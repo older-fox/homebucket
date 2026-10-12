@@ -4,6 +4,7 @@ import { capture, errorMessage, INITIAL_SOURCE_WEIGHT, useApi } from '../../comp
 import { adminSession } from '../../composables/useAdminSession';
 import type { Loaded, SourceDetail } from '../../composables/useApi';
 import { useAuthGate } from '../../composables/useAuthGate';
+import { tableCell, tableHead, tableScroll, tableWrap } from '~/utils/ui';
 
 const api = useApi();
 const { t } = useI18n();
@@ -142,11 +143,9 @@ function kindLabel(kind: string | null): string {
   return kind;
 }
 
-/** 权重徽标：低于基准＝可疑，高于基准＝可信，等于基准时不着色。 */
-function weightTone(weight: number): 'warning' | 'success' | 'neutral' {
-  if (weight < baseline.value) return 'warning';
-  if (weight > baseline.value) return 'success';
-  return 'neutral';
+/** 权重徽标：高于基准＝可信（成功色），等于/低于基准＝中性色 —— 规范只允许 success/neutral。 */
+function weightTone(weight: number): 'success' | 'neutral' {
+  return weight > baseline.value ? 'success' : 'neutral';
 }
 
 function shortTime(value: string | null): string {
@@ -160,23 +159,6 @@ function itemLabel(itemName: string | null, catalogItemId: number): string {
 }
 
 useHead({ title: computed(() => t('sources.detailTitle')) });
-
-const card = 'rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900';
-const cardTitle = 'm-0 mb-3 text-base font-semibold';
-const tableWrap = 'w-full max-w-full overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800';
-const tableHead = 'whitespace-nowrap border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-medium tracking-wide text-gray-500 uppercase dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400';
-const tableCell = 'border-b border-gray-200 px-3 py-2 align-top text-sm dark:border-gray-800';
-const backLink =
-  'inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 no-underline transition-colors duration-150 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800';
-const primaryButton =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-gray-950';
-const subtleButton =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors duration-150 hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700';
-const input =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-sm text-gray-900 transition-colors duration-150 outline-none placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500';
-const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
-const okNotice = 'flex items-start gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400';
-const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300';
 </script>
 
 <template>
@@ -190,37 +172,31 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
   </div>
   <div v-else>
   <div class="flex flex-wrap items-center gap-2.5">
-    <NuxtLink :class="backLink" to="/sources">{{ t('sources.backToList') }}</NuxtLink>
+    <UButton to="/sources" variant="outline" color="neutral">{{ t('sources.backToList') }}</UButton>
   </div>
 
-  <p v-if="error" :class="[errorNotice, 'mt-4']" data-testid="source-error">
-    <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-    <span>{{ error }}</span>
-  </p>
+  <AppNotice v-if="error" tone="error" class="mt-4" data-testid="source-error">{{ error }}</AppNotice>
   <p v-else-if="loading" class="mt-4 text-sm text-gray-500 dark:text-gray-400">{{ t('common.loadingShort') }}</p>
 
-  <div
-    v-else-if="missing"
-    :class="[card, 'mt-4 flex flex-col items-center gap-3 py-10 text-center']"
-    data-testid="source-missing"
-  >
-    <span :class="emptyIcon"><AppIcon name="shield" class="h-6 w-6" /></span>
-    <h2 class="m-0 text-base font-semibold">{{ t('sources.missingTitle') }}</h2>
-    <p class="m-0 max-w-lg text-sm leading-6 text-gray-500 dark:text-gray-400">
-      {{ t('sources.missingHint', { key: sourceKey }) }}
-    </p>
-    <NuxtLink :class="backLink" to="/sources">{{ t('sources.backToList') }}</NuxtLink>
-  </div>
+  <AppEmpty v-else-if="missing" icon="shield" class="mt-4" data-testid="source-missing">
+    <span class="block font-medium text-gray-900 dark:text-white">{{ t('sources.missingTitle') }}</span>
+    <span class="mt-1 block">{{ t('sources.missingHint', { key: sourceKey }) }}</span>
+    <template #actions>
+      <UButton to="/sources" variant="outline" color="neutral">{{ t('sources.backToList') }}</UButton>
+    </template>
+  </AppEmpty>
 
   <template v-if="detail">
     <div data-testid="source-detail" class="mt-5 flex flex-wrap items-center gap-2.5">
-      <h1 class="m-0 font-mono text-xl font-semibold break-all tracking-tight">{{ detail.sourceKey }}</h1>
-      <button :class="backLink" data-testid="source-copy" type="button" @click="copyKey">
-        <AppIcon name="copy" class="h-4 w-4" />
+      <h1 class="m-0 font-mono text-2xl font-semibold break-all tracking-tight">{{ detail.sourceKey }}</h1>
+      <UButton variant="outline" color="neutral" data-testid="source-copy" @click="copyKey">
+        <template #leading>
+          <AppIcon name="copy" class="h-4 w-4" />
+        </template>
         {{ copied ? t('sources.copied') : t('sources.copyKey') }}
-      </button>
+      </UButton>
       <span class="flex-1" />
-      <NuxtLink :class="backLink" to="/sources">{{ t('sources.backToList') }}</NuxtLink>
+      <UButton to="/sources" variant="outline" color="neutral">{{ t('sources.backToList') }}</UButton>
     </div>
 
     <div class="mt-4 flex flex-wrap items-center gap-1.5">
@@ -232,15 +208,15 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
       >
         <span class="font-mono tabular">{{ t('sources.weightChip', { weight: detail.weight.toFixed(2) }) }}</span>
       </UBadge>
-      <UBadge color="success" variant="soft" size="sm">{{ t('sources.upvotes', { count: detail.upvotes }) }}</UBadge>
-      <UBadge :color="detail.downvotes > 0 ? 'warning' : 'neutral'" variant="soft" size="sm">
+      <UBadge color="success" variant="soft" size="sm" class="tabular">{{ t('sources.upvotes', { count: detail.upvotes }) }}</UBadge>
+      <UBadge color="neutral" variant="soft" size="sm" class="tabular">
         {{ t('sources.downvotes', { count: detail.downvotes }) }}
       </UBadge>
-      <UBadge color="neutral" variant="soft" size="sm">
+      <UBadge color="neutral" variant="soft" size="sm" class="tabular">
         {{ t('sources.observationsAndCoverage', { count: detail.observations, items: detail.items }) }}
       </UBadge>
       <UBadge
-        :color="detail.ipHashes > 1 ? 'warning' : 'neutral'"
+        color="neutral"
         variant="soft"
         size="sm"
         :title="t('sources.ipTooltip')"
@@ -257,49 +233,39 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
       {{ t('sources.caveats') }}
     </p>
 
-    <div :class="[card, 'mt-6']">
-      <h2 :class="cardTitle">{{ t('sources.manualWeight') }}</h2>
+    <AppCard :title="t('sources.manualWeight')" class="mt-6">
       <p class="mt-0 mb-3 text-sm leading-6 text-gray-500 dark:text-gray-400">
         {{ t('sources.manualWeightHint', { baseline: baseline.toFixed(2) }) }}
       </p>
       <div class="flex flex-wrap items-end gap-2.5">
-        <label class="block w-[140px]">
-          <span class="mb-1.5 block text-xs font-medium tracking-wide text-gray-500 uppercase dark:text-gray-400">
-            {{ t('sources.weightLabel') }}
-          </span>
-          <input
+        <UFormField :label="t('sources.weightLabel')" class="w-[140px]">
+          <UInput
             v-model="weightInput"
-            :class="input"
             data-testid="source-weight-input"
+            size="lg"
             type="number"
             step="0.05"
             min="0"
             max="5"
             inputmode="decimal"
+            class="w-full"
             @keyup.enter="saveWeight"
           />
-        </label>
-        <button :class="primaryButton" data-testid="source-weight-save" type="button" :disabled="busy === 'weight'" @click="saveWeight">
+        </UFormField>
+        <UButton color="primary" data-testid="source-weight-save" :disabled="busy === 'weight'" @click="saveWeight">
           {{ busy === 'weight' ? t('common.saving') : t('common.save') }}
-        </button>
-        <button :class="subtleButton" data-testid="source-weight-reset" type="button" :disabled="busy === 'weight'" @click="resetWeight">
+        </UButton>
+        <UButton variant="outline" color="neutral" data-testid="source-weight-reset" :disabled="busy === 'weight'" @click="resetWeight">
           {{ t('sources.resetBaseline') }}
-        </button>
+        </UButton>
       </div>
-      <p v-if="weightError" :class="[errorNotice, 'mt-4']" data-testid="source-error">
-        <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ weightError }}</span>
-      </p>
-      <p v-if="notice" :class="[okNotice, 'mt-4']" data-testid="source-notice">
-        <AppIcon name="check" class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ notice }}</span>
-      </p>
-    </div>
+      <AppNotice v-if="weightError" tone="error" class="mt-4" data-testid="source-error">{{ weightError }}</AppNotice>
+      <AppNotice v-if="notice" tone="success" class="mt-4" data-testid="source-notice">{{ notice }}</AppNotice>
+    </AppCard>
 
-    <div :class="[card, 'mt-4']">
-      <h2 :class="cardTitle">{{ t('sources.feedbackHeading', { count: detail.feedback.length }) }}</h2>
+    <AppCard :title="t('sources.feedbackHeading', { count: detail.feedback.length })" class="mt-4">
       <p class="mt-0 mb-3 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('sources.feedbackHint') }}</p>
-      <div :class="tableWrap">
+      <div :class="[tableWrap, tableScroll]">
         <table class="w-full border-collapse">
           <thead>
             <tr>
@@ -320,7 +286,7 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
                 {{ row.value || t('common.empty') }}
               </td>
               <td :class="[tableCell, 'whitespace-nowrap']">
-                <UBadge :color="row.accurate ? 'success' : 'error'" variant="soft" size="sm">
+                <UBadge :color="row.accurate ? 'success' : 'neutral'" variant="soft" size="sm">
                   {{ row.accurate ? t('sources.accurate') : t('sources.inaccurate') }}
                 </UBadge>
               </td>
@@ -335,12 +301,11 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
           </tbody>
         </table>
       </div>
-    </div>
+    </AppCard>
 
-    <div :class="[card, 'mt-4']">
-      <h2 :class="cardTitle">{{ t('sources.recentHeading', { count: detail.recent.length }) }}</h2>
+    <AppCard :title="t('sources.recentHeading', { count: detail.recent.length })" class="mt-4">
       <p class="mt-0 mb-3 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('sources.recentHint') }}</p>
-      <div :class="tableWrap">
+      <div :class="[tableWrap, tableScroll]">
         <table class="w-full border-collapse">
           <thead>
             <tr>
@@ -377,7 +342,7 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
           </tbody>
         </table>
       </div>
-    </div>
+    </AppCard>
   </template>
   </div>
 </template>

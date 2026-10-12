@@ -8,25 +8,12 @@
  * 入口数量、点击区高度（≥40px）与图标风格仍照规范执行。
  */
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
-import { capture, useApi } from '../composables/useApi';
-import type { HealthView, Loaded } from '../composables/useApi';
 import { adminSession as session, logout, refresh } from '../composables/useAdminSession';
 import type { IconName } from '../components/AppIcon.vue';
 
-const api = useApi();
 const route = useRoute();
 const { t, locale, locales } = useI18n();
 const colorMode = useColorMode();
-
-/** 页脚的版本号与注册开关：公开接口，SSR 期就能取（走 Nitro 内部请求）。 */
-const { data: healthData } = await useAsyncData<Loaded<HealthView>>(
-  'health',
-  () => capture(() => api.health()),
-  { default: (): Loaded<HealthView> => ({ data: null, error: '', status: 0 }) },
-);
-
-const health = computed(() => healthData.value?.data ?? null);
-const healthMessage = computed(() => healthData.value?.error || t('footer.unavailable'));
 
 function toggleTheme(): void {
   colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark';
@@ -149,7 +136,7 @@ function setLocale(code: LocaleCode): void {
     <div
       v-if="drawerOpen"
       data-testid="sidebar-overlay"
-      class="fixed inset-0 z-30 bg-gray-900/40 backdrop-blur-[1px] md:hidden"
+      class="fixed inset-0 z-30 bg-gray-900/40 backdrop-blur-[1px] md:hidden dark:bg-black/60"
       @click="drawerOpen = false"
     />
 
@@ -166,7 +153,7 @@ function setLocale(code: LocaleCode): void {
           <span
             class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-bold tracking-wide text-white shadow-md shadow-blue-600/25"
           >
-            HB
+            {{ t('brand.mark') }}
           </span>
           <span class="min-w-0">
             <strong class="block truncate text-base leading-tight font-semibold">{{ t('brand.name') }}</strong>
@@ -204,6 +191,10 @@ function setLocale(code: LocaleCode): void {
       <!--
         用户区固定在侧栏底部：登录状态是"当前身份"的开关，
         位置固定才不用每次去找它。36px 圆形头像 + 用户名（规范 6.6）。
+
+        规范 6.6 的示意是"头像 + 用户名 + 下拉箭头"，但这里**刻意不做下拉菜单**：
+        账号下只有两个动作（改密码 / 退出），直接摊开成两个按钮比藏进菜单更好点、
+        也少一次"先展开再找"的往返；加一个点不开的箭头反而是在骗点击。
       -->
       <div class="shrink-0 border-t border-gray-200 p-3 dark:border-gray-800">
         <template v-if="username">
@@ -333,27 +324,6 @@ function setLocale(code: LocaleCode): void {
       <main class="mx-auto w-full max-w-7xl flex-1 px-6 py-8 max-sm:px-4">
         <slot />
       </main>
-
-      <footer
-        class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-6 py-4 text-xs text-gray-500 max-sm:px-4 dark:border-gray-800 dark:text-gray-400"
-      >
-        <template v-if="health">
-          <span class="tabular">v{{ health.version }} · {{ health.storage.provider }}</span>
-          <span class="tabular">
-            {{ t('footer.totals', {
-              items: health.storage.items,
-              contributions: health.storage.contributions,
-              instances: health.storage.instances,
-            }) }}
-          </span>
-          <UBadge :color="health.registrationOpen ? 'success' : 'warning'" variant="soft" size="sm">
-            {{ health.registrationOpen ? t('footer.registrationOpen') : t('footer.registrationClosed') }}
-          </UBadge>
-          <span class="flex-1" />
-          <span class="truncate font-mono">{{ health.storage.dataFile }}</span>
-        </template>
-        <span v-else>{{ healthMessage }}</span>
-      </footer>
     </div>
   </div>
 </template>

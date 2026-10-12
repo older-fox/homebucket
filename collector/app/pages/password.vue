@@ -73,15 +73,12 @@ async function submit(): Promise<void> {
 
 useHead({ title: computed(() => t('auth.passwordTitle')) });
 
-const input =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors duration-150 outline-none placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500';
-const label = 'mb-1.5 block text-xs font-medium tracking-wide text-gray-500 uppercase dark:text-gray-400';
-const primaryButton =
-  'flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-gray-950';
+/**
+ * 认证卡片的规格面（§6.8）：半透明 + 毛玻璃 + 深阴影 + 一圈细环。
+ * 与登录页同一形状，两张认证页视觉上必须是一族。
+ */
 const card =
-  'mt-6 rounded-2xl border border-gray-200 bg-white/90 p-6 shadow-xl shadow-gray-900/5 backdrop-blur-sm sm:p-8 dark:border-gray-800 dark:bg-gray-900/80 dark:shadow-black/40';
-const errorNotice = 'mt-4 flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
-const okNotice = 'mt-4 flex items-start gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400';
+  'rounded-2xl bg-white/90 p-6 shadow-xl shadow-gray-900/5 ring-1 ring-gray-200/80 backdrop-blur-sm sm:p-8 dark:bg-gray-900/80 dark:ring-gray-800 dark:shadow-black/40';
 </script>
 
 <template>
@@ -91,61 +88,71 @@ const okNotice = 'mt-4 flex items-start gap-2 rounded-lg bg-emerald-50 px-3.5 py
       <span
         class="grid h-14 w-14 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-lg font-bold tracking-wide text-white shadow-md shadow-blue-600/25"
       >
-        HB
+        {{ t('brand.mark') }}
       </span>
-      <h1 class="m-0 text-2xl font-semibold tracking-tight">{{ t('auth.passwordTitle') }}</h1>
-      <p class="m-0 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('auth.passwordIntro') }}</p>
+      <h1 class="m-0 text-2xl font-semibold tracking-tight">{{ t('brand.name') }}</h1>
+      <p class="m-0 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('brand.tagline') }}</p>
     </div>
 
     <form :class="card" data-testid="password-form" @submit.prevent="submit">
-      <label class="mb-4 block">
-        <span :class="label">{{ t('auth.password.currentLabel') }}</span>
-        <input
+      <UFormField :label="t('auth.password.currentLabel')" class="mb-4">
+        <UInput
           v-model="current"
-          :class="input"
           data-testid="password-current"
           name="current-password"
           type="password"
           autocomplete="current-password"
-        />
-      </label>
+          required
+          size="lg"
+          class="w-full"
+        >
+          <template #leading>
+            <AppIcon name="lock" class="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
+          </template>
+        </UInput>
+      </UFormField>
 
-      <label class="mb-4 block">
-        <span :class="label">{{ t('auth.password.newLabel') }}</span>
-        <input
+      <UFormField :label="t('auth.password.newLabel')" class="mb-4">
+        <UInput
           v-model="next"
-          :class="input"
           data-testid="password-new"
           name="new-password"
           type="password"
           autocomplete="new-password"
-        />
-      </label>
+          required
+          size="lg"
+          class="w-full"
+          :placeholder="t('auth.password.newPlaceholder')"
+        >
+          <template #leading>
+            <AppIcon name="key" class="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
+          </template>
+        </UInput>
+      </UFormField>
 
-      <label class="mb-4 block">
-        <span :class="label">{{ t('auth.password.confirmLabel') }}</span>
-        <input
+      <UFormField :label="t('auth.password.confirmLabel')" class="mb-4">
+        <UInput
           v-model="confirm"
-          :class="input"
           data-testid="password-confirm"
           name="confirm-password"
           type="password"
           autocomplete="new-password"
-        />
-      </label>
+          required
+          size="lg"
+          class="w-full"
+        >
+          <template #leading>
+            <AppIcon name="key" class="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
+          </template>
+        </UInput>
+      </UFormField>
 
-      <button :class="primaryButton" data-testid="password-submit" type="submit" :disabled="busy">
+      <UButton type="submit" color="primary" size="lg" block :loading="busy" data-testid="password-submit">
         {{ busy ? t('auth.password.submitting') : t('auth.password.submit') }}
-      </button>
+      </UButton>
 
-      <p v-if="error" :class="errorNotice" data-testid="password-error">
-        <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ error }}</span>
-      </p>
-      <p v-if="notice" :class="okNotice" data-testid="password-notice">
-        <AppIcon name="check" class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ notice }}</span>
-      </p>
+      <AppNotice v-if="error" tone="error" class="mt-4" data-testid="password-error">{{ error }}</AppNotice>
+      <AppNotice v-if="notice" tone="success" class="mt-4" data-testid="password-notice">{{ notice }}</AppNotice>
     </form>
 
     <p class="mt-5 mb-0 text-center text-sm">

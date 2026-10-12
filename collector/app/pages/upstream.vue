@@ -4,6 +4,7 @@ import Pager from '../components/Pager.vue';
 import { capture, useApi } from '../composables/useApi';
 import type { Loaded, SyncDetailView, SyncListView, SyncPayloadItem, SyncStatusFilter } from '../composables/useApi';
 import { useAuthGate } from '../composables/useAuthGate';
+import { tableCell, tableHead, tableScroll, tableWrap } from '~/utils/ui';
 
 const api = useApi();
 const route = useRoute();
@@ -129,11 +130,8 @@ function statusKey(value: string): string {
   return `upstream.status${head}${value.slice(1)}`;
 }
 
-function statusTone(value: string): 'success' | 'warning' | 'error' | 'neutral' {
-  if (value === 'ok') return 'success';
-  if (value === 'failed') return 'error';
-  if (value === 'pending') return 'warning';
-  return 'neutral';
+function statusTone(value: string): 'success' | 'neutral' {
+  return value === 'ok' ? 'success' : 'neutral';
 }
 
 /**
@@ -147,6 +145,17 @@ function transportLabel(row: { transport: string }): string {
   if (row.transport === 'http') return t('upstream.endpoint');
   if (row.transport === 'off') return t('upstream.transportOff');
   return row.transport;
+}
+
+/**
+ * 原始传输枚举 → 界面文案。与 `transportLabel` 的区别：那个说的是"传到哪儿"
+ * （目录 / 地址），这里说的是"用什么方式"。未知值原样透出，新枚举来了不撒谎。
+ */
+function transportName(tp: string): string {
+  if (tp === 'http') return t('upstream.transportHttp');
+  if (tp === 'file') return t('upstream.transportFile');
+  if (tp === 'off') return t('upstream.transportOff');
+  return tp;
 }
 
 function shortTime(value: string | null): string {
@@ -181,11 +190,19 @@ const detailPayload = ref<Loaded<SyncDetailView>>({
   status: 0,
 });
 
+/**
+ * 单调递增的请求序号：详情是"点谁看谁"，慢的旧请求回来时不能盖掉新请求的结果。
+ * 放在模块作用域而不是 ref —— 它只用于丢弃过期响应，不需要触发渲染。
+ */
+let detailSeq = 0;
+
 async function openDetail(rowId: number): Promise<void> {
+  const seq = ++detailSeq;
   detailOpen.value = true;
   detailLoading.value = true;
   detailError.value = '';
   const result = await capture(() => api.admin.syncItem(rowId));
+  if (seq !== detailSeq) return;
   detailLoading.value = false;
   if (result.error || !result.data) {
     detailError.value = result.error || t('upstream.syncMissing');
@@ -223,17 +240,7 @@ const rawOpen = ref(false);
 
 useHead({ title: computed(() => t('upstream.title')) });
 
-const card = 'rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900';
-const tableWrap = 'w-full max-w-full overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900';
-const tableHead = 'whitespace-nowrap border-b border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-xs font-medium tracking-wide text-gray-500 uppercase dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400';
-const tableCell = 'border-b border-gray-200 px-3 py-2.5 align-top text-sm dark:border-gray-800';
-const rowLink =
-  'inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 no-underline transition-colors duration-150 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800';
-const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
-const okNotice = 'flex items-start gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400';
-const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300';
 const chip = 'inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-2.5 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300';
-const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900';
 </script>
 
 <template>
@@ -259,55 +266,52 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
       {{ t('upstream.introNoBarcode') }}
     </p>
 
-    <p v-if="error" :class="[errorNotice, 'mb-6']" data-testid="upstream-error">
-      <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{{ error }}</span>
-    </p>
+    <AppNotice v-if="error" tone="error" class="mb-6" data-testid="upstream-error">
+      {{ error }}
+    </AppNotice>
 
     <!-- 配置块：把"为什么没自动传"直接说清楚，而不是让管理员去翻环境变量 -->
-    <div v-if="view" :class="[card, 'mb-6']" data-testid="upstream-config">
-      <div class="flex flex-wrap items-center gap-2">
-        <AppIcon name="database" class="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
-        <h2 class="m-0 text-base font-semibold">{{ t('upstream.title') }}</h2>
+    <AppCard v-if="view" :title="t('upstream.title')" class="mb-6" data-testid="upstream-config">
+      <template #actions>
         <UBadge :color="configured ? 'success' : 'neutral'" variant="soft" size="sm">
-          {{ configured ? (config?.transport ?? '') : t('upstream.transportOff') }}
+          {{ configured ? transportName(config?.transport ?? '') : t('upstream.transportOff') }}
         </UBadge>
-      </div>
-      <p v-if="!configured" class="mt-2 mb-0 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400" data-testid="upstream-off">
+      </template>
+      <p v-if="!configured" class="m-0 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400" data-testid="upstream-off">
         {{ t('upstream.transportOffHint') }}
       </p>
       <template v-else>
         <p
           v-if="config && config.intervalMinutes <= 0"
-          class="mt-2 mb-0 max-w-3xl text-sm leading-6 text-amber-600 dark:text-amber-400"
+          class="m-0 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400"
           data-testid="upstream-manual"
         >
-          {{ t('upstream.intervalManual') }} —— {{ t('upstream.intervalManualHint') }}
+          {{ t('upstream.intervalManual') }} {{ t('common.dash') }} {{ t('upstream.intervalManualHint') }}
         </p>
-        <p v-else class="mt-2 mb-0 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+        <p v-else class="m-0 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
           {{ t('upstream.intervalHint', { minutes: config?.intervalMinutes ?? 0 }) }}
         </p>
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <span :class="chip">
-            {{ t('upstream.endpoint') }}：
+            {{ t('upstream.endpoint') }}{{ t('common.labelSep') }}
             <span class="font-mono">{{ config?.endpoint || config?.dir || t('common.empty') }}</span>
           </span>
           <span :class="chip">{{ t('upstream.batchSize', { count: config?.batchSize ?? 0 }) }}</span>
           <span :class="chip">{{ t('upstream.maxAttempts', { count: config?.maxAttempts ?? 0 }) }}</span>
           <span :class="chip">{{ config?.includePhotos ? t('upstream.includePhotos') : t('upstream.noPhotos') }}</span>
-          <span :class="[chip, config?.hasToken ? '' : 'text-amber-600 dark:text-amber-400']">
+          <span :class="chip">
             {{ config?.hasToken ? t('upstream.tokenConfigured') : t('upstream.tokenMissing') }}
           </span>
         </div>
-        <p v-if="config && !config.hasToken" class="mt-2 mb-0 max-w-3xl text-xs leading-5 text-amber-600 dark:text-amber-400">
+        <p v-if="config && !config.hasToken" class="mt-2 mb-0 max-w-3xl text-xs leading-5 text-gray-500 dark:text-gray-400">
           {{ t('upstream.tokenMissingHint') }}
         </p>
       </template>
-    </div>
+    </AppCard>
 
     <!-- 计数 + 手动触发 -->
     <div class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="upstream-stats">
-      <button
+      <AppCard
         v-for="item in [
           { key: undefined, label: 'countsTotal', value: counts.total },
           { key: 'pending' as const, label: 'countsPending', value: counts.pending },
@@ -315,8 +319,9 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
           { key: 'failed' as const, label: 'countsFailed', value: counts.failed },
         ]"
         :key="item.label"
+        as="button"
         type="button"
-        :class="[statTile, 'text-left transition-shadow duration-200 hover:shadow-lg hover:shadow-gray-900/5', status === item.key ? 'ring-2 ring-blue-500/40' : '']"
+        :class="['text-left transition-shadow duration-200 hover:shadow-lg hover:shadow-gray-900/5 dark:hover:shadow-black/30', status === item.key ? 'ring-2 ring-blue-500/40' : '']"
         :data-testid="`upstream-count-${item.key ?? 'total'}`"
         :aria-pressed="status === item.key"
         @click="setStatus(item.key)"
@@ -325,68 +330,64 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
           {{ t(`upstream.${item.label}`) }}
         </p>
         <p class="tabular mt-1 mb-0 text-3xl font-semibold">{{ item.value }}</p>
-      </button>
+      </AppCard>
     </div>
 
-    <div :class="[card, 'mb-6 flex flex-wrap items-center gap-3']">
-      <UButton
-        color="primary"
-        size="lg"
-        :loading="running"
-        :disabled="running || loading"
-        data-testid="upstream-run"
-        @click="runNow"
-      >
-        <AppIcon name="refresh" class="h-5 w-5" />
-        {{ running ? t('upstream.runBusy') : t('upstream.runNow') }}
-      </UButton>
-      <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-        <input
-          v-model="force"
-          data-testid="upstream-force"
-          type="checkbox"
-          class="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900"
-        />
-        {{ t('upstream.runForce') }}
-      </label>
-      <span class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('upstream.runSkippedHint') }}</span>
-    </div>
+    <AppCard class="mb-6">
+      <div class="flex flex-wrap items-center gap-3">
+        <UButton
+          color="primary"
+          size="lg"
+          :loading="running"
+          :disabled="running || loading"
+          data-testid="upstream-run"
+          @click="runNow"
+        >
+          <AppIcon name="refresh" class="h-5 w-5" />
+          {{ running ? t('upstream.runBusy') : t('upstream.runNow') }}
+        </UButton>
+        <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input
+            v-model="force"
+            data-testid="upstream-force"
+            type="checkbox"
+            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900"
+          />
+          {{ t('upstream.runForce') }}
+        </label>
+        <span class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('upstream.runSkippedHint') }}</span>
+      </div>
+    </AppCard>
 
-    <p v-if="runMessage" :class="[okNotice, 'mb-4']" data-testid="upstream-run-result">
-      <AppIcon name="check" class="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{{ runMessage }}</span>
-    </p>
-    <p v-if="runError" :class="[errorNotice, 'mb-4']" data-testid="upstream-run-error">
-      <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{{ runError }}</span>
-    </p>
-    <p v-if="notice" :class="[okNotice, 'mb-4']" data-testid="upstream-notice">
-      <AppIcon name="check" class="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{{ notice }}</span>
-    </p>
-    <p v-if="noticeError" :class="[errorNotice, 'mb-4']" data-testid="upstream-notice-error">
-      <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{{ noticeError }}</span>
-    </p>
+    <AppNotice v-if="runMessage" tone="success" class="mb-4" data-testid="upstream-run-result">
+      {{ runMessage }}
+    </AppNotice>
+    <AppNotice v-if="runError" tone="error" class="mb-4" data-testid="upstream-run-error">
+      {{ runError }}
+    </AppNotice>
+    <AppNotice v-if="notice" tone="success" class="mb-4" data-testid="upstream-notice">
+      {{ notice }}
+    </AppNotice>
+    <AppNotice v-if="noticeError" tone="error" class="mb-4" data-testid="upstream-notice-error">
+      {{ noticeError }}
+    </AppNotice>
 
     <p v-if="loading" class="text-sm text-gray-500 dark:text-gray-400">{{ t('common.loadingShort') }}</p>
 
-    <div
+    <AppEmpty
       v-else-if="filtered.length === 0"
-      class="flex flex-col items-center gap-3 py-10 text-center"
+      icon="upload"
       data-testid="upstream-empty"
     >
-      <span :class="emptyIcon"><AppIcon name="upload" class="h-6 w-6" /></span>
-      <p class="m-0 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
-        {{ counts.total === 0 ? t('upstream.noItems') : t('upstream.noMatch') }}
-      </p>
-      <p v-if="counts.total === 0" class="m-0 max-w-md text-xs leading-5 text-gray-500 dark:text-gray-400">
+      {{ counts.total === 0 ? t('upstream.noItems') : t('upstream.noMatch') }}
+      <span v-if="counts.total === 0" class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
         {{ t('upstream.noItemsHint') }}
-      </p>
-    </div>
+      </span>
+    </AppEmpty>
 
     <div v-else :class="tableWrap">
-      <table class="w-full border-collapse">
+      <div :class="tableScroll">
+        <table class="w-full border-collapse">
         <thead>
           <tr>
             <th :class="tableHead">{{ t('upstream.colItem') }}</th>
@@ -430,25 +431,27 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
               {{ shortTime(row.syncedAt) }}
             </td>
             <td :class="[tableCell, 'whitespace-nowrap']">
-              <UBadge :color="row.status === 'ok' ? 'neutral' : 'warning'" variant="soft" size="sm">
+              <UBadge color="neutral" variant="soft" size="sm">
                 {{ row.remoteRef || t('upstream.never') }}
               </UBadge>
             </td>
             <td :class="[tableCell, 'whitespace-nowrap']">
               <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  :class="rowLink"
+                <UButton
+                  variant="outline"
+                  color="neutral"
+                  size="xs"
                   data-testid="upstream-open"
                   :title="t('upstream.openAria', { name: nameOf(row) })"
                   @click="openDetail(row.id)"
                 >
                   {{ t('upstream.open') }}
                   <AppIcon name="chevronRight" class="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  :class="rowLink"
+                </UButton>
+                <UButton
+                  variant="outline"
+                  color="neutral"
+                  size="xs"
                   data-testid="upstream-reset"
                   :title="t('upstream.resetHint')"
                   :disabled="busyId === row.id"
@@ -456,12 +459,13 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
                 >
                   <AppIcon name="refresh" class="h-4 w-4" />
                   {{ t('upstream.reset') }}
-                </button>
+                </UButton>
               </div>
             </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <Pager :page="page" :page-size="pageSize" :total="total" @update:page="goPage" />
@@ -501,10 +505,9 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
 
       <p class="mt-2 mb-4 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('upstream.detailHint') }}</p>
 
-      <p v-if="detailError" :class="[errorNotice, 'mb-4']" data-testid="upstream-detail-error">
-        <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ detailError }}</span>
-      </p>
+      <AppNotice v-if="detailError" tone="error" class="mb-4" data-testid="upstream-detail-error">
+        {{ detailError }}
+      </AppNotice>
       <p v-else-if="detailLoading" class="text-sm text-gray-500 dark:text-gray-400">{{ t('upstream.detailLoading') }}</p>
 
       <template v-else-if="detailPayload.data">
@@ -528,10 +531,9 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
             </span>
           </div>
 
-          <p v-if="detailPayload.data.row.lastError" :class="[errorNotice, 'mb-4']">
-            <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{{ t('upstream.lastError') }}：{{ detailPayload.data.row.lastError }}</span>
-          </p>
+          <AppNotice v-if="detailPayload.data.row.lastError" tone="error" class="mb-4">
+            {{ t('upstream.lastError') }}{{ t('common.labelSep') }}{{ detailPayload.data.row.lastError }}
+          </AppNotice>
 
           <div v-for="entry in detailPayload.data.payload.items" :key="entry.id" class="mb-6">
             <dl class="m-0 grid gap-3 sm:grid-cols-2">
@@ -555,7 +557,7 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
                   <UBadge
                     v-for="field in missingOf(entry)"
                     :key="field"
-                    color="warning"
+                    color="neutral"
                     variant="soft"
                     size="sm"
                   >
@@ -571,7 +573,7 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
                   {{ t('upstream.colTransport') }}
                 </dt>
                 <dd class="m-0 mt-1 text-sm">
-                  {{ detailPayload.data.row.transport }}
+                  {{ transportName(detailPayload.data.row.transport) }}
                   <span class="tabular ml-2 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('upstream.attemptsTimes', { count: detailPayload.data.row.attempts }) }}
                   </span>
@@ -601,7 +603,7 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
               </p>
               <div class="flex flex-wrap gap-2">
                 <span v-for="(value, key) in entry.attributes" :key="key" :class="chip">
-                  {{ key }}：{{ value }}
+                  {{ t('upstream.attributePair', { key, value }) }}
                 </span>
               </div>
             </div>
@@ -612,9 +614,11 @@ const statTile = 'rounded-2xl border border-gray-200 bg-white p-5 dark:border-gr
               </p>
               <ul class="m-0 list-none space-y-1 p-0">
                 <li v-for="source in entry.provenance" :key="source.field" class="text-xs text-gray-500 dark:text-gray-400">
-                  <span class="font-mono">{{ source.field }}</span>
-                  · {{ source.label || t('common.empty') }}
-                  · {{ shortTime(source.observedAt) }}
+                  {{ t('upstream.provenanceLine', {
+                    field: source.field,
+                    label: source.label || t('common.empty'),
+                    time: shortTime(source.observedAt),
+                  }) }}
                 </li>
               </ul>
             </div>

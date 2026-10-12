@@ -5,6 +5,7 @@ import { capture, INITIAL_SOURCE_WEIGHT, useApi } from '../composables/useApi';
 import type { Loaded, SourceListPage } from '../composables/useApi';
 import { adminSession } from '../composables/useAdminSession';
 import { useAuthGate } from '../composables/useAuthGate';
+import { tableCell, tableHead, tableScroll, tableWrap } from '~/utils/ui';
 
 const api = useApi();
 const route = useRoute();
@@ -70,11 +71,9 @@ function kindLabel(kind: string | null): string {
   return kind;
 }
 
-/** 权重徽标：低于基准＝可疑（警告色），高于基准＝可信（成功色），正好等于基准时不着色（那是默认状态）。 */
-function weightTone(weight: number): 'warning' | 'success' | 'neutral' {
-  if (weight < baseline.value) return 'warning';
-  if (weight > baseline.value) return 'success';
-  return 'neutral';
+/** 权重徽标：高于基准＝可信（成功色），等于/低于基准＝中性色 —— 规范只允许 success/neutral。 */
+function weightTone(weight: number): 'success' | 'neutral' {
+  return weight > baseline.value ? 'success' : 'neutral';
 }
 
 function shortTime(value: string | null): string {
@@ -97,17 +96,6 @@ async function toggleSuspicious(): Promise<void> {
 }
 
 useHead({ title: computed(() => t('sources.title')) });
-
-const card = 'rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900';
-/** 宽表格的小屏策略：外层 overflow-x-auto 兜住，桌面端不出现横向滚动条 */
-const tableWrap = 'w-full max-w-full overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900';
-const tableHead = 'whitespace-nowrap border-b border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-xs font-medium tracking-wide text-gray-500 uppercase dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400';
-const tableCell = 'border-b border-gray-200 px-3 py-2.5 align-top text-sm dark:border-gray-800';
-const rowLink =
-  'inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 no-underline transition-colors duration-150 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800';
-const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
-/** 空状态按规范 §6.9：圆形浅蓝图标容器 + 一句灰字 + 下一步动作 */
-const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300';
 </script>
 
 <template>
@@ -129,40 +117,39 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
       {{ t('sources.intro') }}
     </p>
 
-    <div :class="[card, 'flex flex-wrap items-center gap-3']">
-      <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-        <input
-          :checked="suspicious"
-          data-testid="sources-suspicious"
-          type="checkbox"
-          class="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900"
-          :disabled="loading"
-          @change="toggleSuspicious"
-        />
-        {{ t('sources.onlySuspicious') }}
-      </label>
-      <span class="text-xs leading-5 text-gray-500 dark:text-gray-400">
-        {{ t('sources.suspiciousHint', { baseline: baseline.toFixed(2) }) }}
-      </span>
-      <span class="flex-1" />
-      <span v-if="loading" class="text-sm text-gray-500 dark:text-gray-400">{{ t('common.loadingShort') }}</span>
-    </div>
+    <AppCard>
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input
+            :checked="suspicious"
+            data-testid="sources-suspicious"
+            type="checkbox"
+            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900"
+            :disabled="loading"
+            @change="toggleSuspicious"
+          />
+          {{ t('sources.onlySuspicious') }}
+        </label>
+        <span class="text-xs leading-5 text-gray-500 dark:text-gray-400">
+          {{ t('sources.suspiciousHint', { baseline: baseline.toFixed(2) }) }}
+        </span>
+        <span class="flex-1" />
+        <span v-if="loading" class="text-sm text-gray-500 dark:text-gray-400">{{ t('common.loadingShort') }}</span>
+      </div>
+    </AppCard>
 
-    <p v-if="error" :class="[errorNotice, 'mt-4']" data-testid="sources-error">
-      <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{{ error }}</span>
-    </p>
+    <AppNotice v-if="error" tone="error" class="mt-4" data-testid="sources-error">{{ error }}</AppNotice>
 
-    <div
+    <AppEmpty
       v-else-if="!loading && sources.length === 0"
-      class="mt-6 flex flex-col items-center gap-3 py-10 text-center"
+      icon="shield"
+      class="mt-6"
       data-testid="sources-empty"
     >
-      <span :class="emptyIcon"><AppIcon name="shield" class="h-6 w-6" /></span>
-      <p class="m-0 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('sources.empty') }}</p>
-    </div>
+      {{ t('sources.empty') }}
+    </AppEmpty>
 
-    <div v-else :class="[tableWrap, 'mt-4']">
+    <div v-else :class="[tableWrap, tableScroll, 'mt-4']">
       <table class="w-full border-collapse">
         <thead>
           <tr>
@@ -185,7 +172,7 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
             </td>
             <td :class="[tableCell, 'whitespace-nowrap']">
               <UBadge v-if="row.kind" color="neutral" variant="soft" size="sm">{{ kindLabel(row.kind) }}</UBadge>
-              <span v-else class="text-gray-400 dark:text-gray-500">{{ t('common.empty') }}</span>
+              <span v-else class="text-gray-500 dark:text-gray-400">{{ t('common.empty') }}</span>
             </td>
             <td :class="[tableCell, 'text-right']">
               <UBadge
@@ -198,10 +185,10 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
               </UBadge>
             </td>
             <td :class="[tableCell, 'whitespace-nowrap']">
-              <UBadge :color="row.upvotes === 0 ? 'neutral' : 'success'" variant="soft" size="sm">
+              <UBadge :color="row.upvotes === 0 ? 'neutral' : 'success'" variant="soft" size="sm" class="tabular">
                 {{ t('sources.upvotes', { count: row.upvotes }) }}
               </UBadge>
-              <UBadge :color="row.downvotes === 0 ? 'neutral' : 'warning'" variant="soft" size="sm" class="ml-1">
+              <UBadge color="neutral" variant="soft" size="sm" class="tabular ml-1">
                 {{ t('sources.downvotes', { count: row.downvotes }) }}
               </UBadge>
             </td>
@@ -210,7 +197,7 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
             <td :class="[tableCell, 'text-right']">
               <UBadge
                 v-if="row.ipHashes > 1"
-                color="warning"
+                color="neutral"
                 variant="soft"
                 size="sm"
                 :title="t('sources.ipTooltip')"
@@ -221,14 +208,18 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
             </td>
             <td :class="[tableCell, 'whitespace-nowrap font-mono text-xs text-gray-500 dark:text-gray-400']">{{ shortTime(row.lastObservedAt) }}</td>
             <td :class="[tableCell, 'whitespace-nowrap']">
-              <NuxtLink
-                :class="rowLink"
+              <UButton
+                variant="outline"
+                color="neutral"
+                size="xs"
+                :label="t('common.view')"
                 data-testid="sources-open"
                 :to="`/sources/${encodeURIComponent(row.sourceKey)}`"
               >
-                {{ t('common.view') }}
-                <AppIcon name="chevronRight" class="h-4 w-4" />
-              </NuxtLink>
+                <template #trailing>
+                  <AppIcon name="chevronRight" class="h-4 w-4" />
+                </template>
+              </UButton>
             </td>
           </tr>
         </tbody>

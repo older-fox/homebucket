@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { FieldSource } from '../composables/useApi';
+import { tableWrap, tableScroll, tableHead, tableCell } from '~/utils/ui';
 
 defineProps<{ fields: FieldSource[] }>();
 
@@ -77,24 +78,24 @@ function isWinner(field: FieldSource): boolean {
  * data-testid="field-source" 必须挂在**外层滚动容器**上（不是每行）：
  * 验收脚本先按这个 testid 取到元素，再在它里面找 `tbody tr` 逐行读 <td>。
  * 挂到 <tr> 上会让 `locator('tbody tr')` 一个也找不到。
+ *
+ * 这个容器同时是卡片面（tableWrap）与横向滚动容器（tableScroll）：Tailwind 生成的
+ * `.overflow-x-auto` 排在 `.overflow-hidden` 之后，所以 x 轴可滚动、y 轴仍被裁切在圆角内。
  */
-const wrapper = 'w-full max-w-full overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900';
-const tableHead = 'whitespace-nowrap border-b border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-xs font-medium tracking-wide text-gray-500 uppercase dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400';
-const tableCell = 'border-b border-gray-200 px-3 py-2.5 align-top text-sm dark:border-gray-800';
 </script>
 
 <template>
-  <div data-testid="field-source" :class="wrapper">
+  <div data-testid="field-source" :class="[tableWrap, tableScroll, 'w-full max-w-full']">
     <table class="w-full border-collapse">
       <thead>
         <tr>
-          <th :class="tableHead">{{ t('sources.columnField') }}</th>
-          <th :class="tableHead">{{ t('item.field.currentValue') }}</th>
-          <th :class="tableHead">{{ t('audit.filterSource') }}</th>
-          <th :class="tableHead">{{ t('item.field.observedAt') }}</th>
-          <th :class="[tableHead, 'text-right']">{{ t('item.field.agreedCount') }}</th>
-          <th :class="tableHead">{{ t('item.field.vote') }}</th>
-          <th :class="tableHead">{{ t('common.status') }}</th>
+          <th :class="[tableHead, 'whitespace-nowrap']">{{ t('sources.columnField') }}</th>
+          <th :class="[tableHead, 'whitespace-nowrap']">{{ t('item.field.currentValue') }}</th>
+          <th :class="[tableHead, 'whitespace-nowrap']">{{ t('audit.filterSource') }}</th>
+          <th :class="[tableHead, 'whitespace-nowrap']">{{ t('item.field.observedAt') }}</th>
+          <th :class="[tableHead, 'whitespace-nowrap', 'text-right']">{{ t('item.field.agreedCount') }}</th>
+          <th :class="[tableHead, 'whitespace-nowrap']">{{ t('item.field.vote') }}</th>
+          <th :class="[tableHead, 'whitespace-nowrap']">{{ t('common.status') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -102,7 +103,7 @@ const tableCell = 'border-b border-gray-200 px-3 py-2.5 align-top text-sm dark:b
           <td :class="[tableCell, 'whitespace-nowrap font-medium']">{{ label(field.field) }}</td>
           <td :class="[tableCell, 'max-w-[420px] break-words max-sm:max-w-none']">{{ display(field.value) }}</td>
           <td :class="[tableCell, 'whitespace-nowrap']">
-            <UBadge v-if="field.source === 'admin'" color="primary" variant="soft" size="sm">
+            <UBadge v-if="field.source === 'admin'" color="neutral" variant="soft" size="sm">
               {{ t('errors.adminSource') }}
             </UBadge>
             <span v-else class="text-gray-700 dark:text-gray-300">{{ sourceName(field) }}</span>
@@ -116,25 +117,25 @@ const tableCell = 'border-b border-gray-200 px-3 py-2.5 align-top text-sm dark:b
             </template>
             <template v-else>
               <div class="flex flex-wrap items-center gap-1.5">
-                <UBadge :color="isWinner(field) ? 'success' : 'primary'" variant="soft" size="sm">
+                <UBadge :color="isWinner(field) ? 'success' : 'neutral'" variant="soft" size="sm" class="tabular">
                   {{ voteText(field) }}
                 </UBadge>
                 <span v-if="field.decided" class="text-xs text-gray-500 dark:text-gray-400">{{ t('item.field.highestVote') }}</span>
-                <UBadge v-else color="warning" variant="soft" size="sm">{{ t('item.field.tied') }}</UBadge>
+                <UBadge v-else color="neutral" variant="soft" size="sm">{{ t('item.field.tied') }}</UBadge>
               </div>
-              <div v-if="!field.decided && rivalText(field)" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <div v-if="!field.decided && rivalText(field)" class="mt-1 text-xs text-gray-500 dark:text-gray-400 tabular">
                 {{ t('item.field.otherRivals', { text: rivalText(field) }) }}
               </div>
             </template>
           </td>
           <td :class="[tableCell, 'whitespace-nowrap']">
-            <UBadge v-if="field.locked" color="warning" variant="soft" size="sm">{{ t('item.field.locked') }}</UBadge>
+            <UBadge v-if="field.locked" color="neutral" variant="soft" size="sm">{{ t('item.field.locked') }}</UBadge>
             <span v-else class="text-xs text-gray-500 dark:text-gray-400">{{ t('item.field.automatic') }}</span>
           </td>
         </tr>
         <tr v-if="fields.length === 0">
-          <td :class="[tableCell, 'text-center text-gray-500 dark:text-gray-400']" colspan="7">
-            {{ t('item.field.noneReported') }}
+          <td :class="tableCell" colspan="7">
+            <AppEmpty>{{ t('item.field.noneReported') }}</AppEmpty>
           </td>
         </tr>
       </tbody>

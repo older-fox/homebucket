@@ -67,51 +67,45 @@ watch(query, (value) => {
 });
 
 useHead({ title: computed(() => t('search.title')) });
-
-const input =
-  'w-full min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-sm text-gray-900 transition-colors duration-150 outline-none placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500';
-const primaryButton =
-  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-gray-950';
-/** 结果行是整块可点的链接：hover 才有抬升与阴影（规范 §1.2 阴影只出现在交互态） */
-const resultRow =
-  'flex items-start gap-3.5 rounded-2xl border border-gray-200 bg-white p-4 text-inherit no-underline transition duration-200 hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-lg hover:shadow-gray-900/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-700 dark:hover:shadow-black/30';
-const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
-const warnNotice = 'flex items-start gap-2 rounded-lg bg-amber-50 px-3.5 py-2.5 text-sm text-amber-700 dark:bg-amber-950/50 dark:text-amber-300';
-/** 空状态按规范 §6.9：48px 圆形浅蓝图标容器 + 一句灰字 + 次级动作 */
-const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300';
 </script>
 
 <template>
   <div data-testid="page-head" class="flex flex-wrap items-baseline gap-3">
     <h1 class="m-0 text-2xl font-semibold tracking-tight">{{ t('search.title') }}</h1>
-    <UBadge v-if="total > 0" color="neutral" variant="soft" size="sm">{{ t('common.totalCount', { count: total }) }}</UBadge>
+    <UBadge v-if="total > 0" color="neutral" variant="soft" size="sm" class="tabular">{{ t('common.totalCount', { count: total }) }}</UBadge>
   </div>
   <p class="mt-2 mb-6 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
     {{ t('search.intro') }}
   </p>
 
   <form class="flex gap-2.5" @submit.prevent="submit">
-    <input
+    <UInput
       v-model="keyword"
-      :class="input"
+      size="lg"
+      class="min-w-0 flex-1"
       data-testid="search-input"
       type="search"
       :aria-label="t('common.ariaSearchInput')"
       :placeholder="t('search.placeholder')"
       autofocus
-    />
-    <button
+    >
+      <template #leading>
+        <AppIcon name="search" class="h-[18px] w-[18px] text-gray-400" />
+      </template>
+    </UInput>
+    <UButton
       data-testid="search-submit"
-      :class="primaryButton"
       type="submit"
-      :disabled="loading"
+      color="primary"
+      size="lg"
+      :loading="loading"
       :aria-label="t('search.ariaSubmit')"
     >
       {{ loading ? t('common.searching') : t('common.search') }}
-    </button>
+    </UButton>
   </form>
 
-  <p v-if="error" :class="[errorNotice, 'mt-4']" data-testid="notice">{{ error }}</p>
+  <AppNotice v-if="error" tone="error" class="mt-4" data-testid="notice">{{ error }}</AppNotice>
 
   <div class="mt-4 grid gap-2.5">
     <NuxtLink
@@ -119,7 +113,7 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
       :key="item.id"
       data-testid="item-row"
       :to="itemPath(item)"
-      :class="resultRow"
+      class="hb-card hb-card-hover flex items-start gap-3.5 p-5 text-inherit no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:focus-visible:ring-blue-400/40"
     >
       <!-- 结果行只看缩略图，不给它单独的可访问名：整行已经是链接，图再带 alt 会被读两遍 -->
       <img
@@ -138,10 +132,10 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
       <span class="min-w-0 flex-1">
         <span class="block truncate font-semibold">{{ item.name || t('search.noName') }}</span>
         <span class="mt-0.5 block truncate text-xs text-gray-500 dark:text-gray-400">
-          <template v-if="item.barcode"><span class="font-mono">{{ item.barcode }}</span> · </template>
-          {{ [item.manufacturer, item.model, item.category].filter(Boolean).join(' · ') || t('search.noManufacturer') }}
+          <template v-if="item.barcode"><span class="font-mono">{{ item.barcode }}</span>{{ t('common.listSep') }}</template>
+          {{ [item.manufacturer, item.model, item.category].filter(Boolean).join(t('common.listSep')) || t('search.noManufacturer') }}
         </span>
-        <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+        <span class="mt-0.5 block text-xs text-gray-500 tabular dark:text-gray-400">
           {{ t('search.summary', { instances: item.instanceCount, contributions: item.contributionCount, time: shortTime(item.updatedAt) }) }}
         </span>
       </span>
@@ -149,28 +143,32 @@ const emptyIcon = 'grid h-12 w-12 place-items-center rounded-full bg-blue-50 tex
   </div>
 
   <!-- 空状态分三种：没搜（教怎么用）、搜了没结果、数字条码没收录。分开说才不会误导。 -->
-  <div
+  <AppEmpty
     v-if="!loading && items.length === 0 && !error && idle"
-    class="mt-6 flex flex-col items-center gap-3 py-10 text-center"
+    icon="search"
+    class="mt-6"
     data-testid="empty-state"
   >
-    <span :class="emptyIcon"><AppIcon name="search" class="h-6 w-6" /></span>
-    <p class="m-0 text-sm font-medium text-gray-900 dark:text-white">{{ t('search.hintTitle') }}</p>
-    <p class="m-0 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('search.hint') }}</p>
-  </div>
-  <div
+    <span class="block font-medium text-gray-900 dark:text-white">{{ t('search.hintTitle') }}</span>
+    <span class="mt-1 block">{{ t('search.hint') }}</span>
+  </AppEmpty>
+  <AppEmpty
     v-else-if="!loading && items.length === 0 && !error"
-    class="mt-6 flex flex-col items-center gap-3 py-10 text-center"
+    icon="box"
+    class="mt-6"
     data-testid="empty-state"
   >
-    <span :class="emptyIcon"><AppIcon name="box" class="h-6 w-6" /></span>
-    <p class="m-0 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('search.empty') }}</p>
-  </div>
+    {{ t('search.empty') }}
+  </AppEmpty>
 
-  <p v-if="!loading && items.length === 0 && !error && barcodeLike" :class="[warnNotice, 'mt-4']" data-testid="notice">
-    <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-    <span>{{ t('search.notCollected') }}</span>
-  </p>
+  <AppNotice
+    v-if="!loading && items.length === 0 && !error && barcodeLike"
+    tone="neutral"
+    class="mt-4"
+    data-testid="notice"
+  >
+    {{ t('search.notCollected') }}
+  </AppNotice>
 
   <Pager :page="page" :page-size="pageSize" :total="total" @update:page="goPage" />
 </template>

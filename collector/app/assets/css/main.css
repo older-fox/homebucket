@@ -37,6 +37,22 @@
    */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+
+  /*
+   * 圆角阶梯。**必须显式钉死**，不能交给 Nuxt UI 的默认换算。
+   *
+   * Nuxt UI v4 把每个 rounded-* 都定义成 `calc(var(--ui-radius) * N)` 的倍数，
+   * 而规范同时要求「--ui-radius: 0.625rem（10px）的控件」与「16px 的大卡片」——
+   * 直接用倍数会得到 rounded-lg=20px、rounded-2xl=40px，比设计稿圆一大截。
+   * 这里按规范的像素意图重新落值；--ui-radius 仍是 10px，只是不再被放大成倍数：
+   *   · 控件（Nuxt UI 的按钮/输入框用 rounded-md）与导航项/提示条（rounded-lg）＝ 10px
+   *   · 图标块 / 侧栏品牌块（rounded-xl）＝ 12px
+   *   · 大卡片（rounded-2xl）＝ 16px
+   */
+  --radius-md: 0.625rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
 }
 
 /*
@@ -58,4 +74,20 @@ html {
 /* 数值一律等宽，否则刷新一次列宽就跳一下 */
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 规范里反复出现、又被各页抄了十来遍的两组样式，收成 utility：
+ *   · hb-card        静止卡片：大圆角 + 淡 ring（而非 border）+ 半透明底 + 轻阴影
+ *   · hb-card-hover  悬浮抬起：位移 + 阴影加深（只给可点击的卡片用）
+ * 页面里写 `hb-card` 即可，避免同一个 `bg-white/90 dark:bg-gray-900/80 …` 复制粘贴走样。
+ */
+@utility hb-card {
+  @apply rounded-2xl bg-white/90 ring-1 ring-gray-200/80 shadow-sm backdrop-blur-sm
+         dark:bg-gray-900/80 dark:ring-gray-800;
+}
+
+@utility hb-card-hover {
+  @apply transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-gray-900/5
+         dark:hover:shadow-black/30;
 }

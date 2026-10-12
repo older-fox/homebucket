@@ -454,7 +454,7 @@ export const api = {
         { method: 'POST', body: { sourceItemId } },
       ),
     recomputeItem: (id: number) =>
-      request<{ recomputedItems: number; requested: number; note: string }>(`/api/admin/items/${id}/recompute`, {
+      request<{ recomputedItems: number; requested: number }>(`/api/admin/items/${id}/recompute`, {
         method: 'POST',
       }),
     contributions: (params: AdminContributionQuery) =>

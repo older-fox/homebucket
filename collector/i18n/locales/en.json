@@ -4,7 +4,8 @@
       "applied": "Manual correction saved (fields applied: {fields})",
       "appliedNone": "none",
       "attrKeyValue": "key=value",
-      "attributesLabel": "attributes (one key=value per line)",
+      "attributesLabel": "attributes",
+      "attributesPlaceholder": "one key=value per line",
       "clear": "Clear",
       "contributions": "Contribution log for this item ({count})",
       "currentlyLocked": "(currently locked)",
@@ -12,7 +13,8 @@
       "editHint": "A field left empty is left untouched; tick \"clear\" to empty that field (its write time is removed automatically, so later automatic reports can fill it in again).\nOne image URL per line, one attribute per line as {'{'}key=value{'}'} (for example {'{'}voltage=18V{'}'}).",
       "emptyValue": "(empty)",
       "identity": "Identity key {key} · {contributions} contributions · {instances} instances",
-      "imageUrlsLabel": "imageUrls (one per line)",
+      "imageUrlsLabel": "imageUrls",
+      "imageUrlsPlaceholder": "one per line",
       "lockHeading": "Locked fields (automatic reports no longer overwrite them)",
       "lockedFieldPrefix": "locks.",
       "merge": "Run merge",
@@ -27,6 +29,12 @@
       "recomputed": "This item was replayed from the existing log",
       "save": "Save as manual correction",
       "toggleNotice": "{action} contribution #{id} (item #{itemId})"
+    },
+    "confirm": {
+      "blockContribution": "Block contribution #{id}? Affected fields will be recalculated immediately.",
+      "blockInstance": "Ban instance \"{name}\"? All of its past contributions will stop counting, and all of its later contributions will be rejected.",
+      "merge": "Merge #{sourceId} into #{targetId}? Contributions will be moved to the target, and this is hard to undo.",
+      "recomputeAll": "Replay the entire catalog? This may take a while; data is recalculated from the remaining log."
     },
     "instances": {
       "block": "Ban",
@@ -76,6 +84,9 @@
   "audit": {
     "block": "Block this",
     "blocked": "Blocked",
+    "confirm": {
+      "blockContribution": "Block contribution #{id}? Affected fields will be recalculated immediately."
+    },
     "filterInstanceId": "Instance ID",
     "filterInstanceIdPlaceholder": "e.g. 3",
     "filterItemId": "Item ID",
@@ -102,15 +113,13 @@
     "changePassword": "Change password",
     "invalidInput": "Invalid input",
     "login": {
-      "devHint": "Development default: username admin (the password comes from COLLECTOR_ADMIN_PASSWORD on the server).",
-      "intro": "The corrections console, the contribution audit and password changes require an admin account. Your session is kept in a server-side httpOnly cookie that browser scripts cannot read.",
       "password": "Password",
       "passwordPlaceholder": "Password",
       "submit": "Sign in",
       "submitBusy": "Signing in…",
       "title": "Sign in",
       "username": "Username",
-      "usernamePlaceholder": "admin",
+      "usernamePlaceholder": "Username",
       "browsePublic": "Skip sign-in and look up barcodes"
     },
     "password": {
@@ -120,7 +129,8 @@
       "currentRequired": "Enter your current password",
       "intro": "Once the change succeeds, sessions on other devices are revoked while this browser stays signed in.",
       "mismatch": "The two new passwords do not match",
-      "newLabel": "New password (at least 8 characters)",
+      "newLabel": "New password",
+      "newPlaceholder": "At least 8 characters",
       "newTooShort": "The new password must be at least 8 characters long",
       "sameAsCurrent": "The new password must differ from the current one",
       "submit": "Update password",
@@ -146,6 +156,7 @@
     "checking": "Checking your session…"
   },
   "brand": {
+    "mark": "HB",
     "name": "HomeBucket Collector",
     "short": "HomeBucket",
     "tagline": "Product information collector"
@@ -159,12 +170,16 @@
     "cancel": "Cancel",
     "close": "Close",
     "confirm": "Confirm",
+    "dash": "—",
     "empty": "—",
     "filter": "Filter",
+    "labelSep": ": ",
+    "listSep": " · ",
     "loading": "Loading…",
     "loadingShort": "Loading…",
     "merging": "Merging…",
     "open": "Open",
+    "pathSep": " / ",
     "processing": "Working…",
     "replaying": "Replaying…",
     "retry": "Retry",
@@ -179,18 +194,14 @@
     "unknownUser": "?",
     "view": "View"
   },
+  "confirm": {
+    "title": "Please confirm"
+  },
   "errors": {
     "adminSource": "Manual correction",
     "blockedReason": "Manually judged to be an erroneous report",
     "instance": "Instance #{id}",
     "sourceUnknown": "Unknown source"
-  },
-  "footer": {
-    "registrationClosed": "Instance registration closed",
-    "registrationOpen": "Instance registration open",
-    "serverNotReady": "Server not ready",
-    "totals": "{items} items / {contributions} contributions / {instances} instances",
-    "unavailable": "Server not ready"
   },
   "item": {
     "attributeField": "Attributes · {name}",
@@ -249,6 +260,11 @@
     "en": "English",
     "switch": "Switch language",
     "zh": "中文"
+  },
+  "meta": {
+    "description": "The shared product catalog for every HomeBucket instance: look up public data by barcode that anyone can enrich.",
+    "title": "HomeBucket Collector",
+    "titleTemplate": "{title} · HomeBucket Collector"
   },
   "nav": {
     "admin": "Corrections",
@@ -351,6 +367,7 @@
     "categoryHeader": "Category",
     "contributionsHeader": "Contributions",
     "coverage": "Field coverage",
+    "coverageValue": "{filled} · {percent}%",
     "daily": "Contributions over the last 14 days",
     "dailyTooltip": "{date}: {count} contributions",
     "instancesHeader": "Instance",
@@ -388,6 +405,8 @@
     "introNoBarcode": "Items without a barcode are not uploaded — the upstream database identifies items by barcode, so there is nothing to match on.",
     "transportOff": "Upstream sync is off",
     "transportOffHint": "COLLECTOR_SYNC_TRANSPORT=off, so the collector only serves the pull-export API and never pushes. Set it to http or file and restart to enable.",
+    "transportHttp": "HTTP push",
+    "transportFile": "Local file",
     "intervalManual": "Manual only",
     "intervalManualHint": "A transport is configured, but COLLECTOR_SYNC_INTERVAL_MINUTES=0, so there is no scheduled job — you can only run a round here by hand.",
     "intervalHint": "Uploads automatically every {minutes} minutes",
@@ -448,8 +467,10 @@
     "payloadAttributes": "Attributes",
     "payloadProvenance": "Field sources",
     "payloadRaw": "Raw JSON",
+    "provenanceLine": "{field} · {label} · {time}",
     "lastError": "Last error",
     "attemptsTimes": "Attempt {count}",
+    "attributePair": "{key}: {value}",
     "fieldCompleteness": "Field completeness",
     "complete": "Complete",
     "missingField": "Missing {field}",

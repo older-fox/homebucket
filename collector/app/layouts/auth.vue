@@ -2,18 +2,15 @@
 /**
  * 认证外壳：登录页与改密码页专用的**单页**布局（规范 §6.8）。
  *
- * 为什么必须和 default 外壳分开：default 外壳带 256px 侧栏 + 64px 顶栏 + 页脚，
- * 那是"已进入应用之后"的框架。登录页套在里面会出现三个说不通的地方：
+ * 为什么必须和 default 外壳分开：default 外壳带 256px 侧栏 + 64px 顶栏，
+ * 那是"已进入应用之后"的框架。登录页套在里面会出现两个说不通的地方：
  *   1. 侧栏把「纠错台/审计/来源/上级库」全渲染成置灰的锁定项 —— 对着未登录的人
  *      摆一排他点不了的功能，是在提示"你有权限缺口"，而不是请他登录；
- *   2. 顶栏面包屑写的是"HomeBucket / 未找到的当前页"，因为登录页不在导航表里；
- *   3. 页脚会去请求 /api/health 并显示库内条目数 —— 未登录的人本来就不该看到这些。
+ *   2. 顶栏面包屑写的是"HomeBucket / 未找到的当前页"，因为登录页不在导航表里。
  * 所以认证类页面整体退出应用外壳，只保留一块全屏画布。
  *
  * 唯一允许用渐变/毛玻璃的位置就是这里（规范 §1.3 与 §6.8），别处一律不许照抄。
  */
-import { computed } from 'vue';
-
 const { t, locale, locales } = useI18n();
 const colorMode = useColorMode();
 
@@ -39,13 +36,6 @@ function setLocale(code: LocaleCode): void {
 function toggleTheme(): void {
   colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark';
 }
-
-/**
- * 认证画布右侧的角标信息由使用方（login.vue / password.vue）通过 `<NuxtLayout>` 插槽传下来。
- * 这里只声明"可能有"，没有也照常渲染 —— 布局不该依赖某个具体页面。
- */
-const slots = useSlots();
-const hasAside = computed(() => Boolean(slots.aside));
 </script>
 
 <template>
@@ -55,9 +45,8 @@ const hasAside = computed(() => Boolean(slots.aside));
       纯装饰，aria-hidden；pointer-events-none 保证它不会挡住底下的控件。
     -->
     <div class="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-      <div class="absolute -top-32 -left-32 h-[26rem] w-[26rem] rounded-full bg-blue-500/20 blur-3xl" />
-      <div class="absolute top-1/3 -right-40 h-[24rem] w-[24rem] rounded-full bg-indigo-500/20 blur-3xl" />
-      <div class="absolute -bottom-40 left-1/4 h-[22rem] w-[22rem] rounded-full bg-blue-400/10 blur-3xl" />
+      <div class="absolute -top-32 -left-32 h-[26rem] w-[26rem] rounded-full bg-blue-500/20 blur-3xl dark:bg-blue-500/10" />
+      <div class="absolute top-1/3 -right-40 h-[24rem] w-[24rem] rounded-full bg-indigo-500/20 blur-3xl dark:bg-indigo-500/10" />
     </div>
 
     <!--
@@ -104,12 +93,5 @@ const hasAside = computed(() => Boolean(slots.aside));
     <main class="relative z-10 flex flex-1 items-center justify-center px-6 pb-10 max-sm:px-4">
       <slot />
     </main>
-
-    <footer class="relative z-10 shrink-0 px-6 pb-6 text-center max-sm:px-4">
-      <slot name="aside">
-        <p class="m-0 text-xs text-gray-500 dark:text-gray-400">{{ t('brand.tagline') }}</p>
-      </slot>
-      <p v-if="hasAside" class="sr-only" aria-hidden="true" />
-    </footer>
   </div>
 </template>

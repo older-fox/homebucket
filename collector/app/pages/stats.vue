@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { capture, useApi } from '../composables/useApi';
 import type { Loaded, StatsView } from '../composables/useApi';
+import { tableCell, tableHead, tableWrap } from '~/utils/ui';
 
 const api = useApi();
 const { t } = useI18n();
@@ -27,21 +28,16 @@ function shortTime(value: string): string {
 
 useHead({ title: computed(() => t('stats.title')) });
 
-const card = 'rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900';
 /**
  * 指标卡是里外两层结构：第一行是标签、第二行才是数字。
  * 这不是随意排的 —— 验收脚本按「标签\n数字」两行解析每张卡，顺序反了整张表都会读错。
  */
-const statCard = 'rounded-2xl border border-gray-200 bg-white p-5 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-gray-900/5 dark:border-gray-800 dark:bg-gray-900 dark:hover:shadow-black/30';
+const statCard = 'hb-card hb-card-hover p-6';
 const statLabel = 'text-xs font-medium tracking-wide text-gray-500 uppercase dark:text-gray-400';
 const statValue = 'mt-1.5 text-3xl font-semibold leading-tight tabular';
-const statValueText = 'mt-1.5 text-lg font-semibold leading-tight tabular';
+/** 第 4 张卡是时间戳（非纯数字），降一档字号但仍用等宽数字避免刷新时跳动 */
+const statValueText = 'mt-1.5 text-2xl font-semibold leading-tight tabular';
 const statHint = 'mt-1 text-xs text-gray-500 dark:text-gray-400';
-const cardTitle = 'm-0 text-base font-semibold';
-const tableWrap = 'w-full max-w-full overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800';
-const tableHead = 'whitespace-nowrap border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-medium tracking-wide text-gray-500 uppercase dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400';
-const tableCell = 'border-b border-gray-200 px-3 py-2 align-top text-sm dark:border-gray-800';
-const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
 </script>
 
 <template>
@@ -52,10 +48,7 @@ const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 t
     {{ t('stats.intro') }}
   </p>
 
-  <p v-if="error" :class="errorNotice" data-testid="notice">
-    <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-    <span>{{ error }}</span>
-  </p>
+  <AppNotice v-if="error" tone="error" data-testid="notice">{{ error }}</AppNotice>
   <p v-else-if="loading" class="m-0 text-sm text-gray-500 dark:text-gray-400">{{ t('common.loading') }}</p>
 
   <div v-if="stats" class="space-y-8">
@@ -85,8 +78,7 @@ const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 t
       </div>
     </div>
 
-    <div :class="card" data-testid="card">
-      <h2 :class="[cardTitle, 'mb-3']">{{ t('stats.coverage') }}</h2>
+    <AppCard :title="t('stats.coverage')" data-testid="card">
       <div class="grid gap-2.5">
         <div
           v-for="row in stats.coverage"
@@ -98,13 +90,12 @@ const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 t
           <span class="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
             <span class="block h-full rounded-full bg-blue-600" :style="{ width: `${row.percent}%` }" />
           </span>
-          <span class="tabular text-xs text-gray-500 dark:text-gray-400">{{ row.filled }} · {{ row.percent }}%</span>
+          <span class="tabular text-xs text-gray-500 dark:text-gray-400">{{ t('stats.coverageValue', { filled: row.filled, percent: row.percent }) }}</span>
         </div>
       </div>
-    </div>
+    </AppCard>
 
-    <div :class="card" data-testid="card">
-      <h2 :class="[cardTitle, 'mb-3']">{{ t('stats.daily') }}</h2>
+    <AppCard :title="t('stats.daily')" data-testid="card">
       <p v-if="stats.daily.length === 0" class="m-0 text-sm text-gray-500 dark:text-gray-400">{{ t('stats.dailyEmpty') }}</p>
       <template v-else>
         <!-- 柱子只有颜色和高度，读屏读不到数：把整句 tooltip 交给 title，并给容器一个组标签 -->
@@ -118,16 +109,15 @@ const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 t
           />
         </div>
         <div class="mt-1.5 flex gap-[3px]">
-          <span v-for="row in stats.daily" :key="row.date" class="flex-1 text-center text-[10px] text-gray-500 dark:text-gray-400">
+          <span v-for="row in stats.daily" :key="row.date" class="flex-1 text-center text-xs text-gray-500 dark:text-gray-400">
             {{ shortDate(row.date) }}
           </span>
         </div>
       </template>
-    </div>
+    </AppCard>
 
     <div class="grid gap-4 sm:grid-cols-2">
-      <div :class="card" data-testid="card">
-        <h2 :class="[cardTitle, 'mb-3']">{{ t('stats.topInstances') }}</h2>
+      <AppCard :title="t('stats.topInstances')" data-testid="card">
         <div :class="tableWrap">
           <table class="w-full border-collapse">
             <thead>
@@ -151,10 +141,9 @@ const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 t
             </tbody>
           </table>
         </div>
-      </div>
+      </AppCard>
 
-      <div :class="card" data-testid="card">
-        <h2 :class="[cardTitle, 'mb-3']">{{ t('stats.manufacturers') }}</h2>
+      <AppCard :title="t('stats.manufacturers')" data-testid="card">
         <div :class="tableWrap">
           <table class="w-full border-collapse">
             <thead>
@@ -193,7 +182,7 @@ const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 t
             </tbody>
           </table>
         </div>
-      </div>
+      </AppCard>
     </div>
   </div>
 </template>

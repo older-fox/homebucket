@@ -40,12 +40,9 @@ function payloadText(entry: ContributionView): string {
 
 /**
  * 每条流水的角色分两类：普通视图只需要看得懂，管理视图还要能屏蔽/恢复。
- * 屏蔽按钮用的仍是原生 button（不是 UButton），因为 e2e 依赖 :data-testid 在按钮自身、
- * 且要在行内可见可点 —— UButton 会把属性透传到内部 <button>，但这里保持原生更直白。
+ * 屏蔽/恢复按钮走规范的 UButton：属性（含 e2e 依赖的 :data-testid）会透传到内部
+ * <button> 上，按钮在行内可见可点。
  */
-const blockButton = 'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50';
-const blockDanger = 'bg-red-600 text-white hover:bg-red-700';
-const blockRestore = 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700';
 </script>
 
 <template>
@@ -54,14 +51,14 @@ const blockRestore = 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-8
       v-for="entry in props.contributions"
       :key="entry.id"
       data-testid="contribution"
-      class="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"
-      :class="{ 'border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40': isAdmin(entry) && entry.blocked }"
+      class="hb-card p-5"
+      :class="{ 'ring-red-300 bg-red-50 dark:ring-red-900 dark:bg-red-950/40': isAdmin(entry) && entry.blocked }"
     >
       <header class="mb-2.5 flex flex-wrap items-center gap-2">
-        <UBadge :color="entry.source === 'admin' ? 'primary' : 'neutral'" variant="soft" size="sm">
+        <UBadge color="neutral" variant="soft" size="sm">
           {{ sourceLabel(entry) }}
         </UBadge>
-        <span class="font-mono text-xs text-gray-500 dark:text-gray-400">{{ shortTime(entry.observedAt) }}</span>
+        <span class="font-mono text-xs tabular text-gray-500 dark:text-gray-400">{{ shortTime(entry.observedAt) }}</span>
         <!--
           管理视图里 `#<id> · 物品 <itemId>` 必须是本行**第一个**出现 `#` 的文本：
           e2e 用 `filter({ hasText: '#<id> ' })` 定位整行，并在行文本里取第一个 #(\d+) 当条目号。
@@ -79,27 +76,29 @@ const blockRestore = 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-8
         </template>
         <UBadge v-else color="neutral" variant="soft" size="sm">{{ t('audit.noFieldsChanged') }}</UBadge>
         <template v-if="isAdmin(entry) && entry.blocked">
-          <UBadge color="error" variant="soft" size="sm">{{ t('audit.blocked') }}</UBadge>
+          <UBadge color="neutral" variant="soft" size="sm">{{ t('audit.blocked') }}</UBadge>
           <span v-if="entry.blockedReason" class="text-xs text-gray-600 dark:text-gray-300">{{ entry.blockedReason }}</span>
         </template>
         <span class="flex-1" />
-        <button
+        <UButton
           v-if="props.admin && isAdmin(entry)"
-          :class="[blockButton, entry.blocked ? blockRestore : blockDanger]"
+          :color="entry.blocked ? 'neutral' : 'error'"
+          variant="outline"
+          size="xs"
           :data-testid="entry.blocked ? 'audit-restore' : 'audit-block'"
           type="button"
           :disabled="props.busyId === entry.id"
           @click="emit('toggleBlock', entry)"
         >
           {{ props.busyId === entry.id ? t('common.processing') : entry.blocked ? t('audit.restore') : t('audit.block') }}
-        </button>
+        </UButton>
       </header>
       <pre
         class="m-0 max-w-full overflow-x-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-950/60 dark:text-gray-200"
       >{{ payloadText(entry) }}</pre>
     </article>
-    <p v-if="props.contributions.length === 0" class="m-0 text-sm text-gray-500 dark:text-gray-400">
+    <AppEmpty v-if="props.contributions.length === 0" icon="clipboard">
       {{ t('item.contribution.empty') }}
-    </p>
+    </AppEmpty>
   </div>
 </template>

@@ -6,6 +6,8 @@ import Pager from '../components/Pager.vue';
 import { errorMessage, useApi } from '../composables/useApi';
 import type { AdminContribution, AdminItem, AdminItemDetail, InstanceRow, ItemPatchBody } from '../composables/useApi';
 import { useAuthGate } from '../composables/useAuthGate';
+import { useConfirm } from '../composables/useConfirm';
+import { tableCell, tableHead, tableScroll, tableWrap } from '~/utils/ui';
 
 type Tab = 'items' | 'instances';
 
@@ -15,6 +17,7 @@ type Tab = 'items' | 'instances';
 
 const api = useApi();
 const { t } = useI18n();
+const confirm = useConfirm();
 
 /** 未确认登录前不渲染页面内容（见 useAuthGate 的说明）。 */
 const { ready, checking } = useAuthGate();
@@ -67,21 +70,28 @@ function fillForm(item: AdminItemDetail): void {
   form.mergeSourceId = '';
 }
 
+let searchSeq = 0;
+let detailSeq = 0;
+
 async function searchItems(): Promise<void> {
   // 会话在 httpOnly cookie 里：绝不在 SSR 期请求管理接口（401 由 useApi 统一送回登录页）
   if (import.meta.server) return;
+  // 单调序号：慢的旧请求回来时不能覆盖新请求的结果（否则搜索词与列表对不上）。
+  const seq = ++searchSeq;
   itemsLoading.value = true;
   error.value = '';
   try {
     const data = await api.admin.items(keyword.value.trim(), itemsPage.value, pageSize);
+    if (seq !== searchSeq) return;
     items.value = data.items;
     itemsTotal.value = data.total;
   } catch (caught) {
+    if (seq !== searchSeq) return;
     items.value = [];
     itemsTotal.value = 0;
     error.value = errorMessage(caught);
   } finally {
-    itemsLoading.value = false;
+    if (seq === searchSeq) itemsLoading.value = false;
   }
 }
 
@@ -90,15 +100,19 @@ async function selectItem(id: number, options: { keepNotice?: boolean } = {}): P
   // 写操作成功后都要重新拉一次详情（服务端回的是合并后的结果），
   // 但那条「已写入人工纠错」的提示不该被这次刷新顺手清掉 —— 见 keepNotice。
   if (!options.keepNotice) notice.value = '';
+  // 单调序号：慢的旧详情回来时不能覆盖新详情（否则抽屉里会显示 A 的数据却标着 B）。
+  const seq = ++detailSeq;
   busy.value = `load-${id}`;
   try {
     const detail = await api.admin.item(id);
+    if (seq !== detailSeq) return;
     selected.value = detail;
     fillForm(detail);
   } catch (caught) {
+    if (seq !== detailSeq) return;
     error.value = errorMessage(caught);
   } finally {
-    busy.value = '';
+    if (seq === detailSeq) busy.value = '';
   }
 }
 
@@ -167,6 +181,15 @@ async function mergeIntoCurrent(): Promise<void> {
     error.value = t('admin.detail.mergeNeedsPositiveId');
     return;
   }
+  if (
+    !(await confirm({
+      title: t('confirm.title'),
+      message: t('admin.confirm.merge', { sourceId, targetId: selected.value.id }),
+      tone: 'error',
+    }))
+  ) {
+    return;
+  }
   busy.value = 'merge';
   error.value = '';
   try {
@@ -186,6 +209,17 @@ async function mergeIntoCurrent(): Promise<void> {
 }
 
 async function toggleContribution(entry: AdminContribution): Promise<void> {
+  if (!entry.blocked) {
+    if (
+      !(await confirm({
+        title: t('confirm.title'),
+        message: t('admin.confirm.blockContribution', { id: entry.id }),
+        tone: 'error',
+      }))
+    ) {
+      return;
+    }
+  }
   busy.value = `contribution-${entry.id}`;
   error.value = '';
   try {
@@ -208,6 +242,15 @@ async function toggleContribution(entry: AdminContribution): Promise<void> {
 }
 
 async function recomputeAll(): Promise<void> {
+  if (
+    !(await confirm({
+      title: t('confirm.title'),
+      message: t('admin.confirm.recomputeAll'),
+      tone: 'primary',
+    }))
+  ) {
+    return;
+  }
   busy.value = 'recompute-all';
   error.value = '';
   try {
@@ -233,23 +276,40 @@ const instancesPage = ref(1);
 const instanceReason = ref('');
 const instancesLoading = ref(false);
 
+let instancesSeq = 0;
+
 async function loadInstances(): Promise<void> {
   if (import.meta.server) return;
+  // 单调序号：慢的旧请求回来时不能覆盖新请求的结果。
+  const seq = ++instancesSeq;
   instancesLoading.value = true;
   error.value = '';
   try {
     const data = await api.admin.instances(instancesPage.value, pageSize);
+    if (seq !== instancesSeq) return;
     instances.value = data.instances;
     instancesTotal.value = data.total;
   } catch (caught) {
+    if (seq !== instancesSeq) return;
     instances.value = [];
     error.value = errorMessage(caught);
   } finally {
-    instancesLoading.value = false;
+    if (seq === instancesSeq) instancesLoading.value = false;
   }
 }
 
 async function toggleInstance(row: InstanceRow): Promise<void> {
+  if (!row.blocked) {
+    if (
+      !(await confirm({
+        title: t('confirm.title'),
+        message: t('admin.confirm.blockInstance', { name: row.name }),
+        tone: 'error',
+      }))
+    ) {
+      return;
+    }
+  }
   busy.value = `instance-${row.id}`;
   error.value = '';
   try {
@@ -296,30 +356,14 @@ instanceReason.value = t('admin.instances.reasonDefault');
 
 useHead({ title: computed(() => t('admin.title')) });
 
-const card = 'rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900';
-const cardTitle = 'm-0 mb-3 text-base font-semibold';
-const input =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 transition-colors duration-150 outline-none placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500';
-const textarea = `${input} min-h-[76px] resize-y font-mono`;
-const label = 'mb-1.5 block text-xs font-medium tracking-wide text-gray-500 uppercase dark:text-gray-400';
-const primaryButton =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-gray-950';
-const subtleButton =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors duration-150 hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700';
-const tinyButton =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50';
-const tinySubtle = 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700';
-const tinyDanger = 'bg-red-600 text-white hover:bg-red-700';
-const ghostButton =
-  'inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors duration-150 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800';
-const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
-const okNotice = 'flex items-start gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400';
-const tableWrap = 'w-full max-w-full overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900';
-const tableHead = 'whitespace-nowrap border-b border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-xs font-medium tracking-wide text-gray-500 uppercase dark:border-gray-800 dark:bg-gray-950/40 dark:text-gray-400';
-const tableCell = 'border-b border-gray-200 px-3 py-2.5 align-top text-sm dark:border-gray-800';
+/**
+ * 字段名的「最小 label span」：验收脚本按 `label span:has-text(/^name/)` 定位，
+ * 所以标量字段行保留原生 `<label><span>` 结构，不换成 UFormField。
+ */
+const fieldLabel = 'mb-1.5 block text-xs font-medium tracking-wide text-gray-500 uppercase dark:text-gray-400';
 /** tab 条：只留底部 1px 指示线，靠文字与线的颜色区分选中，不用整块背景（规范 §6.6 的同一条思路） */
-const tabButton = '-mb-px cursor-pointer border-none border-b-2 bg-transparent px-4 py-2.5 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40';
-const tabActive = 'border-blue-600 font-semibold text-blue-700 dark:text-blue-300';
+const tabButton = '-mb-px rounded-none border-b-2 bg-transparent px-4 py-2.5 text-sm hover:bg-transparent';
+const tabActive = 'border-blue-600 font-semibold text-blue-700 dark:border-blue-400 dark:text-blue-300';
 const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white';
 </script>
 
@@ -335,55 +379,63 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
   <div v-else>
   <div data-testid="page-head" class="flex flex-wrap items-center gap-3">
     <h1 class="m-0 text-2xl font-semibold tracking-tight">{{ t('admin.title') }}</h1>
-    <button
-      :class="ghostButton"
+    <UButton
+      variant="outline"
+      color="neutral"
+      size="lg"
       data-testid="recompute-all"
-      type="button"
-      :disabled="busy === 'recompute-all'"
+      :loading="busy === 'recompute-all'"
       @click="recomputeAll"
     >
       <AppIcon name="refresh" class="h-4 w-4" />
       {{ busy === 'recompute-all' ? t('admin.recomputeAllBusy') : t('admin.recomputeAll') }}
-    </button>
+    </UButton>
   </div>
   <p class="mt-2 mb-6 max-w-3xl text-sm leading-6 whitespace-pre-line text-gray-500 dark:text-gray-400">
     {{ t('admin.intro') }}
   </p>
 
   <div class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-800">
-    <button data-testid="tabs-items" :class="[tabButton, tab === 'items' ? tabActive : tabIdle]" type="button" @click="openItems">
+    <UButton
+      variant="ghost"
+      color="neutral"
+      data-testid="tabs-items"
+      :class="[tabButton, tab === 'items' ? tabActive : tabIdle]"
+      @click="openItems"
+    >
       {{ t('admin.tabs.items') }}
-    </button>
-    <button data-testid="tabs-instances" :class="[tabButton, tab === 'instances' ? tabActive : tabIdle]" type="button" @click="openInstances">
+    </UButton>
+    <UButton
+      variant="ghost"
+      color="neutral"
+      data-testid="tabs-instances"
+      :class="[tabButton, tab === 'instances' ? tabActive : tabIdle]"
+      @click="openInstances"
+    >
       {{ t('admin.tabs.instances') }}
-    </button>
+    </UButton>
   </div>
 
-  <p v-if="error" :class="[errorNotice, 'mt-4']" data-testid="notice">
-    <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-    <span>{{ error }}</span>
-  </p>
-  <p v-if="notice" :class="[okNotice, 'mt-4']" data-testid="notice">
-    <AppIcon name="check" class="mt-0.5 h-4 w-4 shrink-0" />
-    <span>{{ notice }}</span>
-  </p>
+  <AppNotice v-if="error" tone="error" class="mt-4" data-testid="notice">{{ error }}</AppNotice>
+  <AppNotice v-if="notice" tone="success" class="mt-4" data-testid="notice">{{ notice }}</AppNotice>
 
   <template v-if="tab === 'items'">
     <form class="mt-5 flex gap-2.5" @submit.prevent="applyItemFilters">
-      <input
+      <UInput
         v-model="keyword"
-        :class="[input, 'min-w-0 flex-1']"
+        size="lg"
+        class="min-w-0 flex-1"
         data-testid="admin-search"
         type="search"
         :aria-label="t('common.ariaSearchInput')"
         :placeholder="t('admin.searchPlaceholder')"
       />
-      <button :class="primaryButton" data-testid="admin-search-submit" type="submit" :disabled="itemsLoading">
+      <UButton type="submit" color="primary" size="lg" :loading="itemsLoading" data-testid="admin-search-submit">
         {{ t('common.filter') }}
-      </button>
+      </UButton>
     </form>
 
-    <div :class="[tableWrap, 'mt-4']">
+    <div :class="[tableWrap, tableScroll, 'mt-4']">
       <table class="w-full border-collapse">
         <thead>
           <tr>
@@ -402,12 +454,12 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
             <td :class="[tableCell, 'font-mono text-xs']">{{ row.barcode ?? t('common.empty') }}</td>
             <td :class="[tableCell, 'font-medium']">{{ row.name || t('admin.table.noName') }}</td>
             <td :class="[tableCell, 'text-xs text-gray-500 dark:text-gray-400']">
-              {{ [row.manufacturer, row.model].filter(Boolean).join(' / ') || t('common.empty') }}
+              {{ [row.manufacturer, row.model].filter(Boolean).join(t('common.pathSep')) || t('common.empty') }}
             </td>
             <td :class="[tableCell, 'tabular text-right']">{{ row.contributionCount }}</td>
             <td :class="tableCell">
               <div class="flex flex-wrap items-center gap-1.5">
-                <UBadge v-if="row.mergedIntoId" color="warning" variant="soft" size="sm">
+                <UBadge v-if="row.mergedIntoId" color="neutral" variant="soft" size="sm">
                   {{ t('admin.table.mergedInto', { id: row.mergedIntoId }) }}
                 </UBadge>
                 <UBadge v-for="field in row.lockedFields" :key="field" color="neutral" variant="soft" size="sm">
@@ -420,17 +472,18 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
             </td>
             <td :class="tableCell">
               <!-- 「打开」在窄屏只放图标，所以 aria-label 必填（规范 §6.1） -->
-              <button
-                :class="[tinyButton, tinySubtle]"
+              <UButton
+                variant="outline"
+                color="neutral"
+                size="xs"
                 data-testid="admin-open"
-                type="button"
                 :aria-label="t('admin.table.openAria', { id: row.id })"
                 :disabled="busy === `load-${row.id}`"
                 @click="selectItem(row.id)"
               >
                 <AppIcon name="edit" class="h-4 w-4" />
                 <span class="max-sm:hidden">{{ busy === `load-${row.id}` ? t('common.loadingShort') : t('common.open') }}</span>
-              </button>
+              </UButton>
             </td>
           </tr>
           <tr v-if="items.length === 0">
@@ -452,35 +505,37 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
     />
 
     <template v-if="selected">
-      <div :class="[card, 'mt-4']" data-testid="card">
-        <div class="flex flex-wrap items-center gap-2.5">
-          <h2 class="m-0 text-base font-semibold">#{{ selected.id }} {{ selected.name || t('admin.table.noName') }}</h2>
-          <UBadge v-if="selected.barcode" color="neutral" variant="soft" size="sm">
-            <span class="font-mono">{{ selected.barcode }}</span>
-          </UBadge>
-          <UBadge v-if="selected.mergedIntoId" color="warning" variant="soft" size="sm">
-            {{ t('admin.table.mergedInto', { id: selected.mergedIntoId }) }}
-          </UBadge>
-          <span class="flex-1" />
-          <button
-            :class="ghostButton"
+      <AppCard
+        :title="`#${selected.id} ${selected.name || t('admin.table.noName')}`"
+        :subtitle="t('admin.detail.identity', { key: selected.identityKey, contributions: selected.contributionCount, instances: selected.instanceCount })"
+        class="mt-4"
+        data-testid="card"
+      >
+        <template #actions>
+          <UButton
+            variant="outline"
+            color="neutral"
+            size="sm"
             data-testid="admin-recompute"
-            type="button"
             :disabled="busy === 'recompute'"
             @click="recomputeCurrent"
           >
             <AppIcon name="refresh" class="h-4 w-4" />
             {{ t('admin.detail.recompute') }}
-          </button>
+          </UButton>
+        </template>
+        <div v-if="selected.barcode || selected.mergedIntoId" class="mb-3 flex flex-wrap items-center gap-2">
+          <UBadge v-if="selected.barcode" color="neutral" variant="soft" size="sm">
+            <span class="font-mono">{{ selected.barcode }}</span>
+          </UBadge>
+          <UBadge v-if="selected.mergedIntoId" color="neutral" variant="soft" size="sm">
+            {{ t('admin.table.mergedInto', { id: selected.mergedIntoId }) }}
+          </UBadge>
         </div>
-        <p class="mt-3 mb-3 text-sm text-gray-500 dark:text-gray-400">
-          {{ t('admin.detail.identity', { key: selected.identityKey, contributions: selected.contributionCount, instances: selected.instanceCount }) }}
-        </p>
         <FieldSourceTable :fields="selected.fields" />
-      </div>
+      </AppCard>
 
-      <div :class="[card, 'mt-4']" data-testid="card">
-        <h2 :class="cardTitle">{{ t('admin.detail.editHeading') }}</h2>
+      <AppCard :title="t('admin.detail.editHeading')" class="mt-4" data-testid="card">
         <p class="mt-0 mb-4 text-sm leading-6 whitespace-pre-line text-gray-500 dark:text-gray-400">
           {{ t('admin.detail.editHint') }}
         </p>
@@ -490,15 +545,16 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
             `label span:has-text(/^name/)` 找到 name 那一格，再把输入框填进去。
           -->
           <label v-for="field in SCALAR_FIELDS" :key="field" class="block">
-            <span :class="label">
+            <span :class="fieldLabel">
               {{ field }}
-              <span v-if="selected.lockedFields.includes(field)" class="text-amber-600 normal-case dark:text-amber-400">
+              <span v-if="selected.lockedFields.includes(field)" class="text-gray-500 normal-case dark:text-gray-400">
                 {{ t('admin.detail.currentlyLocked') }}
               </span>
             </span>
-            <input
+            <UInput
               v-model="form[field]"
-              :class="input"
+              size="lg"
+              class="w-full"
               data-testid="admin-field-input"
               :placeholder="selected[field] ?? t('admin.detail.emptyValue')"
             />
@@ -507,21 +563,27 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
                 v-model="form.clearFields"
                 type="checkbox"
                 :value="field"
-                class="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900"
+                class="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900 dark:text-blue-400"
               />
               {{ t('admin.detail.clear') }}
             </span>
           </label>
         </div>
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
-          <label class="block">
-            <span :class="label">{{ t('admin.detail.imageUrlsLabel') }}</span>
-            <textarea v-model="form.imageUrls" :class="textarea" />
-          </label>
-          <label class="block">
-            <span :class="label">{{ t('admin.detail.attributesLabel') }}</span>
-            <textarea v-model="form.attributes" :class="textarea" />
-          </label>
+          <UFormField :label="t('admin.detail.imageUrlsLabel')">
+            <UTextarea
+              v-model="form.imageUrls"
+              class="w-full font-mono"
+              :placeholder="t('admin.detail.imageUrlsPlaceholder')"
+            />
+          </UFormField>
+          <UFormField :label="t('admin.detail.attributesLabel')">
+            <UTextarea
+              v-model="form.attributes"
+              class="w-full font-mono"
+              :placeholder="t('admin.detail.attributesPlaceholder')"
+            />
+          </UFormField>
         </div>
 
         <h3 class="mt-6 mb-2.5 text-sm font-semibold text-gray-700 dark:text-gray-200">{{ t('admin.detail.lockHeading') }}</h3>
@@ -540,63 +602,79 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
               data-testid="admin-field-lock"
               type="checkbox"
               :value="field"
-              class="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-600 dark:bg-gray-900"
+              class="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-600 dark:bg-gray-900 dark:text-blue-400"
             />
             <span class="font-mono">{{ field }}</span>
           </label>
         </div>
 
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
-          <label class="block">
-            <span :class="label">{{ t('admin.detail.noteLabel') }}</span>
-            <input v-model="form.note" :class="input" data-testid="admin-note" :placeholder="t('admin.detail.notePlaceholder')" />
-          </label>
-          <label class="block">
-            <span :class="label">{{ t('admin.detail.mergeLabel') }}</span>
-            <input
+          <UFormField :label="t('admin.detail.noteLabel')">
+            <UInput
+              v-model="form.note"
+              size="lg"
+              class="w-full"
+              data-testid="admin-note"
+              :placeholder="t('admin.detail.notePlaceholder')"
+            />
+          </UFormField>
+          <UFormField :label="t('admin.detail.mergeLabel')">
+            <UInput
               v-model="form.mergeSourceId"
-              :class="[input, 'font-mono']"
+              size="lg"
+              class="w-full font-mono"
               data-testid="admin-merge-source"
               inputmode="numeric"
               :placeholder="t('admin.detail.mergePlaceholder')"
             />
-          </label>
+          </UFormField>
         </div>
 
         <div class="mt-5 flex flex-wrap items-center gap-2.5">
-          <button :class="primaryButton" data-testid="admin-save" type="button" :disabled="busy === 'save'" @click="saveItem">
+          <UButton color="primary" size="lg" :loading="busy === 'save'" data-testid="admin-save" @click="saveItem">
             {{ busy === 'save' ? t('common.saving') : t('admin.detail.save') }}
-          </button>
-          <button :class="subtleButton" data-testid="admin-merge" type="button" :disabled="busy === 'merge'" @click="mergeIntoCurrent">
+          </UButton>
+          <UButton
+            variant="outline"
+            color="neutral"
+            size="lg"
+            :disabled="busy === 'merge'"
+            data-testid="admin-merge"
+            @click="mergeIntoCurrent"
+          >
             {{ busy === 'merge' ? t('common.merging') : t('admin.detail.merge') }}
-          </button>
+          </UButton>
         </div>
-      </div>
+      </AppCard>
 
-      <div :class="[card, 'mt-4']" data-testid="card">
-        <h2 :class="cardTitle">{{ t('admin.detail.contributions', { count: selected.contributions.length }) }}</h2>
+      <AppCard :title="t('admin.detail.contributions', { count: selected.contributions.length })" class="mt-4" data-testid="card">
         <ContributionList
           :contributions="selected.contributions"
           admin
           :busy-id="Number(busy.replace('contribution-', '')) || null"
           @toggle-block="toggleContribution"
         />
-      </div>
+      </AppCard>
     </template>
   </template>
 
   <template v-else>
-    <div :class="[card, 'mt-5']" data-testid="card">
-      <label class="block max-w-[420px]">
-        <span :class="label">{{ t('admin.instances.reasonLabel') }}</span>
-        <input v-model="instanceReason" :class="input" data-testid="instances-reason" :placeholder="t('admin.instances.reasonPlaceholder')" />
-      </label>
+    <AppCard class="mt-5" data-testid="card">
+      <UFormField :label="t('admin.instances.reasonLabel')" class="max-w-[420px]">
+        <UInput
+          v-model="instanceReason"
+          size="lg"
+          class="w-full"
+          data-testid="instances-reason"
+          :placeholder="t('admin.instances.reasonPlaceholder')"
+        />
+      </UFormField>
       <p class="mt-3 mb-0 text-sm leading-6 text-gray-500 dark:text-gray-400">
         {{ t('admin.instances.hint') }}
       </p>
-    </div>
+    </AppCard>
 
-    <div :class="[tableWrap, 'mt-4']">
+    <div :class="[tableWrap, tableScroll, 'mt-4']">
       <table class="w-full border-collapse">
         <thead>
           <tr>
@@ -616,7 +694,7 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
             <td :class="[tableCell, 'font-medium']">{{ row.name }}</td>
             <td :class="[tableCell, 'font-mono text-xs']">{{ row.keyPrefix }}…</td>
             <td :class="[tableCell, 'text-xs text-gray-500 dark:text-gray-400']">
-              {{ [row.platform, row.version].filter(Boolean).join(' / ') || t('common.empty') }}
+              {{ [row.platform, row.version].filter(Boolean).join(t('common.pathSep')) || t('common.empty') }}
             </td>
             <td :class="[tableCell, 'tabular text-right']">{{ row.contributionCount }}</td>
             <td :class="[tableCell, 'whitespace-nowrap font-mono text-xs text-gray-500 dark:text-gray-400']">
@@ -625,16 +703,17 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
             <td :class="tableCell">
               <!-- 每行只能出现一个状态词：验收脚本断言「已封禁」/「正常」在该行各只出现一次 -->
               <div class="flex flex-wrap items-center gap-1.5">
-                <UBadge :color="row.blocked ? 'error' : 'success'" variant="soft" size="sm">
+                <UBadge :color="row.blocked ? 'neutral' : 'success'" variant="soft" size="sm">
                   {{ row.blocked ? t('admin.instances.blocked') : t('admin.instances.normal') }}
                 </UBadge>
               </div>
             </td>
             <td :class="tableCell">
-              <button
-                :class="[tinyButton, row.blocked ? tinySubtle : tinyDanger]"
+              <UButton
+                :color="row.blocked ? 'neutral' : 'error'"
+                variant="outline"
+                size="xs"
                 :data-testid="row.blocked ? 'instances-unblock' : 'instances-block'"
-                type="button"
                 :aria-label="t('admin.instances.toggleAria', {
                   action: row.blocked ? t('admin.instances.unblock') : t('admin.instances.block'),
                   id: row.id,
@@ -644,7 +723,7 @@ const tabIdle = 'border-transparent text-gray-600 hover:text-gray-900 dark:text-
                 @click="toggleInstance(row)"
               >
                 {{ row.blocked ? t('admin.instances.unblock') : t('admin.instances.block') }}
-              </button>
+              </UButton>
             </td>
           </tr>
           <tr v-if="instances.length === 0">

@@ -2,10 +2,10 @@
 /**
  * 登录页 —— 单页，不套应用外壳（规范 §6.8）。
  *
- * `layout: 'auth'` 是关键：default 外壳带着 256px 侧栏、顶栏面包屑和一个会显示
- * 库内条目数的页脚，那是"已进入应用"的框架。登录页套在里面，未登录的人会看到
- * 一排置灰点不动的功能项和一份"HomeBucket / 未找到的当前页"面包屑 —— 这对一个
- * 还没登录的人来说既无用也费解。单页布局只留一块全屏画布。
+ * `layout: 'auth'` 是关键：default 外壳带着 256px 侧栏和顶栏面包屑，那是"已进入应用"
+ * 的框架。登录页套在里面，未登录的人会看到一排置灰点不动的功能项和一份
+ * "HomeBucket / 未找到的当前页"面包屑 —— 这对一个还没登录的人来说既无用也费解。
+ * 单页布局只留一块全屏画布。
  *
  * `layout: false` 也不对：那样连语言与主题切换都没有，深色模式用户会在白底上登录。
  */
@@ -82,78 +82,72 @@ useHead({
 });
 
 /**
- * 认证页是规范里唯一允许用渐变/毛玻璃的地方（§6.8）：卡片半透明 + 一层深阴影。
+ * 认证卡片的规格面（§6.8）：半透明 + 毛玻璃 + 深阴影 + 一圈细环。
  * 这里是全域唯一破例之处，别的地方一律不许照抄。
  */
-const input =
-  'w-full rounded-lg border border-gray-300 bg-white/90 px-3 py-2.5 text-sm text-gray-900 transition-colors duration-150 outline-none placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:border-gray-700 dark:bg-gray-900/90 dark:text-white dark:placeholder:text-gray-500';
-const label = 'mb-1.5 block text-xs font-medium tracking-wide text-gray-500 uppercase dark:text-gray-400';
-const primaryButton =
-  'flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-gray-950';
 const authCard =
-  'rounded-2xl border border-gray-200 bg-white/90 p-6 shadow-xl shadow-gray-900/5 backdrop-blur-sm sm:p-8 dark:border-gray-800 dark:bg-gray-900/80 dark:shadow-black/40';
-const errorNotice =
-  'mt-4 flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
+  'rounded-2xl bg-white/90 p-6 shadow-xl shadow-gray-900/5 ring-1 ring-gray-200/80 backdrop-blur-sm sm:p-8 dark:bg-gray-900/80 dark:ring-gray-800 dark:shadow-black/40';
 </script>
 
 <template>
   <div class="w-full max-w-md">
     <!--
-      卡片上方独立品牌头（规范 §6.8）：56px 渐变 Logo + 品牌名 + tagline。
+      卡片上方独立品牌头（规范 §6.8）：56px 渐变 Logo + 品牌名 + 一句话定位。
       登录页是用户唯一"什么都没看到就先把身份交出去"的界面，品牌头是这一屏的锚点。
     -->
     <div data-testid="page-head" class="mb-6 flex flex-col items-center gap-2 text-center">
       <span
         class="grid h-14 w-14 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-lg font-bold tracking-wide text-white shadow-md shadow-blue-600/25"
       >
-        HB
+        {{ t('brand.mark') }}
       </span>
-      <h1 class="m-0 text-2xl font-semibold tracking-tight">{{ t('auth.loginTitle') }}</h1>
-      <p class="m-0 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('auth.login.intro') }}</p>
+      <h1 class="m-0 text-2xl font-semibold tracking-tight">{{ t('brand.name') }}</h1>
+      <p class="m-0 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('brand.tagline') }}</p>
     </div>
 
     <form :class="authCard" data-testid="login-form" @submit.prevent="submit">
-      <label class="mb-4 block">
-        <span :class="label">{{ t('auth.login.username') }}</span>
-        <input
+      <UFormField :label="t('auth.login.username')" class="mb-4">
+        <UInput
           v-model="username"
-          :class="input"
           data-testid="login-username"
           name="username"
           type="text"
           autocomplete="username"
           required
-          :placeholder="t('auth.login.usernamePlaceholder')"
           autofocus
-        />
-      </label>
+          size="lg"
+          class="w-full"
+          :placeholder="t('auth.login.usernamePlaceholder')"
+        >
+          <template #leading>
+            <AppIcon name="user" class="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
+          </template>
+        </UInput>
+      </UFormField>
 
-      <label class="mb-4 block">
-        <span :class="label">{{ t('auth.login.password') }}</span>
-        <input
+      <UFormField :label="t('auth.login.password')" class="mb-4">
+        <UInput
           v-model="password"
-          :class="input"
           data-testid="login-password"
           name="password"
           type="password"
           autocomplete="current-password"
           required
+          size="lg"
+          class="w-full"
           :placeholder="t('auth.login.passwordPlaceholder')"
-        />
-      </label>
+        >
+          <template #leading>
+            <AppIcon name="lock" class="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
+          </template>
+        </UInput>
+      </UFormField>
 
-      <button :class="primaryButton" data-testid="login-submit" type="submit" :disabled="busy">
+      <UButton type="submit" color="primary" size="lg" block :loading="busy" data-testid="login-submit">
         {{ busy ? t('auth.login.submitBusy') : t('auth.login.submit') }}
-      </button>
+      </UButton>
 
-      <p v-if="error" :class="errorNotice" data-testid="login-error">
-        <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ error }}</span>
-      </p>
-
-      <p class="mt-4 mb-0 text-xs leading-6 text-gray-500 dark:text-gray-400">
-        {{ t('auth.login.devHint') }}
-      </p>
+      <AppNotice v-if="error" tone="error" class="mt-4" data-testid="login-error">{{ error }}</AppNotice>
     </form>
 
     <!--

@@ -57,16 +57,13 @@ export default defineNuxtConfig({
      * 存这条注释是因为这里已经踩过一次坑，删掉注释很容易再写回来。
      */
     head: {
-      title: 'HomeBucket 收集器',
-      titleTemplate: '%s · HomeBucket 收集器',
+      /*
+       * 标题与描述**不在这里**：它们要跟着语言走，nuxt.config 构建期拿不到 i18n。
+       * 统一在 app/app.vue 用 useHead 给出（默认 `meta.title`，页面各自覆盖标题）。
+       * 这里只放与语言无关的 favicon 和 viewport。
+       */
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
-      meta: [
-        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        {
-          name: 'description',
-          content: '所有 HomeBucket 实例共享的物品资料库：按条码查询任何人都能补充的公共资料。',
-        },
-      ],
+      meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
     },
   },
   typescript: { strict: true },
