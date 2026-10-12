@@ -21,6 +21,8 @@ export interface ScanCard {
   barcode: string | null;
   sn: string | null;
   unitCount: number | null;
+  /** 是否消耗品：不能取走，主操作换成「用掉」（位置/模板恒为 false） */
+  consumable: boolean;
 }
 
 /** 与后端 ScanService 的 ScanTarget 同形：一个码解析出来的结果 */
@@ -56,6 +58,9 @@ export function useScanSheet() {
   /** 只有物品和序列号件能被取走/放回；位置和模板命中后只是跳转 */
   const takeable = computed(() => target.value?.type === 'item' || target.value?.type === 'unit');
   const takenOut = computed(() => Boolean(target.value?.takenOutAt));
+  /** 消耗品永不归还，所以不提供「取走」——主操作改成「用掉」 */
+  const consumable = computed(() => target.value?.card.consumable === true);
+  const canTakeOut = computed(() => takeable.value && !consumable.value);
   /** 序列号件要跳到它所属的物品 */
   const itemId = computed(() => {
     if (!target.value) return null;
@@ -116,6 +121,38 @@ export function useScanSheet() {
     return setTakenOut(true);
   }
 
+  /**
+   * 「用掉」：走已有的消耗接口（按包装层级扣库存），不新增扫码专用路由。
+   *
+   * 扫到的是序列号件（SN）时也扣**物品级库存**（`itemId` 取父物品）—— 库存本来就存在
+   * 物品的 quantity 上，SN 只是"这一件"的标识，两者相互独立。
+   *
+   * 返回是否成功，语义与 takeOut/putBack 一致：成功则调用方收起浮窗。
+   */
+  async function consume(amount: number, level?: string): Promise<boolean> {
+    const id = itemId.value;
+    if (!id || busy.value) return false;
+
+    busy.value = true;
+    try {
+      await api.post(`/items/${id}/consume`, {
+        amount: Math.max(1, Math.floor(amount || 1)),
+        // 不选层级时按最小单位扣，等价于完全不传 level
+        ...(level ? { level } : {}),
+      });
+      toast.add({ title: t('item.consumeDone'), color: 'success' });
+      return true;
+    } catch (error) {
+      toast.add({
+        title: (error as { message?: string }).message || t('errors.unknown'),
+        color: 'error',
+      });
+      return false;
+    } finally {
+      busy.value = false;
+    }
+  }
+
   function putBack() {
     return setTakenOut(false);
   }
@@ -133,10 +170,13 @@ export function useScanSheet() {
     busy,
     takeable,
     takenOut,
+    consumable,
+    canTakeOut,
     itemId,
     lookup,
     takeOut,
     putBack,
+    consume,
     close,
   };
 }

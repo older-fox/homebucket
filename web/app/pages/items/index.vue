@@ -79,6 +79,7 @@
               <td class="strong">
                 {{ item.name }}
                 <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                <span v-if="item.consumable" class="hb-chip tiny">{{ t('item.consumable') }}</span>
                 <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
                 <LostChip :lost-at="item.lostAt" />
               </td>
@@ -166,6 +167,7 @@
                 <div class="hb-list-meta">
                   <span class="hb-chip tiny hb-num">×{{ formatUnits(item.quantity, item.baseUnit, item.packLevels) }}</span>
                   <span v-if="item.unitCount" class="hb-chip tiny hb-num">{{ item.unitCount }} SN</span>
+                  <span v-if="item.consumable" class="hb-chip tiny">{{ t('item.consumable') }}</span>
                   <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
                   <LostChip :lost-at="item.lostAt" />
                   <!-- 条码只在没有标签时占位，避免和标签挤成两行 -->
@@ -212,6 +214,8 @@ interface Item {
   location: { id: number; name: string } | null;
   tags: { id: number; name: string; color: string }[];
   unitCount: number;
+  /** 是否消耗品：不能取走，只会被用掉 */
+  consumable: boolean;
   /** 整件追踪：非空 = 整件已取走 */
   takenOutAt: string | null;
   /** 按件追踪：正被拿走的件数 */

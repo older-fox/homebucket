@@ -153,6 +153,11 @@
       />
     </UFormField>
 
+    <!-- 消耗品：勾上后不能取走，扫码浮窗的主操作会从「取走」变成「用掉」 -->
+    <UFormField :label="t('item.consumable')" :hint="t('item.consumableHint')">
+      <USwitch v-model="form.consumable" />
+    </UFormField>
+
     <UFormField :label="t('item.location')">
       <LocationPicker v-model="form.locationId" />
     </UFormField>
@@ -233,6 +238,8 @@ interface ItemDetail {
   traceCode: string | null;
   baseUnit: string | null;
   packLevels: PackLevel[];
+  /** 是否消耗品：用完即无、不能取走（扫码只提供「用掉」） */
+  consumable: boolean;
   location: { id: number } | null;
   tags: { id: number }[];
   images: { id: number; url: string }[];
@@ -271,6 +278,7 @@ const form = reactive<{
   quantity: number;
   baseUnit: string | null;
   packLevels: PackLevel[];
+  consumable: boolean;
   price: number;
   model: string;
   manufacturer: string;
@@ -287,6 +295,7 @@ const form = reactive<{
   quantity: 1,
   baseUnit: null,
   packLevels: [],
+  consumable: false,
   price: 0,
   model: '',
   manufacturer: '',
@@ -318,6 +327,7 @@ onMounted(async () => {
       quantity: item.quantity,
       baseUnit: item.baseUnit,
       packLevels: item.packLevels ?? [],
+      consumable: item.consumable ?? false,
       price: item.price,
       model: item.model ?? '',
       manufacturer: item.manufacturer ?? '',
@@ -476,6 +486,7 @@ async function submit() {
       quantity: form.quantity,
       baseUnit: form.baseUnit,
       packLevels: form.packLevels,
+      consumable: form.consumable,
       price: form.price,
       model: form.model || undefined,
       manufacturer: form.manufacturer || undefined,

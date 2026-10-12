@@ -26,10 +26,14 @@
             </div>
           </div>
 
-          <!-- 取走状态只对物品/序列号件有意义 -->
-          <div v-if="takeable" class="status" :class="{ out: takenOut }">
+          <!-- 取走状态只对"能取走"的物品/序列号件有意义（消耗品走下面的用掉） -->
+          <div v-if="canTakeOut" class="status" :class="{ out: takenOut }">
             <span class="dot" />
             <span>{{ statusText }}</span>
+          </div>
+          <div v-else-if="consumable" class="status consumable">
+            <span class="dot" />
+            <span>{{ t('scan.consumableHint') }}</span>
           </div>
 
           <dl v-if="metaRows.length" class="meta">
@@ -39,9 +43,9 @@
             </div>
           </dl>
 
-          <!-- 主操作：查到的码决定它是"取走"还是"放回" -->
+          <!-- 主操作：查到的码决定它是"取走/放回"、"用掉"还是跳转 -->
           <UButton
-            v-if="takeable"
+            v-if="canTakeOut"
             block
             size="lg"
             :color="takenOut ? 'success' : 'primary'"
@@ -50,6 +54,17 @@
             @click="onPrimary"
           >
             {{ takenOut ? t('scan.putBack') : t('scan.takeOut') }}
+          </UButton>
+          <UButton
+            v-else-if="consumable"
+            block
+            size="lg"
+            color="primary"
+            icon="i-lucide-minus"
+            :loading="busy"
+            @click="startConsume"
+          >
+            {{ t('item.consume') }}
           </UButton>
           <UButton
             v-else-if="target.type === 'location'"
@@ -63,6 +78,30 @@
           <UButton v-else block size="lg" icon="i-lucide-file-plus" @click="goTemplate">
             {{ t('scan.useTemplate') }}
           </UButton>
+
+          <!--
+            「用掉」的层级/数量：内联在这个浮窗里，**不嵌 StockAdjustDialog**——
+            浮窗本身就是 UModal，再嵌一层弹窗会出现两层遮罩。
+            只有配了包装（档位 > 1）才展开：没配包装时点主按钮直接扣 1 个最小单位。
+          -->
+          <div v-if="consumable && consuming" class="consume-panel">
+            <label v-if="levelChoices.length > 1" class="consume-field">
+              <span class="consume-label">{{ t('item.adjustLevel') }}</span>
+              <USelect v-model="levelIndex" :items="levelOptions" />
+            </label>
+            <label class="consume-field">
+              <span class="consume-label">{{ t('item.adjustAmount') }}</span>
+              <UInput v-model.number="consumeAmount" type="number" min="1" inputmode="numeric" />
+            </label>
+            <div class="consume-actions">
+              <UButton color="neutral" variant="soft" @click="consuming = false">
+                {{ t('common.cancel') }}
+              </UButton>
+              <UButton color="primary" :loading="busy" @click="confirmConsume">
+                {{ t('item.consume') }}
+              </UButton>
+            </div>
+          </div>
 
           <!-- 其他功能项 -->
           <div class="actions">
@@ -121,7 +160,7 @@
  */
 const { t } = useI18n();
 const { money, relative } = useFormat();
-const { format: formatUnits } = useUnits();
+const { format: formatUnits, choices } = useUnits();
 const toast = useToast();
 const { copy } = useClipboard();
 const {
@@ -131,12 +170,14 @@ const {
   target,
   message,
   busy,
-  takeable,
   takenOut,
+  consumable,
+  canTakeOut,
   itemId,
   lookup,
   takeOut,
   putBack,
+  consume,
   close,
 } = useScanSheet();
 
@@ -318,6 +359,47 @@ async function onPrimary() {
   if (ok) close();
 }
 
+/* ---------------- 用掉（消耗品） ---------------- */
+
+const consuming = ref(false);
+const consumeAmount = ref(1);
+/** 选项下标：0 = 最小单位，1..n = 各级包装。用下标当 value，避免空字符串触发 reka 报错 */
+const levelIndex = ref(0);
+
+/** 档位列表：顺序与换算都由 choices() 保证 */
+const levelChoices = computed(() => choices(target.value?.card.packLevels ?? []));
+const levelOptions = computed(() =>
+  levelChoices.value.map((level, index) => ({
+    label: level?.name ?? (target.value?.card.baseUnit || t('item.baseUnit')),
+    value: index,
+  })),
+);
+const selectedLevel = computed(() => levelChoices.value[levelIndex.value] ?? null);
+
+/** 没配包装（只有"最小单位"一个档）→ 直接扣 1，不展开面板 */
+function startConsume() {
+  if (levelChoices.value.length <= 1) {
+    void finish(consume(1));
+    return;
+  }
+  consuming.value = true;
+}
+
+function confirmConsume() {
+  void finish(consume(consumeAmount.value, selectedLevel.value?.name));
+}
+
+async function finish(result: Promise<boolean>) {
+  if (await result) close();
+}
+
+/** 换了一个码就收回初始态，别把上一条的层级/数量带过去 */
+watch(target, () => {
+  consuming.value = false;
+  consumeAmount.value = 1;
+  levelIndex.value = 0;
+});
+
 const goDetail = () => {
   close();
   if (itemId.value) return navigateTo(`/items/${itemId.value}`);
@@ -421,6 +503,38 @@ function copyCode() {
 .status.out {
   background: var(--hb-surface-2);
   color: var(--hb-text-2);
+}
+
+/* 消耗品提示条：中性色，与"在库/已取走"的品牌色区分开 */
+.status.consumable {
+  background: var(--hb-surface-2);
+  color: var(--hb-text-2);
+}
+
+.consume-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--hb-r-md);
+  background: var(--hb-surface-2);
+}
+
+.consume-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.consume-label {
+  font-size: var(--hb-fs-xs);
+  color: var(--hb-muted);
+}
+
+.consume-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .status .dot {

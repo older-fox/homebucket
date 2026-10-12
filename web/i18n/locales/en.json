@@ -220,6 +220,8 @@
     "packTotal": "Total",
     "pricePerBase": "Unit price (per {unit})",
     "consume": "Use",
+    "consumable": "Consumable",
+    "consumableHint": "Used up and never returned. It cannot be taken out; scanning only offers Use.",
     "restock": "Restock",
     "unpack": "Unpack",
     "consumeDone": "Consumption recorded",
@@ -391,6 +393,7 @@
     "takeOutDone": "Marked as taken out",
     "putBack": "Put back",
     "putBackDone": "Put back, in stock again",
+    "consumableHint": "Consumable - used up, never returned",
     "locationLabel": "Location",
     "noLocation": "No location set",
     "quantityLabel": "Quantity",
@@ -493,6 +496,7 @@
       "location": "Location",
       "tags": "Tags",
       "coverImage": "Cover image",
+      "consumable": "Consumable",
       "images": "Images",
       "sn": "Serial number",
       "note": "Note",
@@ -571,6 +575,7 @@
     "notifier.typeUnknown": "Unsupported notifier type",
     "notifier.sendFailed": "Send failed",
     "scan.notFound": "No matching item or location",
+    "scan.consumableNotTakeable": "Consumables cannot be taken out; use Use instead",
     "scan.notTakeable": "Locations and templates cannot be taken out or put back"
   },
   "errors": {

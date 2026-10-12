@@ -71,6 +71,8 @@
       <!-- 当前取走状态（整件追踪看 takenOutAt，按件追踪看 takenOutUnitCount）；没取走时组件自身不渲染 -->
       <TakenOutChip :taken-out-at="item.takenOutAt" :count="item.takenOutUnitCount" />
       <LostChip :lost-at="item.lostAt" />
+      <!-- 消耗品：不能取走，只会被用掉 —— 这里只是把标记摆出来，动作仍是下面的「用掉」 -->
+      <span v-if="item.consumable" class="hb-chip tiny">{{ t('item.consumable') }}</span>
       <UButton color="primary" variant="soft" icon="i-lucide-minus" @click="openAdjust('consume')">
         {{ t('item.consume') }}
       </UButton>
@@ -147,6 +149,8 @@ interface ItemDetail {
   quantity: number;
   baseUnit: string | null;
   packLevels: { name: string; factor: number }[];
+  /** 是否消耗品：不能取走，只会被「用掉」 */
+  consumable: boolean;
   price: number;
   createdAt: string;
   location: { id: number; name: string } | null;

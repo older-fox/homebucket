@@ -220,6 +220,8 @@
     "packTotal": "合计",
     "pricePerBase": "单价（每{unit}）",
     "consume": "用掉",
+    "consumable": "消耗品",
+    "consumableHint": "用完即无、不再归还；不能「取走」，扫码时只提供「用掉」。",
     "restock": "补货",
     "unpack": "拆箱",
     "consumeDone": "已记录消耗",
@@ -391,6 +393,7 @@
     "takeOutDone": "已取走",
     "putBack": "放回",
     "putBackDone": "已放回，恢复在库",
+    "consumableHint": "消耗品：用掉后不再归还",
     "locationLabel": "位置",
     "noLocation": "未设置位置",
     "quantityLabel": "数量",
@@ -493,6 +496,7 @@
       "location": "位置",
       "tags": "标签",
       "coverImage": "封面图",
+      "consumable": "消耗品",
       "images": "图片",
       "sn": "序列号",
       "note": "备注",
@@ -571,6 +575,7 @@
     "notifier.typeUnknown": "不支持的通知器类型",
     "notifier.sendFailed": "发送失败",
     "scan.notFound": "没有找到对应的物品或位置",
+    "scan.consumableNotTakeable": "消耗品不能取走，请用「用掉」",
     "scan.notTakeable": "位置和模板不能取走或放回"
   },
   "errors": {
