@@ -41,10 +41,16 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # 源码在依赖之后 COPY：改业务代码不会让依赖层失效。
 # public/ 与 app/ 是前端资源，server/ 是 Nitro 接口，nuxt.config.ts 同时管两边。
+# i18n/ 必须在**构建阶段**就位：nuxt-i18n 要读 locales/*.json 算 hash 再交给打包器，
+# 语言包最终被内联进 .output/server/chunks/raw/*.mjs —— 缺了这个目录，nuxt build
+# 会在 "Setting up modules" 阶段直接 ENOENT: app/i18n/locales/en.json 失败。
+# 运行期不再需要它（内容已在产物里），所以 runtime 阶段不 COPY。
+# 根 Dockerfile 的 web 阶段有对应的一行，两边保持同一套清单。
 COPY nuxt.config.ts tsconfig.json ./
 COPY app ./app
 COPY server ./server
 COPY public ./public
+COPY i18n ./i18n
 RUN npm run build
 
 # ---------- 运行：单进程，页面 + API 同一个端口 ----------
