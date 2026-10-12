@@ -17,6 +17,12 @@ export interface ItemSummary {
   updatedAt: string;
 }
 
+export interface VoteCandidate {
+  value: string;
+  weight: number;
+  count: number;
+}
+
 export interface FieldSource {
   field: string;
   value: string | string[] | null;
@@ -27,6 +33,20 @@ export interface FieldSource {
   observedAt: string | null;
   agreedBy: number;
   locked: boolean;
+  /** 该字段是否走了投票（图片与锁定字段不投票，此处为 false） */
+  voted?: boolean;
+  /** 是否判出了唯一最高票；false 表示"按权重随机下发被上报的值" */
+  decided?: boolean;
+  /** 投给当前值的来源键（回答"这个值是谁报的"） */
+  voteSources?: string[];
+  /** 当前值的权重和 */
+  voteWeight?: number;
+  /** 当前值的票数 */
+  voteCount?: number;
+  /** 全部候选的权重和 */
+  totalWeight?: number;
+  /** 各候选的票数分布（未决时说明为什么未决） */
+  tally?: VoteCandidate[];
 }
 
 export interface ItemDetail extends ItemSummary {
@@ -105,6 +125,145 @@ export interface AdminContributionListPage extends Page {
 
 export interface InstanceListPage extends Page {
   instances: InstanceRow[];
+}
+
+export interface SourceRow {
+  sourceKey: string;
+  kind: string | null;
+  label: string | null;
+  weight: number;
+  upvotes: number;
+  downvotes: number;
+  lastFeedbackAt: string | null;
+  observations: number;
+  items: number;
+  lastObservedAt: string | null;
+  /** 这个来源键后面出现过几个不同的 IP 哈希（>1 说明可能是共用出口） */
+  ipHashes: number;
+  userAgent: string | null;
+}
+
+/**
+ * 权重基准值的**兜底默认**（服务端 `COLLECTOR_WEIGHT_INITIAL` 的默认值）。
+ *
+ * 真正的基准值随 `/api/admin/session` 一起下发（见 `adminSession.feedback.initial`），
+ * 因为它是可配的 —— 界面写死 1 会让"改了配置的部署"永远看不到可疑来源。
+ * 这个常量只在会话还没拿到时用（首屏、或降级路径）。
+ */
+export const INITIAL_SOURCE_WEIGHT = 1;
+
+export interface SourceDetail extends SourceRow {
+  recent: Array<{
+    id: number;
+    catalogItemId: number;
+    itemName: string | null;
+    barcode: string | null;
+    field: string;
+    value: string;
+    observedAt: string;
+    weightAtObservation: number;
+  }>;
+  feedback: Array<{
+    id: number;
+    catalogItemId: number;
+    itemName: string | null;
+    field: string;
+    value: string | null;
+    accurate: boolean;
+    note: string | null;
+    createdAt: string;
+  }>;
+}
+
+export interface SourceListPage extends Page {
+  sources: SourceRow[];
+}
+
+/** 出站同步的三种状态（服务端 `SyncStatus` 的镜像） */
+export type SyncStatusFilter = 'pending' | 'ok' | 'failed';
+
+/**
+ * 一条出站同步账本。
+ *
+ * 后面 `name` / `imageUrls` 是服务端顺手带上的（避免清单页为每行再查一次条目），
+ * 它们不属于账本本身，所以放宽为可空 —— 条目被合并或删除后账本还在。
+ */
+export interface SyncRow {
+  id: number;
+  catalogItemId: number;
+  barcode: string | null;
+  transport: string;
+  status: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  syncedAt: string | null;
+  lastError: string | null;
+  remoteRef: string | null;
+  payloadHash: string | null;
+  name: string | null;
+  imageUrls: string[];
+}
+
+/** `GET /api/admin/sync` 的配置块。**不含令牌值**，只有 `hasToken` 布尔。 */
+export interface SyncConfigView {
+  transport: string;
+  endpoint: string;
+  dir: string;
+  hasToken: boolean;
+  intervalMinutes: number;
+  batchSize: number;
+  maxAttempts: number;
+  includePhotos: boolean;
+}
+
+export interface SyncListView {
+  /** false 时 `transport=off`：清单里若有一片 failed，那是"根本没配目标"而不是网络故障 */
+  configured: boolean;
+  config: SyncConfigView;
+  counts: Record<SyncStatusFilter | 'total', number>;
+  rows: SyncRow[];
+}
+
+/** 上行载荷项（与推送方向共用同一份构造，所以预览不可能与实际发送不一致） */
+export interface SyncPayloadItem {
+  id: number;
+  barcode: string;
+  name: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  category: string | null;
+  description: string | null;
+  baseUnit: string | null;
+  attributes: Record<string, string>;
+  imageUrls: string[];
+  contributions: number;
+  sources: number;
+  firstSeenAt: string;
+  updatedAt: string;
+  provenance: Array<{ field: string; label: string | null; observedAt: string }>;
+}
+
+export interface SyncPayload {
+  format: string;
+  generatedAt: string;
+  collector: { version: string; dataFile: string };
+  count: number;
+  items: SyncPayloadItem[];
+}
+
+export interface SyncDetailView {
+  row: SyncRow;
+  /** 点进来想问的是"**现在**再送会送什么"，所以服务端是现算的，不是读历史载荷 */
+  payload: SyncPayload | null;
+}
+
+export interface SyncRunView {
+  scanned: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+  configured: boolean;
+  errors: Array<{ itemId: number; barcode: string; message: string }>;
 }
 
 export interface StatsView {
@@ -313,6 +472,22 @@ export const api = {
         body: { blocked, reason },
       }),
     recomputeAll: () => request<{ items: number }>('/api/admin/recompute', { method: 'POST' }),
+    sources: (page = 1, pageSize = 20, suspicious = false) =>
+      request<SourceListPage>(
+        `/api/admin/sources${query({ page, pageSize, suspicious: suspicious ? 'true' : undefined })}`,
+      ),
+    source: (key: string) => request<SourceDetail>(`/api/admin/sources/${encodeURIComponent(key)}`),
+    setSourceWeight: (key: string, weight: number) =>
+      request<SourceDetail>(`/api/admin/sources/${encodeURIComponent(key)}/weight`, {
+        method: 'POST',
+        body: { weight },
+      }),
+    sync: (status?: SyncStatusFilter) => request<SyncListView>(`/api/admin/sync${query({ status })}`),
+    syncItem: (id: number) => request<SyncDetailView>(`/api/admin/sync/${id}`),
+    resetSync: (id: number) =>
+      request<{ ok: true; row: SyncRow }>(`/api/admin/sync/${id}/reset`, { method: 'POST' }),
+    runSync: (force = false, limit?: number) =>
+      request<SyncRunView>('/api/admin/sync/run', { method: 'POST', body: { force, limit } }),
   },
 };
 

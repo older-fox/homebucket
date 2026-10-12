@@ -23,6 +23,8 @@ export interface AdminSessionView {
   registrationOpen: boolean;
   scope: 'admin';
   user: AdminUser;
+  /** 权重配置（可配，所以不能在前端写死）：界面用 initial 判断"多低算可疑" */
+  feedback: { initial: number; min: number; max: number };
 }
 
 export interface AdminPasswordResult {
@@ -39,6 +41,16 @@ export interface AdminSessionState {
   pending: boolean;
   /** 最近一次非 401 的探测错误（网络不通之类），可显示。 */
   error: string;
+  /**
+   * 权重基准值（来自服务端的 `COLLECTOR_WEIGHT_INITIAL`）。
+   *
+   * 放在会话状态里而不是各页面各自定义常量：它是**服务端配置**，
+   * 前端写死会让改了配置的部署在界面上判错"哪些来源可疑"。
+   * 还没查到会话时保留 `null`，由 `INITIAL_SOURCE_WEIGHT` 兜底。
+   */
+  weightInitial: number | null;
+  weightMin: number | null;
+  weightMax: number | null;
 }
 
 /** 服务端三个"未登录"code：语义上都是"请重新登录"。 */
@@ -53,6 +65,9 @@ export const adminSession = reactive<AdminSessionState>({
   checked: false,
   pending: false,
   error: '',
+  weightInitial: null,
+  weightMin: null,
+  weightMax: null,
 });
 
 export class AdminSessionError extends Error {
@@ -159,6 +174,10 @@ async function doRefresh(): Promise<AdminUser | null> {
   try {
     const view = await adminRequest<AdminSessionView>('/api/admin/session');
     adminSession.user = view.user;
+    // 老版本服务端可能不带 feedback（回滚部署时会出现），所以逐项可空
+    adminSession.weightInitial = view.feedback?.initial ?? null;
+    adminSession.weightMin = view.feedback?.min ?? null;
+    adminSession.weightMax = view.feedback?.max ?? null;
     adminSession.error = '';
     redirecting = false;
     return view.user;

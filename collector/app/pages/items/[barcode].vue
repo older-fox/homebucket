@@ -8,6 +8,7 @@ import type { ContributionListPage, ItemDetail, Loaded } from '../../composables
 
 const api = useApi();
 const route = useRoute();
+const { t } = useI18n();
 
 const barcode = computed(() => String(route.params.barcode ?? ''));
 const trendPage = ref(1);
@@ -46,94 +47,115 @@ function shortTime(value: string): string {
   return value.replace('T', ' ').slice(0, 16);
 }
 
-useHead({ title: '物品详情' });
+/** 厂商 / 型号 / 分类三段拼一行；全空时退回一句提示（i18n 里已备好整句）。 */
+const summary = computed(() => {
+  const parts = detail.value ? [detail.value.manufacturer, detail.value.model, detail.value.category].filter(Boolean) : [];
+  return parts.length > 0 ? parts.join(' · ') : t('item.noAttributes');
+});
 
-const ghostButton =
-  'inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12.5px] font-medium text-slate-600 no-underline transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800';
-const card = 'rounded-[10px] border border-slate-200 bg-white p-[18px] shadow-sm dark:border-slate-800 dark:bg-slate-900';
-const chip = 'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300';
-const chipWarn = 'border-amber-500/30 bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
-const chipTiny = 'text-[12px]';
-const errorNotice = 'mt-3.5 rounded-lg border border-red-500/30 bg-red-50 px-3 py-2.5 text-[13.5px] text-red-700 dark:bg-red-500/10 dark:text-red-300';
-const warnNotice = 'mt-3.5 rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2.5 text-[13.5px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
+useHead({ title: computed(() => t('item.title')) });
+
+const card = 'rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900';
+const cardTitle = 'm-0 mb-3 text-base font-semibold';
+const backLink =
+  'inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 no-underline transition-colors duration-150 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800';
+const errorNotice = 'flex items-start gap-2 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400';
+const warnNotice = 'flex items-start gap-2 rounded-lg bg-amber-50 px-3.5 py-2.5 text-sm text-amber-700 dark:bg-amber-950/50 dark:text-amber-300';
+const dt = 'text-gray-500 dark:text-gray-400';
+const dd = 'm-0 break-words text-gray-900 dark:text-white';
 </script>
 
 <template>
   <div class="flex flex-wrap items-center gap-2.5">
-    <NuxtLink :class="ghostButton" to="/">← 返回查询</NuxtLink>
+    <NuxtLink :class="backLink" to="/">{{ t('item.backToSearch') }}</NuxtLink>
   </div>
 
-  <p v-if="error" :class="errorNotice" data-testid="notice">{{ error }}</p>
-  <p v-else-if="loading" class="mt-3.5 text-slate-500 dark:text-slate-400">载入中…</p>
-  <p v-else-if="notFound" :class="warnNotice" data-testid="notice">
-    未收录：这个条码还没有被任何实例上报过。等实例扫到它时会自动汇报。
+  <p v-if="error" :class="[errorNotice, 'mt-4']" data-testid="notice">
+    <AppIcon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
+    <span>{{ error }}</span>
+  </p>
+  <p v-else-if="loading" class="mt-4 text-sm text-gray-500 dark:text-gray-400">{{ t('common.loadingShort') }}</p>
+  <p v-else-if="notFound" :class="[warnNotice, 'mt-4']" data-testid="notice">
+    <AppIcon name="info" class="mt-0.5 h-4 w-4 shrink-0" />
+    <span>{{ t('item.notFound') }}</span>
   </p>
 
   <template v-if="detail">
-    <div class="mt-3 flex flex-wrap items-baseline gap-3" data-testid="page-head">
-      <h1 class="m-0 text-2xl font-bold">{{ detail.name || '（还没有名称）' }}</h1>
-      <span v-if="detail.barcode" :class="[chip, 'font-mono']">{{ detail.barcode }}</span>
-      <span v-for="field in detail.lockedFields" :key="field" :class="[chip, chipWarn]">{{ field }} 已锁定</span>
+    <!-- h1 里只能放物品名：验收脚本读它确认导航到了正确的条目，混进条码/徽标就会读失败 -->
+    <div data-testid="page-head" class="mt-5 flex flex-wrap items-center gap-2.5">
+      <h1 class="m-0 text-2xl font-semibold tracking-tight">{{ detail.name || t('item.noName') }}</h1>
+      <span v-if="detail.barcode" class="rounded-full bg-gray-100 px-2.5 py-0.5 font-mono text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+        {{ detail.barcode }}
+      </span>
+      <!-- 锁定态只靠颜色会漏掉读屏用户：徽标带文字，外加一个读得出来的 aria -->
+      <span
+        v-for="field in detail.lockedFields"
+        :key="field"
+        class="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+        :aria-label="t('item.ariaLockedField', { field })"
+      >
+        {{ t('item.fieldLocked', { field }) }}
+      </span>
     </div>
-    <p class="m-0 mb-4 text-[13.5px] text-slate-500 dark:text-slate-400">
-      {{ [detail.manufacturer, detail.model, detail.category].filter(Boolean).join(' · ') || '暂无厂商 / 型号 / 分类' }}
-      · {{ detail.instanceCount }} 个实例上报过 {{ detail.contributionCount }} 次
-      · 首次见到 {{ shortTime(detail.firstSeenAt) }}，最后更新 {{ shortTime(detail.updatedAt) }}
+    <p class="mt-2 mb-6 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+      {{ t('item.meta', {
+        summary,
+        instances: detail.instanceCount,
+        contributions: detail.contributionCount,
+        firstSeenAt: shortTime(detail.firstSeenAt),
+        updatedAt: shortTime(detail.updatedAt),
+      }) }}
     </p>
 
-    <div class="grid gap-3 sm:grid-cols-2">
+    <div class="grid gap-4 sm:grid-cols-2">
       <div :class="card">
-        <h2 class="mt-0 mb-3 text-base font-semibold">资料</h2>
-        <dl class="grid grid-cols-[96px_1fr] gap-x-2.5 gap-y-1 text-[13px]">
-          <dt class="text-slate-500 dark:text-slate-400">身份键</dt>
-          <dd class="m-0 break-words font-mono text-xs">{{ detail.identityKey }}</dd>
-          <dt class="text-slate-500 dark:text-slate-400">描述</dt>
-          <dd class="m-0 break-words">{{ detail.description || '—' }}</dd>
-          <dt class="text-slate-500 dark:text-slate-400">基础单位</dt>
-          <dd class="m-0 break-words">{{ detail.baseUnit || '—' }}</dd>
-          <dt class="text-slate-500 dark:text-slate-400">扩展属性</dt>
-          <dd class="m-0 break-words">
+        <h2 :class="cardTitle">{{ t('item.info') }}</h2>
+        <dl class="grid grid-cols-[96px_1fr] gap-x-3 gap-y-2 text-sm">
+          <dt :class="dt">{{ t('item.identityKey') }}</dt>
+          <dd :class="[dd, 'font-mono text-xs break-all']">{{ detail.identityKey }}</dd>
+          <dt :class="dt">{{ t('item.field.description') }}</dt>
+          <dd :class="dd">{{ detail.description || t('common.empty') }}</dd>
+          <dt :class="dt">{{ t('item.baseUnit') }}</dt>
+          <dd :class="dd">{{ detail.baseUnit || t('common.empty') }}</dd>
+          <dt :class="dt">{{ t('item.attributes') }}</dt>
+          <dd :class="dd">
             <template v-if="Object.keys(detail.attributes).length > 0">
               <span
                 v-for="(value, key) in detail.attributes"
                 :key="key"
-                :class="[chip, chipTiny, 'mr-1 mb-1']"
+                class="mr-1 mb-1 inline-block rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300"
               >
                 {{ key }}: {{ value }}
               </span>
             </template>
-            <span v-else class="text-slate-500 dark:text-slate-400">—</span>
+            <span v-else class="text-gray-500 dark:text-gray-400">{{ t('common.empty') }}</span>
           </dd>
         </dl>
       </div>
 
       <div :class="card">
-        <h2 class="mt-0 mb-3 text-base font-semibold">图片（{{ detail.imageUrls.length }}）</h2>
-        <div class="flex flex-wrap gap-1.5">
+        <h2 :class="cardTitle">{{ t('item.images', { count: detail.imageUrls.length }) }}</h2>
+        <div v-if="detail.imageUrls.length > 0" class="flex flex-wrap gap-2">
           <img
             v-for="url in detail.imageUrls"
             :key="url"
             :src="url"
-            alt="物品图片"
-            class="h-[92px] w-[92px] rounded-lg border border-slate-200 object-cover dark:border-slate-700"
+            :alt="t('item.imageAlt')"
+            class="h-24 w-24 rounded-lg border border-gray-200 object-cover dark:border-gray-800"
           />
         </div>
-        <p v-if="detail.imageUrls.length === 0" class="mt-2 mb-0 text-[13px] text-slate-500 dark:text-slate-400">
-          还没有图片。
-        </p>
+        <p v-else class="m-0 text-sm text-gray-500 dark:text-gray-400">{{ t('item.noImages') }}</p>
       </div>
     </div>
 
     <div :class="[card, 'mt-4']">
-      <h2 class="mt-0 mb-3 text-base font-semibold">每个字段是谁给的</h2>
-      <p class="mt-[-6px] mb-3 text-[13px] text-slate-500 dark:text-slate-400">
-        合并规则是「最新的非空观测胜出」：同一字段被多个实例报过时，只取观测时间最新的那条；人工纠错优先级与实例相同，也按时间参与。
-      </p>
+      <h2 :class="cardTitle">{{ t('item.fieldSources') }}</h2>
+      <p class="mt-0 mb-3 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('item.mergeRule') }}</p>
       <FieldSourceTable :fields="detail.fields" />
     </div>
 
     <div :class="[card, 'mt-4']">
-      <h2 class="mt-0 mb-3 text-base font-semibold">上报记录（{{ trendTotal }}）</h2>
+      <h2 :class="cardTitle">{{ t('item.contributions', { count: trendTotal }) }}</h2>
       <ContributionList :contributions="contributions" />
       <Pager :page="trendPage" :page-size="trendPageSize" :total="trendTotal" @update:page="(value) => (trendPage = value)" />
     </div>
