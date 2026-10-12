@@ -3,6 +3,7 @@ import { getDataSource } from '../database/db';
 import { parseJson } from '../utils/json';
 import type { ItemFields } from '../utils/identity';
 import { ContributionsService, type CreateContributionDto } from './contributions.service';
+import type { SourceHints } from '../utils/source';
 import { ItemsService, type ItemDetailView } from './items.service';
 import type { ObservationCompatDto } from '../dto/compat';
 
@@ -50,6 +51,11 @@ export interface ObservationAccepted {
  * 这里选择"接受匿名" —— 代价用别的手段兜住：按 IP 限流（server/middleware/20.rate-limit.ts）、
  * 每条上报都是一条可审计的 Contribution（`instanceId=null`、`source='api'`）、
  * 管理员可以屏蔽单条上报、把字段锁死（锁定后任何自动上报都改不动）。
+ *
+ * ── "匿名"不等于"无来源" ──
+ * 投票与反馈加权需要区分"这两条上报是不是同一个来源"，而这只能从请求本身推导
+ * （自报 `sourceId` → IP+UA 指纹，见 utils/source.ts）。所以老客户端不上报 `sourceId`
+ * 也照样参与投票，只是客户端换 IP 或换版本时会被算成新来源。
  */
 export class CompatService {
   private readonly items: ItemsService;
@@ -102,7 +108,7 @@ export class CompatService {
    * 合并规则与注册实例完全一致（字段级"最新非空胜出"），因为"谁更可信"这件事
    * 在无身份的通道上根本无法判断 —— 与其假装能判断，不如把裁决权交给管理员的人工纠错。
    */
-  async observe(dto: ObservationCompatDto): Promise<ObservationAccepted> {
+  async observe(dto: ObservationCompatDto, hints: SourceHints = {}): Promise<ObservationAccepted> {
     const payload: CreateContributionDto = {
       barcode: dto.barcode,
       name: dto.name,
@@ -110,7 +116,7 @@ export class CompatService {
       model: dto.model,
       category: dto.category,
     };
-    const result = await this.contributions.create(null, payload);
+    const result = await this.contributions.create(null, payload, hints);
     const item = await this.items.requireById(result.itemId);
     return {
       accepted: true,

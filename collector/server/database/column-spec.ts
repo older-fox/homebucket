@@ -37,4 +37,37 @@ export const LENGTH = {
   sessionTokenHash: 64,
   /** 登录请求的 User-Agent（只用于"这是哪台设备登录的"） */
   userAgent: 200,
+  /**
+   * 来源键：上报方身份。`r:<sha256前32位>`（自报安装 ID）或 `f:<sha256前32位>`（IP+UA 指纹）。
+   * 64 是为了给将来换算法（sha512 等）留余量，避免又要改列。
+   */
+  sourceKey: 64,
+  /** 来源种类的短标记（reported / fingerprint / none），只用于展示与筛选 */
+  sourceKind: 16,
+  /** 来源展示名（`自报 3f9a2c1b` 或 `IP 1.2.x.x`） */
+  sourceLabel: 80,
+  /** IP 的哈希（不存 IP 原文）：用于发现"一个来源键后面藏着多个 IP" */
+  sourceIpHash: 64,
+  /** 观测证据：某实例某次上报里某个字段的值（归一化后的字符串形式） */
+  observationValue: 500,
+  /** 观测字段名：`name` 等标量，或 `attributes.<key>`；扩展属性键上限 40，留足余量 */
+  observationField: 64,
+  /** 证据指纹：同实例同物品同字段同值只落一行（幂等上报不会重复投票） */
+  observationHash: 64,
+  /** 反馈里的对照值（"下发的这个值准不准"里的那个值） */
+  feedbackValue: 500,
+  /** 反馈备注（用户在界面上写"这是老型号"之类的说明） */
+  feedbackNote: 500,
+  /** 照片内容哈希（sha256 十六进制）：同时是文件名与去重键 */
+  photoHash: 64,
+  /** 照片 MIME 类型（image/png 等） */
+  photoMime: 64,
+  /** 照片扩展名（png/jpg/webp/gif），不含点 */
+  photoExt: 8,
+  /** 外部地址（照片外链、对方系统返回的 URL） */
+  externalUrl: 600,
+  /** 同步记录里的远端标识（对方系统返回的 id 或落盘文件名） */
+  remoteRef: 200,
+  /** 错误信息（同步失败原因等） */
+  errorMessage: 500,
 } as const;

@@ -109,7 +109,18 @@ export function normalizeText(raw: unknown, maxLength: number): string | null {
   return value.length > maxLength ? value.slice(0, maxLength) : value;
 }
 
-/** 图片 URL：只收 http(s)，去重（保持首次出现顺序），截断到上限 */
+/**
+ * 站内图片地址前缀：`/api/photos/<hash>.<ext>`。
+ *
+ * 上传到收集器的照片是本站的、不是外链；若这里只放行 http(s)，
+ * 实例上传完照片后无法把地址挂到条目上（整条 URL 会被丢掉，图片等于白传）。
+ * 因此额外放行这个**写死的前缀**。不放开"任意站内路径"是因为
+ * `imageUrls: ["/api/admin/instances"]` 这类值会进库、随后被前端当图片渲染，
+ * 变成可被诱导的请求；写死前缀等价于"只接受我们自己发出去的图片地址"。
+ */
+const SELF_PHOTO_PREFIX = '/api/photos/';
+
+/** 图片 URL：收 http(s) 外链与本站照片地址（去重、保持首次出现顺序、截断到上限） */
 export function parseImageUrls(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -119,7 +130,9 @@ export function parseImageUrls(raw: unknown): string[] {
     const value = entry.trim();
     if (value === '' || seen.has(value)) continue;
     if (value.length > MAX_IMAGE_URL_LENGTH) continue;
-    if (!/^https?:\/\/\S+$/i.test(value)) continue;
+    const isRemote = /^https?:\/\/\S+$/i.test(value);
+    const isLocal = value.startsWith(SELF_PHOTO_PREFIX) && !/\s/.test(value) && !value.includes('..');
+    if (!isRemote && !isLocal) continue;
     seen.add(value);
     urls.push(value);
     if (urls.length >= MAX_IMAGE_URLS) break;

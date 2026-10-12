@@ -6,11 +6,21 @@ import {
   CatalogItem,
   CollectorInstance,
   Contribution,
+  ItemObservation,
+  ObservationFeedback,
+  OutboundSync,
+  PhotoAsset,
+  SourceWeight,
   type AdminSessionRow,
   type AdminUserRow,
   type CatalogItemRow,
   type CollectorInstanceRow,
   type ContributionRow,
+  type SourceWeightRow,
+  type ItemObservationRow,
+  type ObservationFeedbackRow,
+  type OutboundSyncRow,
+  type PhotoAssetRow,
 } from '../database/entities';
 
 /**
@@ -52,4 +62,24 @@ export function adminUsersRepo(manager?: EntityManager): Repository<AdminUserRow
 
 export function adminSessionsRepo(manager?: EntityManager): Repository<AdminSessionRow> {
   return managerOf(manager).getRepository<AdminSessionRow>(AdminSession);
+}
+
+export function observationsRepo(manager?: EntityManager): Repository<ItemObservationRow> {
+  return managerOf(manager).getRepository<ItemObservationRow>(ItemObservation);
+}
+
+export function feedbackRepo(manager?: EntityManager): Repository<ObservationFeedbackRow> {
+  return managerOf(manager).getRepository<ObservationFeedbackRow>(ObservationFeedback);
+}
+
+export function weightsRepo(manager?: EntityManager): Repository<SourceWeightRow> {
+  return managerOf(manager).getRepository<SourceWeightRow>(SourceWeight);
+}
+
+export function photosRepo(manager?: EntityManager): Repository<PhotoAssetRow> {
+  return managerOf(manager).getRepository<PhotoAssetRow>(PhotoAsset);
+}
+
+export function outboundSyncRepo(manager?: EntityManager): Repository<OutboundSyncRow> {
+  return managerOf(manager).getRepository<OutboundSyncRow>(OutboundSync);
 }

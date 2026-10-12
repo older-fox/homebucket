@@ -312,10 +312,288 @@ export const AdminSession = new EntitySchema<AdminSessionRow>({
   indices: [{ columns: ['adminUserId'] }, { columns: ['expiresAt'] }],
 });
 
+export interface ItemObservationRow {
+  id: number;
+  catalogItemId: number;
+  /** 哪个实例说的；匿名上报（老协议）为 null —— 只用于展示，**不参与投票身份判定** */
+  instanceId: number | null;
+  /**
+   * 来源键（投票身份）：`r:<hash>` 自报安装 ID / `f:<hash>` IP+UA 指纹 / null = 认不出来源。
+   * 上报全是匿名的，投票必须按它去重，而不是按 instanceId。
+   */
+  sourceKey: string | null;
+  sourceKind: string | null;
+  sourceLabel: string | null;
+  sourceIpHash: string | null;
+  /** 字段名：标量字段名，或 `attributes.<key>` */
+  field: string;
+  /** 该字段在这条证据里的值（多值字段用 `\n` 连接的字符串，见 observations.service） */
+  value: string;
+  /** 物品+来源+字段+值的 sha256：幂等键，防同一来源自己刷票 */
+  observationHash: string;
+  /** 这个值首次被该来源报出来的时间（ISO，字典序即时间序） */
+  observedAt: string;
+  /** 由哪次上报带来（屏蔽该上报时连带失效） */
+  contributionId: number | null;
+  /** 上报当时的权重快照：只用于展示"这条证据有多重"，计算时仍取实时权重 */
+  weight: number;
+  createdAt: Date;
+}
+
+/**
+ * 一条"观测证据"—— 某个来源某一次上报里、某一个字段的值。
+ *
+ * ── 为什么不能只留 Contribution ──
+ * Contribution 是"一次上报的整包 payload"，适合审计与重放；但下发投票要回答的是
+ * **逐字段**问题："name 这个字段，各来源分别说是什么、各有多少支持票"。
+ * 从 JSON payload 现算当然也能算出来，但每次下发都要解析全部历史 payload，
+ * 而且没法给"某字段的某个值"建索引。所以上报时就把证据拆成行：
+ *   · 一个字段一行（`field` = `name` / `model` / … / `attributes.<key>`）
+ *   · 值为空的行**不落库**（"没提这个字段"不构成证据，也不该参与投票）
+ *   · `observationHash` 上有唯一约束 → 同一来源反复报同一个值只留一行，
+ *     不会靠重复上报把自己的票刷上去
+ *
+ * ── 为什么身份是 sourceKey 而不是 instanceId ──
+ * 收集器收到的上报**全是匿名的**（老协议连身份字段都没有），`instanceId` 因此恒为 null。
+ * 若按它去重，等于所有上报都是"同一个来源"，投票层会彻底空转（实测确实如此）。
+ * 所以投票身份改由 `sourceKey` 承担（自报 ID → IP+UA 指纹，见 utils/source.ts）；
+ * `instanceId` 退化成"这条证据恰好来自哪个已注册实例"的展示信息。
+ *
+ * 观测行由上报流程顺带写入，`contributionId` 指回那次上报，
+ * 方便"屏蔽一条上报"时连带让它的证据失效（见 observations.service）。
+ */
+export const ItemObservation = new EntitySchema<ItemObservationRow>({
+  name: 'ItemObservation',
+  tableName: 'ItemObservation',
+  columns: {
+    id: { type: 'integer', primary: true, generated: true },
+    catalogItemId: { type: 'integer' },
+    instanceId: { type: 'integer', nullable: true },
+    sourceKey: { type: 'varchar', length: LENGTH.sourceKey, nullable: true },
+    sourceKind: { type: 'varchar', length: LENGTH.sourceKind, nullable: true },
+    sourceLabel: { type: 'varchar', length: LENGTH.sourceLabel, nullable: true },
+    sourceIpHash: { type: 'varchar', length: LENGTH.sourceIpHash, nullable: true },
+    field: { type: 'varchar', length: LENGTH.observationField },
+    value: { type: 'varchar', length: LENGTH.observationValue },
+    observationHash: { type: 'varchar', length: LENGTH.observationHash },
+    observedAt: { type: 'varchar', length: LENGTH.isoTime },
+    contributionId: { type: 'integer', nullable: true },
+    weight: { type: 'real', default: 1 },
+    createdAt: { type: 'datetime', createDate: true },
+  },
+  indices: [
+    { columns: ['observationHash'], unique: true },
+    // 下发时的主要查询路径：某物品某字段的全部证据
+    { columns: ['catalogItemId', 'field'] },
+    { columns: ['instanceId'] },
+    { columns: ['contributionId'] },
+    // 投票时要按来源聚合（同一来源同字段同值只算一票）
+    { columns: ['sourceKey'] },
+  ],
+});
+
+export interface ObservationFeedbackRow {
+  id: number;
+  catalogItemId: number;
+  /** 被评价的那条证据（可空：反馈针对"当时下发的值"，那条观测可能已被屏蔽） */
+  observationId: number | null;
+  /** 被评价的值来自哪个已注册实例（可空，只用于展示） */
+  instanceId: number | null;
+  /** 被评价的值来自哪个来源（**加权就记在它头上**，见 source.ts） */
+  sourceKey: string | null;
+  /** 被评价的字段与值（用户在界面上看到的就是这一对） */
+  field: string;
+  value: string | null;
+  /** true = 用户说"准确"，false = 用户说"不准确" */
+  accurate: boolean;
+  /** 反馈来自哪个已注册实例（匿名反馈为 null，只用于展示） */
+  reporterInstanceId: number | null;
+  /** 备注：用户解释"哪里不准"（可空） */
+  note: string | null;
+  /** 反馈方自己的来源键：同一来源对同一物品同一字段只算一次（防重复点） */
+  reporterKey: string | null;
+  createdAt: Date;
+}
+
+/**
+ * 用户反馈：下发的这条资料准不准。
+ *
+ * ── 为什么反馈要落库，而不是顺手把权重改了 ──
+ * 权重是**推导值**：能按"全部反馈重算一遍"得到，也就能解释"这个实例为什么是 0.83"。
+ * 只存权重数字的话，算法一调整、或者有人误点，就再也说不清它怎么来的。
+ * 所以反馈是事实、权重是派生视图（InstanceWeight），后者可从前者重建。
+ */
+export const ObservationFeedback = new EntitySchema<ObservationFeedbackRow>({
+  name: 'ObservationFeedback',
+  tableName: 'ObservationFeedback',
+  columns: {
+    id: { type: 'integer', primary: true, generated: true },
+    catalogItemId: { type: 'integer' },
+    observationId: { type: 'integer', nullable: true },
+    instanceId: { type: 'integer', nullable: true },
+    sourceKey: { type: 'varchar', length: LENGTH.sourceKey, nullable: true },
+    field: { type: 'varchar', length: LENGTH.observationField },
+    value: { type: 'varchar', length: LENGTH.feedbackValue, nullable: true },
+    accurate: { type: 'boolean' },
+    reporterInstanceId: { type: 'integer', nullable: true },
+    note: { type: 'varchar', length: LENGTH.feedbackNote, nullable: true },
+    reporterKey: { type: 'varchar', length: LENGTH.sourceKey, nullable: true },
+    createdAt: { type: 'datetime', createDate: true },
+  },
+  indices: [
+    { columns: ['catalogItemId'] },
+    { columns: ['instanceId'] },
+    // 加权与去重都按来源：同一来源对同一物品同一字段只算一次反馈
+    { columns: ['sourceKey'] },
+    { columns: ['sourceKey', 'catalogItemId', 'field'] },
+    { columns: ['reporterKey'] },
+  ],
+});
+
+export interface SourceWeightRow {
+  /** 来源键（见 source.ts）：`r:<hash>` 或 `f:<hash>` */
+  sourceKey: string;
+  /** 当前权重（夹在 [min, max] 之间）：投票与加权随机都用它 */
+  weight: number;
+  /** 收到的"准确"次数 */
+  upvotes: number;
+  /** 收到的"不准确"次数 */
+  downvotes: number;
+  lastFeedbackAt: string | null;
+  updatedAt: Date;
+}
+
+/**
+ * 来源权重（派生视图，主键是 sourceKey）。
+ *
+ * ── 为什么按来源而不是按实例 ──
+ * 要加权就必须能把反馈稳定地记到"谁"头上。已注册实例的 key 在真实流量里根本不存在
+ * （上报全匿名），所以只能记在来源键上。分成独立一张表还有一个好处：
+ * 重建权重（`POST /api/admin/weights/recompute`）只动这一张，不碰鉴权相关的列。
+ *
+ * 名字从 InstanceWeight 改过来是因为语义真的变了 —— 它现在是"某个上报方"的权重，
+ * 与 CollectorInstance 表没有外键关系（匿名来源压根没有实例行）。
+ */
+export const SourceWeight = new EntitySchema<SourceWeightRow>({
+  name: 'SourceWeight',
+  tableName: 'SourceWeight',
+  columns: {
+    sourceKey: { type: 'varchar', length: LENGTH.sourceKey, primary: true },
+    weight: { type: 'real', default: 1 },
+    upvotes: { type: 'integer', default: 0 },
+    downvotes: { type: 'integer', default: 0 },
+    lastFeedbackAt: { type: 'varchar', length: LENGTH.isoTime, nullable: true },
+    updatedAt: { type: 'datetime', updateDate: true },
+  },
+  indices: [{ columns: ['weight'] }],
+});
+
+export interface PhotoAssetRow {
+  /** 内容哈希（sha256 十六进制）：同一张图重复上传只落一份 */
+  hash: string;
+  /** 哪个驱动写的（local/s3）：换驱动后老图仍知道去哪儿取 */
+  driver: string;
+  /** 驱动内部的定位键：local 是相对路径，s3 是对象键 */
+  storageKey: string;
+  mime: string;
+  ext: string;
+  bytes: number;
+  width: number | null;
+  height: number | null;
+  /** 谁上传的（实例 id；匿名上传为 null） */
+  instanceId: number | null;
+  createdAt: Date;
+}
+
+/**
+ * 照片资产（内容寻址）。
+ *
+ * ── 为什么按内容哈希存，而不是按物品/上报 id 建目录 ──
+ *  · **去重**：同一张图被多个实例上报、或同一物品上重复上报，只占一份空间；
+ *  · **URL 稳定**：`/api/photos/<hash>.<ext>` 永远指向同一份字节，可以被上游长期引用；
+ *  · **换存储后端不用改 URL**：驱动换了、hash 不变，对外地址也不变。
+ */
+export const PhotoAsset = new EntitySchema<PhotoAssetRow>({
+  name: 'PhotoAsset',
+  tableName: 'PhotoAsset',
+  columns: {
+    hash: { type: 'varchar', length: LENGTH.photoHash, primary: true },
+    driver: { type: 'varchar', length: LENGTH.source },
+    storageKey: { type: 'varchar', length: LENGTH.externalUrl },
+    mime: { type: 'varchar', length: LENGTH.photoMime },
+    ext: { type: 'varchar', length: LENGTH.photoExt },
+    bytes: { type: 'integer' },
+    width: { type: 'integer', nullable: true },
+    height: { type: 'integer', nullable: true },
+    instanceId: { type: 'integer', nullable: true },
+    createdAt: { type: 'datetime', createDate: true },
+  },
+  indices: [{ columns: ['instanceId'] }, { columns: ['createdAt'] }],
+});
+
+export interface OutboundSyncRow {
+  id: number;
+  /** 同步的对象（目录条目 id） */
+  catalogItemId: number;
+  /** 条码（冗余一份：条目被合并/删除后仍能看出这条同步的是谁） */
+  barcode: string | null;
+  /** 传输方式（http/file）：同一批记录里可能混着两种 */
+  transport: string;
+  /** pending | ok | failed */
+  status: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  syncedAt: string | null;
+  lastError: string | null;
+  /** 远端标识：对方返回的 id、或落盘文件名 */
+  remoteRef: string | null;
+  /** 这次同步用的载荷指纹：载荷没变就不必重复发送 */
+  payloadHash: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * 出站同步记录（"上级数据库"适配层的状态）。
+ *
+ * 语义是**每个条目一行**（catalogItemId 唯一）：这一行回答"这个有条码的物品，
+ * 最后一次往上级送的结果是什么"。不做成"每次尝试一行"的流水，是因为页面上真正要看的
+ * 是"还有哪些没送成功"；尝试次数与最后错误已经够定位问题。
+ */
+export const OutboundSync = new EntitySchema<OutboundSyncRow>({
+  name: 'OutboundSync',
+  tableName: 'OutboundSync',
+  columns: {
+    id: { type: 'integer', primary: true, generated: true },
+    catalogItemId: { type: 'integer' },
+    barcode: { type: 'varchar', length: LENGTH.barcode, nullable: true },
+    transport: { type: 'varchar', length: LENGTH.source },
+    status: { type: 'varchar', length: LENGTH.source, default: 'pending' },
+    attempts: { type: 'integer', default: 0 },
+    lastAttemptAt: { type: 'varchar', length: LENGTH.isoTime, nullable: true },
+    syncedAt: { type: 'varchar', length: LENGTH.isoTime, nullable: true },
+    lastError: { type: 'varchar', length: LENGTH.errorMessage, nullable: true },
+    remoteRef: { type: 'varchar', length: LENGTH.remoteRef, nullable: true },
+    payloadHash: { type: 'varchar', length: LENGTH.observationHash, nullable: true },
+    createdAt: { type: 'datetime', createDate: true },
+    updatedAt: { type: 'datetime', updateDate: true },
+  },
+  indices: [
+    { columns: ['catalogItemId'], unique: true },
+    { columns: ['status'] },
+    { columns: ['syncedAt'] },
+  ],
+});
+
 export const entities = [
   CatalogItem,
   Contribution,
   CollectorInstance,
   AdminUser,
   AdminSession,
+  ItemObservation,
+  ObservationFeedback,
+  SourceWeight,
+  PhotoAsset,
+  OutboundSync,
 ];

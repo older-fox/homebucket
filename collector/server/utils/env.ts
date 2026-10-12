@@ -33,6 +33,34 @@ const ADMIN_USERNAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/;
 export type DbProvider = 'sqlite';
 export const DB_PROVIDERS: DbProvider[] = ['sqlite'];
 
+/**
+ * 照片存储后端。
+ *
+ * `local` 把图片字节落在本地磁盘（默认 `data/photos/`），经 `GET /api/photos/**` 供图；
+ * `s3` 走 S3 兼容对象存储（MinIO、Ceph、AWS S3 都行）。
+ *
+ * ── 为什么填 s3 却缺配置时直接抛错，而不是悄悄回退到 local ──
+ * 回退的后果是"配置写错了但服务能起来"：数据落在本地容器里，运维以为在 S3 上，
+ * 容器一重建图片全丢。宁可启动失败，也不要这种静默降级 —— 和 COLLECTOR_DB_PROVIDER 一个原则。
+ */
+export type PhotoDriver = 'local' | 's3';
+export const PHOTO_DRIVERS: PhotoDriver[] = ['local', 's3'];
+
+/**
+ * 出站同步（把收集到的数据交给"上级数据库"）的传输方式。
+ *
+ * ── 方向说明 ──
+ * 收集器对外是**被动**的：它既提供只读导出给对方来拉，也能接收对方推回来的数据。
+ * 但"上级数据库"本身是另一个项目、接口尚未确定，所以这里做的是**适配层**：
+ * 传输方式由配置决定，载荷形状与业务逻辑与传输解耦。换传输只改配置，不动业务代码。
+ *
+ * `off`      —— 默认。不启用出站同步（连页面上的"立即同步"也会拒绝）。
+ * `http`     —— 向 `COLLECTOR_SYNC_ENDPOINT` 发 JSON（见 sync.service 的载荷说明）。
+ * `file`     —— 把载荷写成文件落到 `COLLECTOR_SYNC_DIR`，交给对方自行取走。
+ */
+export type SyncTransport = 'off' | 'http' | 'file';
+export const SYNC_TRANSPORTS: SyncTransport[] = ['off', 'http', 'file'];
+
 /** 服务根目录 = 启动时的工作目录（含 package.json 的那一层） */
 export const SERVER_ROOT = process.cwd();
 
@@ -107,6 +135,34 @@ export function resolveDataFile(raw: string | undefined, serverRoot: string): st
 }
 
 /**
+ * 本地照片目录：默认 `<库文件所在目录>/photos`。
+ *
+ * 刻意跟着数据库文件走，而不是各自独立默认：备份时"把 data/ 拷走"就能同时拿到
+ * 库和图片，不会出现"库备份了、图没了"。显式配置则完全按配置来（可以是挂载卷）。
+ */
+export function photoLocalDirOf(raw: string | undefined, serverRoot: string): string {
+  const dir = (raw ?? '').trim();
+  if (dir !== '') return isAbsolute(dir) ? dir : resolve(serverRoot, dir);
+  return resolveServerPath(dirnameOfFile(resolveDataFile(undefined, serverRoot)), 'photos');
+}
+
+/** 出站同步（transport=file）落盘目录：默认 `data/sync/` */
+export function syncDirOf(raw: string | undefined, serverRoot: string): string {
+  const dir = (raw ?? '').trim();
+  if (dir !== '') return isAbsolute(dir) ? dir : resolve(serverRoot, dir);
+  return resolveServerPath(dirnameOfFile(resolveDataFile(undefined, serverRoot)), 'sync');
+}
+
+function dirnameOfFile(file: string): string {
+  const cut = file.lastIndexOf('/');
+  return cut <= 0 ? file : file.slice(0, cut);
+}
+
+function resolveServerPath(dir: string, name: string): string {
+  return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
+}
+
+/**
  * 版本号：npm 会把 package.json 的 version 注入 npm_package_version（走 `npm start` 时永远有值）。
  * 直接用 `node .output/server/index.mjs` 启动时没有这个变量，此时读 package.json。
  */
@@ -178,6 +234,128 @@ export function sessionTtlHoursOf(raw: string | undefined): number {
   return parseIntIn(raw, 168, 1, 24 * 365);
 }
 
+/** 照片存储后端解析：读不懂一律抛错，不静默降级（理由见 PhotoDriver） */
+export function parsePhotoDriver(raw: string | undefined): PhotoDriver {
+  const value = (raw ?? 'local').trim().toLowerCase();
+  if (value === 'local' || value === 's3') return value;
+  throw new Error(
+    `COLLECTOR_PHOTO_DRIVER 只支持 local / s3（收到 ${JSON.stringify(raw)}）。` +
+      '写错时宁可启动失败，也不要静默把照片落到本地磁盘。',
+  );
+}
+
+/** 出站同步传输方式解析：读不懂一律抛错（写错 transport 会变成"同步看着开了却没发出去"） */
+export function parseSyncTransport(raw: string | undefined): SyncTransport {
+  const value = (raw ?? 'off').trim().toLowerCase();
+  if (value === 'off' || value === 'http' || value === 'file') return value;
+  throw new Error(
+    `COLLECTOR_SYNC_TRANSPORT 只支持 off / http / file（收到 ${JSON.stringify(raw)}）`,
+  );
+}
+
+/**
+ * 照片存储配置完整性：driver=s3 时必须把连接信息配全。
+ *
+ * 单独抽出成"启动时调用一次"的函数（而不是在 env 常量里抛），
+ * 是为了让**单测能分别构造这两种驱动**、也让报错时机集中在启动日志里一处。
+ * 报错信息里逐项列出缺了什么 —— "缺 3 个环境变量"比"配置错误"能省半小时。
+ */
+export function assertPhotoConfig(config: {
+  driver: PhotoDriver;
+  s3: { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string };
+}): void {
+  if (config.driver !== 's3') return;
+  const missing: string[] = [];
+  if (config.s3.endpoint === '') missing.push('COLLECTOR_S3_ENDPOINT');
+  if (config.s3.bucket === '') missing.push('COLLECTOR_S3_BUCKET');
+  if (config.s3.accessKeyId === '') missing.push('COLLECTOR_S3_ACCESS_KEY_ID');
+  if (config.s3.secretAccessKey === '') missing.push('COLLECTOR_S3_SECRET_ACCESS_KEY');
+  if (missing.length > 0) {
+    throw new Error(
+      `COLLECTOR_PHOTO_DRIVER=s3 但缺少配置：${missing.join('、')}。` +
+        '不配全就启动会让人以为照片存进了对象存储，实际一张也存不下。',
+    );
+  }
+}
+
+/**
+ * 出站同步配置完整性：transport=http/file 时目标必须给出。
+ * 与 assertPhotoConfig 同一原则 —— 半配置状态宁可启动失败。
+ */
+export function assertSyncConfig(config: {
+  transport: SyncTransport;
+  endpoint: string;
+  dir: string;
+}): void {
+  if (config.transport === 'http' && config.endpoint === '') {
+    throw new Error(
+      'COLLECTOR_SYNC_TRANSPORT=http 但没配 COLLECTOR_SYNC_ENDPOINT（往哪儿发？）',
+    );
+  }
+  if (config.transport === 'file' && config.dir === '') {
+    throw new Error('COLLECTOR_SYNC_TRANSPORT=file 但没配 COLLECTOR_SYNC_DIR（写到哪个目录？）');
+  }
+}
+
+/**
+ * 反馈权重：由"用户是否认为这条资料准确"累积出来的实例可信度乘数。
+ *
+ * ── 为什么权重存在实例维度而不是"某条上报"维度 ──
+ * 用户反馈的是**下发出去的那条资料准不准**，而下发值来自某个实例的上报。
+ * 但单条上报是会过期的（同一个实例后来报了更正的值），而"这个实例靠不靠谱"
+ * 是跨物品、跨时间累积的判断。所以权重落在实例上，参与该实例所有上报的投票。
+ *
+ * 正反馈乘 `up`、负反馈除 `down`（乘 1/down），并夹在 [min, max] 之间防止
+ * "一个实例凭 3 条好反馈压死所有人"或"一次误报就被永久封杀"。
+ */
+export interface FeedbackWeights {
+  /** 初始权重（新实例，还没有任何反馈） */
+  initial: number;
+  /** 正反馈乘数（>1） */
+  up: number;
+  /** 负反馈除数（>1，按 1/down 衰减） */
+  down: number;
+  min: number;
+  max: number;
+}
+
+/**
+ * 权重乘数解析：必须是有限正数，否则回退。
+ * 用 1000 倍整数比较避免浮点误差（0.1 这种十进制小数在二进制里存不准）。
+ */
+function parseMultiplier(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const text = raw.trim();
+  if (!/^\d+(?:\.\d+)?$/.test(text)) return fallback;
+  const value = Number.parseFloat(text);
+  // 乘数必须 >1 才有"加权"的意义：等于 1 是没配、小于 1 是反向，都按没配处理
+  if (!Number.isFinite(value) || value <= 1) return fallback;
+  return value;
+}
+
+export function feedbackWeightsOf(source: {
+  initial?: string;
+  up?: string;
+  down?: string;
+  min?: string;
+  max?: string;
+}): FeedbackWeights {
+  const initial = parseMultiplier(source.initial, 1);
+  const max = parseMultiplier(source.max, 5);
+  const min = parseMultiplier(source.min, 0.05);
+  const up = parseMultiplier(source.up, 1.2);
+  const down = parseMultiplier(source.down, 1.5);
+  return {
+    // initial 允许为 1（新实例的"中性"权重），所以不走 parseMultiplier 的 >1 约束
+    initial: Number.isFinite(initial) ? initial : 1,
+    up,
+    down,
+    // 下界必须小于上界，否则夹取结果取决于调用顺序（不可复现）
+    min: min < max ? min : 0.05,
+    max,
+  };
+}
+
 /** CORS：`*` 或逗号分隔的来源列表（公开只读接口默认允许任何站点跨域调用） */
 export function parseCorsOrigin(raw: string | undefined): string | string[] {
   const value = (raw ?? '').trim();
@@ -190,6 +368,88 @@ export function parseCorsOrigin(raw: string | undefined): string | string[] {
 }
 
 const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
+
+/**
+ * 照片存储配置。单独成函数是为了"构建 → 校验 → 返回"三步能一眼看全：
+ * driver=s3 时配置缺项会在这里抛错（assertPhotoConfig），而不是等到第一张图上传说找不到桶。
+ */
+function photoConfig() {
+  const driver = parsePhotoDriver(process.env.COLLECTOR_PHOTO_DRIVER);
+  const s3 = {
+    endpoint: (process.env.COLLECTOR_S3_ENDPOINT ?? '').trim(),
+    region: (process.env.COLLECTOR_S3_REGION ?? 'us-east-1').trim() || 'us-east-1',
+    bucket: (process.env.COLLECTOR_S3_BUCKET ?? '').trim(),
+    accessKeyId: (process.env.COLLECTOR_S3_ACCESS_KEY_ID ?? '').trim(),
+    secretAccessKey: process.env.COLLECTOR_S3_SECRET_ACCESS_KEY ?? '',
+    /** 对象键前缀，便于同一个桶里分目录放（默认 `photos/`） */
+    prefix: (process.env.COLLECTOR_S3_PREFIX ?? 'photos/').trim(),
+    /** MinIO/Ceph 这类自建服务通常必须开 path-style，AWS 关掉即可 */
+    forcePathStyle: parseBool(process.env.COLLECTOR_S3_FORCE_PATH_STYLE, true),
+    /** 对外访问地址（CDN / 公开桶域名）；留空则走本站的 /api/photos 反向代理 */
+    publicBase: (process.env.COLLECTOR_S3_PUBLIC_BASE ?? '').trim().replace(/\/+$/, ''),
+  };
+  assertPhotoConfig({ driver, s3 });
+
+  return {
+    driver,
+    /**
+     * local 驱动的落盘根目录。
+     * 默认跟着数据库文件所在目录走（`<库目录>/photos`），这样"备份一个目录"就能同时
+     * 备份库和图片；显式配了 COLLECTOR_PHOTO_LOCAL_DIR 就按配置来。
+     */
+    localDir: photoLocalDirOf(process.env.COLLECTOR_PHOTO_LOCAL_DIR, SERVER_ROOT),
+    /**
+     * 对外访问前缀：拼在 `/api/photos/<hash>.<ext>` 前面的绝对地址。
+     * 只有部署在反代 / CDN 后面、或要让外部系统直接抓到图时才需要配；
+     * 留空就用相对路径（浏览器同源访问没问题，对方系统需要自己补 base）。
+     */
+    publicBase: (process.env.COLLECTOR_PHOTO_PUBLIC_BASE ?? '').trim().replace(/\/+$/, ''),
+    /** 单张照片大小上限：默认 8MB（手机直出的大图够用，又不至于把磁盘写满） */
+    maxBytes: parseSize(process.env.COLLECTOR_PHOTO_MAX_BYTES, 8 * 1024 * 1024),
+    /** 照片总数上限（0 = 不限）：磁盘保护，超出后拒绝新上传，老图不受影响 */
+    maxFiles: parseIntIn(process.env.COLLECTOR_PHOTO_MAX_FILES, 20_000, 0, 10_000_000),
+    /**
+     * 是否允许匿名上传。默认允许（收集器本来就有匿名的老客户端上报通道），
+     * 但匿名上传受全局 IP 限流约束；要完全关掉就把这项设为 false。
+     */
+    allowAnonymousUpload: parseBool(process.env.COLLECTOR_PHOTO_ALLOW_ANONYMOUS, true),
+    s3,
+  };
+}
+
+/**
+ * 出站同步配置。"上级数据库"是外部项目、接口未定，所以这里只有传输参数；
+ * 往对方送什么内容由 sync.service 的载荷构造决定（与传输解耦）。
+ */
+function syncConfig() {
+  const transport = parseSyncTransport(process.env.COLLECTOR_SYNC_TRANSPORT);
+  const endpoint = (process.env.COLLECTOR_SYNC_ENDPOINT ?? '').trim();
+  const dir = syncDirOf(process.env.COLLECTOR_SYNC_DIR, SERVER_ROOT);
+  assertSyncConfig({ transport, endpoint, dir });
+
+  return {
+    transport,
+    /** transport=http 时的目标地址（POST JSON） */
+    endpoint,
+    /** transport=http 时的 Bearer 令牌（对方要求鉴权时用） */
+    token: (process.env.COLLECTOR_SYNC_TOKEN ?? '').trim(),
+    /** transport=file 时的落盘目录 */
+    dir,
+    /** 自动同步周期（分钟）：0 = 只手动触发，不跑定时器 */
+    intervalMinutes: parseIntIn(process.env.COLLECTOR_SYNC_INTERVAL_MINUTES, 0, 0, 10_080),
+    /** 单次发送的条目上限（分页发送，避免一次几万条把对方打挂） */
+    batchSize: parseIntIn(process.env.COLLECTOR_SYNC_BATCH_SIZE, 200, 1, 5000),
+    /** 单次请求超时（毫秒） */
+    timeoutMs: parseIntIn(process.env.COLLECTOR_SYNC_TIMEOUT_MS, 10_000, 500, 300_000),
+    /** 失败后的最大重试次数（超过就标 failed，等下次手动或定时再试） */
+    maxAttempts: parseIntIn(process.env.COLLECTOR_SYNC_MAX_ATTEMPTS, 5, 1, 100),
+    /**
+     * 是否把照片一并列出。图片以本站可访问的绝对 URL 形式给出（对方自己抓），
+     * 不内联字节 —— 内联会让载荷体积 ×1.33，图库一大就不适合走 JSON。
+     */
+    includePhotos: parseBool(process.env.COLLECTOR_SYNC_INCLUDE_PHOTOS, true),
+  };
+}
 
 export const env = {
   nodeEnv,
@@ -234,4 +494,40 @@ export const env = {
   maxBodySize: parseSize(process.env.COLLECTOR_MAX_BODY_SIZE, 64 * 1024),
   rateLimit: parseIntIn(process.env.COLLECTOR_RATE_LIMIT, 240, 1, 100_000),
   rateWindowMs: parseIntIn(process.env.COLLECTOR_RATE_WINDOW_MS, 60_000, 1000, 3_600_000),
+
+  /**
+   * ── 照片存储 ──
+   * 实例上报的图片字节存哪里、对外怎么访问。详见 server/storage/。
+   */
+  photo: photoConfig(),
+
+  /**
+   * ── 反馈权重 ──
+   * 用户点"准确/不准确"后，按这些乘数调整来源实例的权重。改这里不用改代码。
+   */
+  feedback: feedbackWeightsOf({
+    initial: process.env.COLLECTOR_WEIGHT_INITIAL,
+    up: process.env.COLLECTOR_WEIGHT_UP,
+    down: process.env.COLLECTOR_WEIGHT_DOWN,
+    min: process.env.COLLECTOR_WEIGHT_MIN,
+    max: process.env.COLLECTOR_WEIGHT_MAX,
+  }),
+
+  /**
+   * ── 出站同步（"上级数据库"适配层）──
+   * 传输方式与目标由配置决定；业务载荷与传输解耦（见 sync.service.ts）。
+   */
+  sync: syncConfig(),
+
+  /**
+   * ── 来源身份 ──
+   * 收集器收到的上报全是匿名的，投票身份只能从请求本身推导（自报 ID → IP+UA 指纹）。
+   * `fingerprintVotes=false` 时，只靠 IP+UA 认出来的来源只入审计、不计票 ——
+   * 这是给"同一 NAT 后多实例被合并成一票"这种情况留的开关。
+   */
+  source: {
+    fingerprintVotes: parseBool(process.env.COLLECTOR_SOURCE_FINGERPRINT_VOTES, true),
+    /** 信任 `x-forwarded-for`（只在收集器确实位于可信反向代理之后时该为 true） */
+    trustProxy: parseBool(process.env.COLLECTOR_TRUST_PROXY, false),
+  },
 } as const;

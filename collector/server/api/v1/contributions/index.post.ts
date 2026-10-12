@@ -1,5 +1,6 @@
 import { apiHandler, readJsonBody, unauthorized } from '../../../utils/http';
 import { instanceKeyFrom } from '../../../utils/auth';
+import { sourceHintsFrom } from '../../../utils/source';
 import { parseCreateContribution } from '../../../dto/contributions';
 import { InstancesService } from '../../../services/instances.service';
 import { ContributionsService } from '../../../services/contributions.service';
@@ -8,8 +9,11 @@ import { ItemsService } from '../../../services/items.service';
 /**
  * `POST /api/v1/contributions` —— 已注册实例的字段上报（201）。
  *
- * 与兼容接口的区别只在"有没有身份"：字段合并规则、审计记录完全共用一条代码路径，
+ * 与兼容接口的区别只在"有没有实例凭据"：字段合并规则、审计记录完全共用一条代码路径，
  * 否则同一个字段在两个接口上算出不同的值只是时间问题。
+ *
+ * 投票身份**不靠**这把 key（老客户端压根没有 key），而是由 utils/source.ts
+ * 从请求推导；key 只用来回答"这条上报来自哪个已注册实例"。
  */
 export default defineEventHandler(
   apiHandler(async (event) => {
@@ -31,7 +35,7 @@ export default defineEventHandler(
     const dto = parseCreateContribution(body);
     const contributions = new ContributionsService();
     const items = new ItemsService();
-    const result = await contributions.create(identity.id, dto);
+    const result = await contributions.create(identity.id, dto, sourceHintsFrom(event, body));
     const item = await items.requireById(result.itemId);
 
     setResponseStatus(event, 201);

@@ -13,9 +13,12 @@ import {
 } from '../utils/identity';
 import { parseJson, stringifyJson } from '../utils/json';
 import { badRequest } from '../utils/http';
+import { env } from '../utils/env';
 import { clampObservedAt, normalizeObservedAt } from '../utils/time';
+import { resolveSourceIdentity, type SourceHints, type SourceIdentity } from '../utils/source';
 import { ItemsService } from './items.service';
-import { contributionsRepo, instancesRepo, itemsRepo } from './repositories';
+import { ObservationsService } from './observations.service';
+import { contributionsRepo, instancesRepo, itemsRepo, weightsRepo } from './repositories';
 
 export interface CreateContributionDto {
   barcode?: string;
@@ -47,6 +50,7 @@ export interface ContributeOutcome {
  */
 export class ContributionsService {
   private readonly items: ItemsService;
+  private readonly observations = new ObservationsService();
 
   constructor(private readonly source: DataSource = getDataSource()) {
     this.items = new ItemsService();
@@ -56,11 +60,15 @@ export class ContributionsService {
    * 记录一条观测。
    *
    * @param instanceId 提交者；兼容接口 `/observations` 传 null（老客户端没有凭据）
+   * @param hints 请求特征（IP/UA/自报 ID）：推导**投票身份**用，见 utils/source.ts。
+   *   不传时退化成 `{ key: null }`（只入审计、不投票），旧调用点因此保持可用。
    */
   async create(
     instanceId: number | null,
     dto: CreateContributionDto,
+    hints: SourceHints = {},
   ): Promise<ContributeOutcome> {
+    const source = resolveSourceIdentity(hints);
     const fields = normalizeFields(dto as ItemFields);
     const barcode = normalizeBarcode(dto.barcode);
 
@@ -91,7 +99,7 @@ export class ContributionsService {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         return await this.source.transaction(async (manager) =>
-          this.applyContribution(manager, instanceId, barcode, identityKey, fields, observedAt),
+          this.applyContribution(manager, instanceId, source, barcode, identityKey, fields, observedAt),
         );
       } catch (error) {
         if (attempt === 0 && isUniqueViolation(error)) continue;
@@ -104,6 +112,7 @@ export class ContributionsService {
   private async applyContribution(
     manager: EntityManager,
     instanceId: number | null,
+    source: SourceIdentity,
     barcode: string | null,
     identityKey: string,
     fields: ItemFields,
@@ -142,6 +151,24 @@ export class ContributionsService {
       source: 'api',
       observedAt,
       blocked: false,
+    });
+
+    // 分源暂存：这条上报的每个字段各留一行证据（与 Contribution 同一事务）。
+    // 为什么必须和 Contribution 同事务：证据是投票的输入，若贡献写成功而证据写丢，
+    // 这个来源的说法就永远不参与投票，且没有任何迹象能发现（它的 applied 里明明有）。
+    // 反过来若证据写成功而贡献回滚，就会出现"支持某个值的票来自一条不存在的上报"。
+    //
+    // 认不出来源的（既无自报 ID、也拿不到 IP）同样入库：它不投票，但要让审计与详情页
+    // 能看到"这个值曾被一个未识别来源报过"，也方便日后回溯是谁贡献了第一手资料。
+    const weight = await this.weightOf(manager, source.key);
+    await this.observations.record(manager, {
+      catalogItemId: item.id,
+      source,
+      instanceId,
+      fields,
+      observedAt,
+      contributionId: saved.id,
+      weight,
     });
 
     await this.items.refreshCounters(manager, item.id);
@@ -192,6 +219,20 @@ export class ContributionsService {
     });
     const item = await repo.save(created);
     return { item, applied: merged.applied };
+  }
+
+  /**
+   * 取来源当前权重（证据行里存的是**当时**的权重快照，供审计回看）。
+   *
+   * 快照与实时值分离是刻意的：审计要回答"当时这条证据值多少票"，
+   * 而投票必须用最新权重（否则反馈就永远影响不了下发）。
+   * 没有权重行时回落初始值，而不是顺手写一行 —— 写库发生在反馈/上报路径上，
+   * 查询路径保持只读，避免一次只读请求因为"缺一行"而产生写放大。
+   */
+  private async weightOf(manager: EntityManager, sourceKey: string | null): Promise<number> {
+    if (sourceKey === null) return env.feedback.initial;
+    const row = await weightsRepo(manager).findOne({ where: { sourceKey } });
+    return row === null ? env.feedback.initial : Number(row.weight);
   }
 }
 

@@ -3,20 +3,24 @@ import type { CatalogItemRow, ContributionRow } from '../database/entities';
 import {
   emptyFields,
   fieldsFromPayload,
+  isLocked,
   mergeItemFields,
   normalizeBarcode,
   normalizeFields,
+  SCALAR_FIELDS,
   type ItemFields,
 } from '../utils/identity';
 import { parseJson, stringifyJson } from '../utils/json';
 import { normalizePaging } from '../utils/pagination';
 import {
   buildFieldSources,
+  type FieldDecision,
   type FieldSource,
   type ProvenanceContribution,
 } from '../utils/provenance';
 import { badRequest, conflict, notFound } from '../utils/http';
-import { contributionsRepo, instancesRepo, itemsRepo } from './repositories';
+import { ObservationsService } from './observations.service';
+import { contributionsRepo, instancesRepo, itemsRepo, observationsRepo } from './repositories';
 
 export interface ItemSummaryView {
   id: number;
@@ -39,6 +43,15 @@ export interface ItemDetailView extends ItemSummaryView {
   lockedFields: string[];
   firstSeenAt: string;
   fields: FieldSource[];
+  /**
+   * 各字段是否由投票裁决（`field → decision`）。
+   *
+   * 为什么要把裁决单独带出来：`ItemSummaryView` 上的 name/model/... 是**物化列**的值
+   * （"最新非空观测胜出"），而详情与下发用的是投票值。两者在正常情况下一致，
+   * 但在"较早的观测票数更高"时会分叉。调用方（如老契约下发）需要拿到投票值，
+   * 又不想去 `fields` 里翻字符串比较 —— 于是这里直接给一份按字段名索引的裁决。
+   */
+  decisions: Record<string, FieldDecision>;
 }
 
 export interface ContributionView {
@@ -140,22 +153,88 @@ export class ItemsService {
     return { items: rows.map((row) => this.toSummary(row)), total, page, pageSize };
   }
 
-  /** 公开详情：字段值 + 每个字段的来源（谁在哪天报的、有没有被锁定） */
-  async detail(item: CatalogItemRow): Promise<ItemDetailView> {
+  /**
+   * 公开详情：字段值 + 每个字段的来源（谁在哪天报的、有没有被锁定、票数多少）。
+   *
+   * ── 为什么这里要投票 ──
+   * 物化列里的值是"最新非空观测胜出"的重放结果，它回答"最近有人说了什么"，
+   * 但不回答"多数来源认为是什么"。公共资料库的价值在后者：一台总在别人之后
+   * 上报错值的实例，按时间规则能永久压住其他 5 台。所以下发值改由投票决定：
+   * 每个字段按来源权重算票，有最高票就用它，**并列/全 0 票时按权重随机抽一个**。
+   *
+   * ── 为什么不改物化列 ──
+   * 投票可能选出**较早观测**的值，而 mergeItemFields 的写入门槛是
+   * `hasValue(previous) && !notOlderThan(observedAt, currentAt[field])`——
+   * 把旧值写进列里会让"比它新的上报"从此写不进去（字段被投票结果锁死）。
+   * 因此投票是**只读下发层**：CatalogItem 仍是重放投影，两者各司其职。
+   *
+   * ── 锁定字段不参与投票 ──
+   * 人工锁定（或人工改写的字段）代表管理员的明确意志，不能被票数推翻。
+   */
+  async detail(item: CatalogItemRow, random: () => number = Math.random): Promise<ItemDetailView> {
     const contributions = await this.visibleContributions(item.id);
     const names = await this.instanceNames(contributions.map((c) => c.instanceId));
     const provenance = this.toProvenance(contributions, names);
     const state = this.stateOf(item);
     const locked = parseJson<string[]>(item.lockedFields, []);
+    const decisions = await this.voteDecisions(item.id, locked);
+    const fields = buildFieldSources(state, locked, provenance, decisions);
+
+    // 顶层标量字段改用**投票值**：老契约下发直接读这几个字段（`RemoteProduct`），
+    // 如果这里仍是物化列的重放值，就会出现"详情页说甲厂、下发说乙厂"的自相矛盾。
+    // 取值只从 fields 里挑，避免再写一遍"锁定字段不投票"之类的规则。
+    const voted: Partial<Record<string, string | null>> = {};
+    for (const source of fields) {
+      if (SCALAR_FIELDS.includes(source.field as (typeof SCALAR_FIELDS)[number])) {
+        voted[source.field] = source.value;
+      }
+    }
+
+    const decisionMap: Record<string, FieldDecision> = {};
+    for (const [field, decision] of decisions) decisionMap[field] = decision;
+
     return {
       ...this.toSummary(item),
+      name: voted.name ?? null,
+      model: voted.model ?? null,
+      manufacturer: voted.manufacturer ?? null,
+      category: voted.category ?? null,
+      baseUnit: voted.baseUnit ?? null,
       identityKey: item.identityKey,
       description: state.description ?? null,
       attributes: state.attributes ?? {},
       lockedFields: locked,
       firstSeenAt: item.firstSeenAt.toISOString(),
-      fields: buildFieldSources(state, locked, provenance),
+      fields,
+      decisions: decisionMap,
     };
+  }
+
+  /**
+   * 该物品各字段的投票裁决（传给 buildFieldSources 用于下发与展示）。
+   *
+   * 刻意**跳过图片与锁定字段**：
+   *  · 图片按设计是"累加去重"的集合，不是一个可竞争的标量，投票会把它扭曲成
+   *    "只能留一个来源的那张图"，把其他实例补充的照片全丢掉；
+   *  · 锁定字段以物化列为准（见 detail 的说明）。
+   * 随机源在整批字段间共用一次注入：同一次响应里未决字段的随机只掷一次，
+   * 不会出现"名取自 A、同一条目里型号取自 B"的自相矛盾。
+   */
+  private async voteDecisions(itemId: number, lockedFields: readonly string[]) {
+    const fields = [...SCALAR_FIELDS.map((field) => String(field)), ...(await this.attributeKeysOf(itemId))];
+    const votable = fields.filter((field) => !isLocked(lockedFields, field));
+    return new ObservationsService().decisionsOf(itemId, votable);
+  }
+
+  /** 需要参与投票的扩展属性字段名（`attributes.<key>`）；从证据行取，避免漏掉早期上报的 key */
+  private async attributeKeysOf(itemId: number): Promise<string[]> {
+    const rows = await observationsRepo()
+      .createQueryBuilder('o')
+      .select('DISTINCT o.field', 'field')
+      .where('o.catalogItemId = :itemId', { itemId })
+      .andWhere("o.field LIKE 'attributes.%'")
+      .getRawMany<{ field: string }>();
+    return rows.map((row) => row.field).sort();
   }
 
   /** 某物品的上报记录（公开：只列未被屏蔽、且来源实例未被封禁的） */
