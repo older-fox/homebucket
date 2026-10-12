@@ -199,6 +199,44 @@ test('同一来源重复上报同一个值只算一票（证据行幂等）', as
   assert.equal((await observations.tally(first.itemId, 'name')).tallies[0]!.count, 2);
 });
 
+test('同一来源改口报另一个值，也只算一票（不能自相矛盾地投两票）', async () => {
+  /*
+   * 这条覆盖的是一个真实缺陷：一个来源对同一字段先报 v1、再改口报 v2 时，
+   * 旧实现按 (来源,值) 分组、对"同一来源的另一个值"不闻不问，于是它同时
+   * 支持了两个对立的值 —— **一个来源投了两票**。
+   * 后果不是"多算一票"这么轻：单枪匹马就能把票箱搅成 1:1，让本该判出最高票的
+   * 字段永远 decided=false，永远走随机下发。表现为"同一个物品刷两次，下发值不一样"，
+   * 看起来像随机抖动，实际是票箱被灌了。而 voting.ts 写明的契约是
+   * "每个**来源**对每个字段各持一票"。
+   *
+   * 另一个容易写错的修法是"先按来源聚成一个候选"，那会丢掉 tallyVotes 需要的
+   * 按值合并口径（count/weight 不再累加、sourceKeys 只剩一个）——
+   * 所以紧挨着的下一条测试专门盯住"两个来源报同一个值必须是两票两权重"。
+   */
+  const barcode = 'OBS-SWITCH-1';
+  const source = sourceOf(20);
+  const first = await contributions.create(
+    instanceIds[0]!,
+    { barcode, name: 'v1', manufacturer: 'A厂' },
+    source,
+  );
+  await contributions.create(instanceIds[0]!, { barcode, name: 'v2', manufacturer: 'A厂' }, source);
+
+  const candidates = await observations.candidates(first.itemId, 'name');
+  assert.equal(candidates.length, 1, '一个来源只应剩"最后报出的那个值"一个候选');
+  assert.equal(candidates[0]!.value, 'v2', '来源改口时以它最后报的值为准');
+  assert.equal(
+    candidates.reduce((sum, candidate) => sum + candidate.count, 0),
+    1,
+    '一个来源对一个字段只能投一票',
+  );
+
+  const tally = await observations.tally(first.itemId, 'name');
+  assert.equal(tally.tallies.length, 1, '被改口淘汰的旧值不能留在票箱里');
+  assert.equal(tally.decided, true, '只剩一个候选，必须判出最高票而不是走随机');
+  assert.equal(tally.winner!.value, 'v2');
+});
+
 test('有唯一最高票时按最高票下发（decided=true）', async () => {
   const barcode = 'OBS-MAJORITY-1';
   const first = await contributions.create(

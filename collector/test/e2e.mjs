@@ -269,7 +269,17 @@ async function main() {
     key: key2,
     body: { barcode: BARCODE_A, name: '旧名字', observedAt: '2020-01-01T00:00:00.000Z' },
   });
-  check('更早的观测不覆盖当前值', stale.json?.item?.name === '冲击钻' && Array.isArray(stale.json?.applied) && stale.json.applied.length === 0);
+  /*
+   * 断言的是**重放的结果**，不是"没被写进去"：
+   * 这条 2020 年的提交本身会被收下（applied 里就有 name），但它后面还有更新的观测，
+   * 物化列里留下的必须是最后一个有值的观测 —— 也就是这里先报的 '冲击钻'。
+   * 过早观测胜出才是 bug（见 mergeItemFields 的 notOlderThan 门槛）。
+   */
+  check(
+    '更早的观测不覆盖当前值',
+    stale.status === 201 && stale.json?.item?.name === '冲击钻',
+    `name=${stale.json?.item?.name} applied=${JSON.stringify(stale.json?.applied)}`,
+  );
 
   // 6. 公开查询
   const search = await call(`/api/v1/items?q=${encodeURIComponent('冲击')}&page=1&pageSize=10`);
@@ -393,9 +403,240 @@ async function main() {
   const afterUnban = await call('/api/v1/instances/me', { key: key2 });
   check('解封后密钥恢复可用', afterUnban.status === 200);
 
+  // 12.5 来源身份：匿名上报也能形成多票、投票裁决、反馈加权、管理端来源页
+  //
+  // 这一段是整套"多来源暂存 + 投票下发 + 反馈加权"的唯一真实链路验证。
+  // 三者必须一起测，因为它们的共同前提是"能稳定区分来源"：老契约不带任何身份字段，
+  // 来源键完全由请求推导（x-collector-source 请求头）。若这一步失效，
+  // 证据会全部挤成一行、投票永远只有一票、反馈也不知道该记在谁头上 —— 而单测里
+  // 每个用例都自己造来源，恰恰照不出这条退化路径。
+  const VOTE_BARCODE = 'E2E-VOTE-1';
+  const srcA = 'e2e-src-alpha';
+  const srcB = 'e2e-src-beta';
+  const srcC = 'e2e-src-gamma';
+  // 三个来源对同一字段报三个不同值 → 必然无最高票，只能"按权重随机下发被上报的值"
+  const votePosts = [
+    { source: srcA, manufacturer: '阿尔法厂' },
+    { source: srcB, manufacturer: '贝塔厂' },
+    { source: srcC, manufacturer: '伽马厂' },
+  ];
+  for (const post of votePosts) {
+    const response = await call('/api/v1/observations', {
+      method: 'POST',
+      headers: { 'x-collector-source': post.source },
+      body: { barcode: VOTE_BARCODE, name: '投票测试品', manufacturer: post.manufacturer, clientVersion: 'homebucket/1' },
+    });
+    check(`匿名上报被接受（来源 ${post.source}）`, response.status === 200 && response.json?.accepted === true, `${response.status}`);
+  }
+
+  const voteDetail = await call(`/api/v1/items/${VOTE_BARCODE}`);
+  const manufacturerField = voteDetail.json?.fields?.find((f) => f.field === 'manufacturer');
+  check(
+    '三个来源各占一票（匿名上报没有被挤成一行）',
+    manufacturerField?.voted === true && manufacturerField?.voteCount === 1 &&
+      manufacturerField?.tally?.length === 3,
+    `voted=${manufacturerField?.voted} count=${manufacturerField?.voteCount} tally=${manufacturerField?.tally?.length}`,
+  );
+  check(
+    '三方并列 → decided=false（随机下发被上报的值）',
+    manufacturerField?.decided === false && manufacturerField?.totalWeight === 3,
+    `decided=${manufacturerField?.decided} totalWeight=${manufacturerField?.totalWeight}`,
+  );
+  // 随机下发的候选**必须**是被上报过的三个值之一，不能是别的（需求原话）
+  const voteValues = new Set(manufacturerField?.tally?.map((t) => t.value));
+  check(
+    '下发的值落在被上报的候选集合内',
+    ['阿尔法厂', '贝塔厂', '伽马厂'].includes(voteDetail.json?.manufacturer) && voteValues.size === 3,
+    `manufacturer=${voteDetail.json?.manufacturer} candidates=${[...voteValues].join('/')}`,
+  );
+
+  // 给「伽马厂」一条好评 → 权重 ×1.2，投票应立刻判出最高票（权重和胜过票数）
+  // 注意只有一条：去重键是「被评价来源 + 物品 + 字段」，同一来源同一字段评两次只算一票
+  const gammaObservation = await call(`/api/v1/items/${VOTE_BARCODE}/contributions?pageSize=50`);
+  check('公开接口能看到这条目的上报流水', gammaObservation.json?.contributions?.length === 3, `${gammaObservation.json?.contributions?.length} 条`);
+  const feedback = await call('/api/v1/feedback', {
+    method: 'POST',
+    headers: { 'x-collector-source': srcA },
+    body: { itemId: voteDetail.json?.id, field: 'manufacturer', value: '伽马厂', accurate: true, note: 'e2e 好评' },
+  });
+  check(
+    '反馈被接受并把权重记在被评价来源头上',
+    feedback.status === 200 && feedback.json?.recorded === true && feedback.json?.weight > 1,
+    `recorded=${feedback.json?.recorded} weight=${feedback.json?.weight}`,
+  );
+  // 换一个来源再点一次「准确」：**不产生新的一票** —— 去重键是
+  // 「被评价来源 + 物品 + 字段」（不含评价方），这一票已经存在，所以这里
+  // 只是把那一票更新一遍，权重自然也仍停在 1.2。
+  // 这是刻意的：否则拉一群马甲轮着评就能把对手权重压死；
+  // 而"伽马厂这个字段被认可过"这个事实，重复多少遍也不增加信息量。
+  const feedbackByOther = await call('/api/v1/feedback', {
+    method: 'POST',
+    headers: { 'x-collector-source': srcB },
+    body: { itemId: voteDetail.json?.id, field: 'manufacturer', value: '伽马厂', accurate: true },
+  });
+  check(
+    '换一个评价来源不产生新的一票（去重键不含评价方），权重不变',
+    feedbackByOther.json?.recorded === false && feedbackByOther.json?.weight === feedback.json?.weight,
+    `recorded=${feedbackByOther.json?.recorded} weight=${feedbackByOther.json?.weight}`,
+  );
+  // 换个人来"改判"则是允许的：那一票从「认可」翻成「否定」，权重跟着掉。
+  // 这一步同时证明"只更新那一票"不等于"这一票被忽略"。
+  const feedbackFlipByOther = await call('/api/v1/feedback', {
+    method: 'POST',
+    headers: { 'x-collector-source': srcB },
+    body: { itemId: voteDetail.json?.id, field: 'manufacturer', value: '伽马厂', accurate: false },
+  });
+  check(
+    '换一个评价来源可以改判那一票（认可→否定，权重随之下降）',
+    feedbackFlipByOther.json?.recorded === true && feedbackFlipByOther.json?.downvotes === 1
+      && feedbackFlipByOther.json?.weight < feedback.json?.weight,
+    `recorded=${feedbackFlipByOther.json?.recorded} downvotes=${feedbackFlipByOther.json?.downvotes} weight=${feedbackFlipByOther.json?.weight}`,
+  );
+  // 复核完立刻改回「认可」，免得污染后面"反馈加权后判出最高票"的用例
+  const feedbackFlipBack = await call('/api/v1/feedback', {
+    method: 'POST',
+    headers: { 'x-collector-source': srcA },
+    body: { itemId: voteDetail.json?.id, field: 'manufacturer', value: '伽马厂', accurate: true },
+  });
+  check(
+    '再改回「认可」后权重回到原值（改判双向可逆）',
+    feedbackFlipBack.json?.upvotes === 1 && feedbackFlipBack.json?.downvotes === 0
+      && feedbackFlipBack.json?.weight === feedback.json?.weight,
+    `upvotes=${feedbackFlipBack.json?.upvotes} downvotes=${feedbackFlipBack.json?.downvotes} weight=${feedbackFlipBack.json?.weight}`,
+  );
+  const gammaDetailForVotes = await call(`/api/v1/items/${VOTE_BARCODE}`);
+  check(
+    '被评价来源的票数只按被评价方的证据算（票数＝1，不是 2）',
+    gammaDetailForVotes.json?.fields?.find((f) => f.field === 'manufacturer')?.voteCount === 1,
+    `voteCount=${gammaDetailForVotes.json?.fields?.find((f) => f.field === 'manufacturer')?.voteCount}`,
+  );
+  const feedbackRepeat = await call('/api/v1/feedback', {
+    method: 'POST',
+    headers: { 'x-collector-source': srcB },
+    body: { itemId: voteDetail.json?.id, field: 'manufacturer', value: '伽马厂', accurate: true },
+  });
+  check('同一来源重复好评不重复加权（幂等）', feedbackRepeat.json?.recorded === false, `recorded=${feedbackRepeat.json?.recorded}`);
+
+  const afterFeedback = await call(`/api/v1/items/${VOTE_BARCODE}`);
+  const votedField = afterFeedback.json?.fields?.find((f) => f.field === 'manufacturer');
+  check(
+    '反馈加权后判出最高票（权重和战胜票数）',
+    afterFeedback.json?.manufacturer === '伽马厂' && votedField?.decided === true,
+    `manufacturer=${afterFeedback.json?.manufacturer} decided=${votedField?.decided}`,
+  );
+  // 来源必须指向**真正报出该值**的那一条，而不是最新的一条
+  const gammaContributionId = gammaObservation.json?.contributions?.find(
+    (c) => c.payload?.manufacturer === '伽马厂',
+  )?.id;
+  check(
+    '来源指向真正报出该值的上报（不是最新一条）',
+    votedField?.contributionId === gammaContributionId,
+    `contributionId=${votedField?.contributionId} 期望=${gammaContributionId}`,
+  );
+  // 老契约（已部署实例真正在用的接口）也必须走投票结果，否则它会拿到物化列的旧值
+  const legacyVote = await call(`/api/v1/barcodes/${VOTE_BARCODE}`);
+  check('老契约下发值同样走投票', legacyVote.json?.manufacturer === '伽马厂', `manufacturer=${legacyVote.json?.manufacturer}`);
+
+  // 管理端来源页：能列出这三个来源、能看到权重与证据、能人工干预
+  const sourcesList = await call('/api/admin/sources?pageSize=50', { admin: true });
+  /*
+   * 从"证据"反查来源，而不是按展示名猜。
+   *
+   * 展示名是「自报 <前 24 位>」—— 它只是给人看的字符串，不是标识符；
+   * 用它挑选被测来源会让断言悄悄指错行（e2e 里三个来源的 ID 前缀相同，
+   * 早期版本就因为只取前 8 位而挑到了 alpha）。这里用"哪一行报过伽马厂"来定位：
+   * 伽马厂只在一条证据里出现过，所以这个匹配是唯一的。
+   */
+  const gammaKey = votedField?.voteSources?.[0];
+  const gammaRow = sourcesList.json?.sources?.find((row) => row.sourceKey === gammaKey);
+  check('来源页能按来源键精确定位到投票胜出的那个来源', Boolean(gammaRow), `key=${gammaKey}`);
+  check(
+    '来源页列出上报来源（含权重与证据数）',
+    sourcesList.status === 200 && Array.isArray(sourcesList.json?.sources) && sourcesList.json?.sources?.length >= 3,
+    `${sourcesList.json?.sources?.length} 个来源`,
+  );
+  check(
+    '来源页按权重升序（可疑的排前面）',
+    sourcesList.json?.sources?.every((row, index, all) => index === 0 || all[index - 1].weight <= row.weight),
+    sourcesList.json?.sources?.map((r) => r.weight).join(','),
+  );
+  check('来源行带展示名与证据数', Boolean(gammaRow) && gammaRow.observations >= 1 && gammaRow.items >= 1, `label=${gammaRow?.label} obs=${gammaRow?.observations}`);
+  const sourcesSuspicious = await call('/api/admin/sources?suspicious=true&pageSize=50', { admin: true });
+  check(
+    '只看可疑来源：全部低于基准权重',
+    sourcesSuspicious.json?.sources?.every((row) => row.weight < 1),
+    sourcesSuspicious.json?.sources?.map((r) => r.weight).join(','),
+  );
+  const sourceKey = gammaRow?.sourceKey;
+  const sourceDetail = await call(`/api/admin/sources/${encodeURIComponent(sourceKey)}`, { admin: true });
+  check(
+    '来源详情带最近证据与收到的反馈',
+    sourceDetail.status === 200 && sourceDetail.json?.sourceKey === sourceKey &&
+      sourceDetail.json?.recent?.length >= 1 && sourceDetail.json?.feedback?.length >= 1,
+    `recent=${sourceDetail.json?.recent?.length} feedback=${sourceDetail.json?.feedback?.length}`,
+  );
+  // 只有**一票**：去重键是「被评价来源 + 物品 + 字段」，alpha 与 beta 评的是
+  // 同一个来源的同一个字段，落的是同一条反馈（后面的改判把它翻过来又翻回去了）。
+  // "好评数"因此是**被认可的字段数**，不是"收到过几条好评"——
+  // 这样拉马甲刷好评既抬不高自己，也压不死别人。
+  const gammaFeedback = sourceDetail.json?.feedback ?? [];
+  check(
+    '来源详情能说清"谁评的准"（好评数＝被认可的字段数，马甲刷不出第二票）',
+    sourceDetail.json?.upvotes === 1 && sourceDetail.json?.downvotes === 0,
+    `up=${sourceDetail.json?.upvotes} down=${sourceDetail.json?.downvotes}`,
+  );
+  // 反馈列表必须能追到具体物品与字段，否则管理员看到"1 条好评"却不知道该信哪一条
+  check(
+    '反馈列表带物品、字段与判断',
+    gammaFeedback.length === 1 &&
+      gammaFeedback.every((row) => row.accurate === true && row.field === 'manufacturer' && row.catalogItemId === voteDetail.json?.id),
+    JSON.stringify(gammaFeedback.map((row) => ({ item: row.catalogItemId, field: row.field, accurate: row.accurate }))),
+  );
+  // 当时权重快照必须存在且与"实时权重"分开：事后管理员调过权重时，
+  // 快照仍是"这条证据当初以多少分量入的票"，是审计的唯一依据
+  check(
+    '证据行带"当时权重"快照',
+    typeof sourceDetail.json?.recent?.[0]?.weightAtObservation === 'number',
+    `weightAtObservation=${sourceDetail.json?.recent?.[0]?.weightAtObservation}`,
+  );
+  const weightSet = await call(`/api/admin/sources/${encodeURIComponent(sourceKey)}/weight`, {
+    method: 'POST',
+    admin: true,
+    body: { weight: 0.1 },
+  });
+  check('人工压低来源权重', weightSet.status === 200 && weightSet.json?.weight === 0.1, `weight=${weightSet.json?.weight}`);
+  const afterDownweight = await call(`/api/v1/items/${VOTE_BARCODE}`);
+  check(
+    '人工压权后该来源不再胜出',
+    afterDownweight.json?.manufacturer !== '伽马厂',
+    `manufacturer=${afterDownweight.json?.manufacturer}`,
+  );
+  const weightClamped = await call(`/api/admin/sources/${encodeURIComponent(sourceKey)}/weight`, {
+    method: 'POST',
+    admin: true,
+    body: { weight: 999 },
+  });
+  check('权重被钳到上限', weightClamped.json?.weight === 5, `weight=${weightClamped.json?.weight}`);
+  const badWeight = await call(`/api/admin/sources/${encodeURIComponent(sourceKey)}/weight`, {
+    method: 'POST',
+    admin: true,
+    body: { weight: 'not-a-number' },
+  });
+  check('非数字权重 → 400 validation.failed', badWeight.status === 400 && badWeight.json?.code === 'validation.failed', `${badWeight.status} ${badWeight.json?.code}`);
+  const missingSource = await call(`/api/admin/sources/${encodeURIComponent(`r:${'0'.repeat(32)}`)}`, { admin: true });
+  check('不存在的来源 → 404 source.notFound', missingSource.status === 404 && missingSource.json?.code === 'source.notFound', `${missingSource.status} ${missingSource.json?.code}`);
+  const sourcesAnon = await call('/api/admin/sources');
+  check('来源接口需要登录', sourcesAnon.status === 401 && sourcesAnon.json?.code === 'admin.sessionMissing', `${sourcesAnon.status} ${sourcesAnon.json?.code}`);
+
   // 13. 全库重放、兜底路由、CORS
+  //
+  // 计数别写死 1：它等于"未被合并的主条目数"，而这个数量随前面新增的用例变化
+  // （来源身份那一段又建了 VOTE_BARCODE 和一个指纹条目）。写死数字的断言
+  // 会在别人加用例时变红，然后被"顺手改大"——那等于没断言。
+  // 这里用公开列表的 total 对照：公开列表同样只算未被合并的主条目。
+  const publicTotal = (await call('/api/v1/items?pageSize=1')).json?.total;
   const recompute = await call('/api/admin/recompute', { method: 'POST', admin: true });
-  check('全库重放（只重放未被并的主条目）', recompute.status === 200 && recompute.json?.items === 1, `items=${recompute.json?.items}`);
+  check('全库重放（只重放未被并的主条目）', recompute.status === 200 && recompute.json?.items === publicTotal, `items=${recompute.json?.items} 公开列表=${publicTotal}`);
   const singleRecompute = await call(`/api/admin/items/${itemId}/recompute`, { method: 'POST', admin: true });
   check('单条目重放', singleRecompute.status === 200);
   const jsonNotFound = await call('/api/nope');
