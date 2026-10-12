@@ -13,7 +13,7 @@ If you're coming from HomeBox, these are the differences worth knowing first:
 - **Multi-member households**: registering creates your personal household; an invite link lets you join someone else's. One account can belong to several households and switch between them at any time. Every query is hard-scoped by `familyId`, with `owner` / `admin` / `member` roles.
 - **Several serial numbers of the same item can live in different places**: two identical floor fans, one in the storeroom and one in the bedroom, each with its own SN and location.
 - **Templates that close the loop with barcodes**: a template can be bound to a product barcode — scan it and the template is applied. The barcode field comes first when creating an item.
-- **Optional barcode data collection**: a built-in client for a "barcode → product info" service, so scanning a new barcode can auto-fill name / manufacturer / model.
+- **Optional barcode data collection**: a built-in client for a "barcode → product info" service — scanning a new barcode can auto-fill name / manufacturer / model, and a scheduled job reports this instance's barcoded items back (text fields only, photos only after metadata stripping).
 - **i18n out of the box**: Chinese (primary) and English (secondary); translations are plain JSON files that the community can submit new languages to.
 - **Single-container deployment**: one image runs both frontend and backend, with the frontend reaching the API through a built-in proxy — same origin, so there is no CORS to configure.
 - **Two databases, one model**: MySQL and SQLite ("MySQL light") share one set of hand-written TypeORM entities — same tables, same behaviour; only the driver differs.
@@ -218,7 +218,15 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 | `DATA_COLLECTION_ENABLED` | `true` | Master switch; when off this instance never calls out |
 | `DATA_COLLECTION_ENDPOINT` | placeholder | Collection service URL (**separate project**; replace with your own) |
 | `DATA_COLLECTION_SUBMIT` | `true` | Whether to send back barcodes filled in on this instance |
-| `DATA_COLLECTION_TIMEOUT_MS` | `1500` | Request timeout; failures degrade silently |
+| `DATA_COLLECTION_TIMEOUT_MS` | `1500` | Request timeout for lookups and legacy reports; failures degrade silently |
+| `DATA_COLLECTION_SYNC_ENABLED` | `true` | Scheduled report of every barcoded item; set `false` to opt out (lookups still work) |
+| `DATA_COLLECTION_SYNC_CRON` | `0 0 3 * * *` | When it runs. **Six fields, seconds first** — a 5-field expression is rejected at boot |
+| `DATA_COLLECTION_SYNC_MAX_ITEMS` | `500` | Max items per run |
+| `DATA_COLLECTION_SYNC_THROTTLE_MS` | `250` | Pause between two items, so a big inventory does not hammer the collector |
+| `DATA_COLLECTION_SYNC_MAX_FAILURES` | `5` | Consecutive failures that abort the current run (the next run tries again) |
+| `DATA_COLLECTION_PHOTO_TIMEOUT_MS` | `15000` | Per-photo upload timeout |
+| `DATA_COLLECTION_PHOTO_MAX_BYTES` | `8388608` | Per-photo byte cap (8 MB); bigger photos are skipped |
+| `DATA_COLLECTION_PHOTO_MAX_PER_ITEM` | `12` | Max photos per item (matches the collector's per-item image cap) |
 
 ### Auth
 
@@ -466,7 +474,16 @@ Pages declare their scrolling mode via `definePageMeta`, and the shell switches 
 
 A **separate service** collects "barcode → product info", aggregates it, and syncs it to instances so that creating an item can auto-fill name / manufacturer / model. The switch and URL are in `.env` and it is **enabled by default**; `DATA_COLLECTION_ENDPOINT` is a placeholder — replace it with your own service.
 
-This repository ships a **reference implementation** of that service in [`collector/`](collector/README.md) (a single Nuxt 4 process: SSR pages + API). Point `DATA_COLLECTION_ENDPOINT` at `http://<collector-host>:3400/api/v1` and already-deployed instances keep working unchanged: the collector implements the contract below verbatim (those two endpoints take no credentials, because that is what the shipped client sends).
+This repository ships a **reference implementation** of that service in [`collector/`](collector/README.md) (a single Nuxt 4 process: SSR pages + API). Point `DATA_COLLECTION_ENDPOINT` at `http://<collector-host>:3400/api/v1` and already-deployed instances keep working unchanged: the collector implements the contract below verbatim.
+
+Two independent things flow through that one URL:
+
+| Direction | When | Protocol |
+| --- | --- | --- |
+| **Read** — auto-fill a form | the moment a barcode is scanned | anonymous `GET {endpoint}/barcodes/{code}` |
+| **Write** — report this instance's items | a scheduled job, 03:00 daily by default | the collector's **v1 instance protocol** (`x-collector-key`), falling back to the anonymous `POST {endpoint}/observations` contract |
+
+### Reading: look up a barcode
 
 The endpoint this instance exposes (used by the frontend):
 
@@ -476,7 +493,7 @@ GET /api/barcodes/:code/lookup
     collectionEnabled: boolean, collectionAvailable: boolean }
 ```
 
-The contract the collection service must implement (the other project):
+The lookup contract the collection service must implement — also the **fallback** the scheduler uses when no instance key is stored (it takes no credentials, because that is what an already-deployed client sends):
 
 ```
 GET  {DATA_COLLECTION_ENDPOINT}/barcodes/{code}
@@ -491,7 +508,36 @@ POST {DATA_COLLECTION_ENDPOINT}/observations
   2xx  → accepted
 ```
 
-Degradation: an unconfigured URL, a timeout, an unreachable network or a non-2xx response **only produce a log line** and never block barcode entry or item creation; the frontend only shows "filled from the barcode library" when remote data actually came back.
+### Writing: the scheduled report
+
+A `@nestjs/schedule` job walks every item that has a barcode and reports it. It is **on by default** (`DATA_COLLECTION_SYNC_ENABLED=false` opts out) and its schedule comes from `DATA_COLLECTION_SYNC_CRON` (default `0 0 3 * * *`, i.e. 03:00 every day). The cron is registered at runtime from that variable, and it uses **six fields — seconds first**; a five-field expression is rejected and the job simply never registers.
+
+The v1 protocol needs an identity, so the first run registers:
+
+1. `POST /api/v1/instances` → a key `hbc_…`, returned **once** (save it or register again);
+2. the key is stored and sent as `x-collector-key` on every subsequent request;
+3. with no key stored — an old deployment, registration closed on the collector, or a failed first run — the client falls back to the anonymous `/observations` contract above.
+
+**What is sent**, and what is not:
+
+| Sent | Never sent |
+| --- | --- |
+| `barcode`, `name`, `description`, `model`, `manufacturer`, `baseUnit` | quantity, price, location, serial numbers, trace codes |
+
+That split is the design, not a limitation: the collector's public promise is that it does not collect household-private state, and "how many, how much, where" is exactly that state. There is also no `category`, because HomeBucket's `Item` has no such column — nothing is invented to fill the slot.
+
+**Repeated runs are idempotent.** Each item carries `collectorFingerprint` / `collectorSyncedAt` / `collectorPhotoSyncedAt`; when the fingerprint is unchanged the item is skipped **without issuing a request at all**, so several instances pointed at one collector (or one instance re-running) do not pile up duplicate reports.
+
+**Photos are opt-in per item, and always stripped.** They are uploaded only when the collector answers `wantsPhotos` — true when the entry still has zero images. Then all of the item's photos go up, at most `DATA_COLLECTION_PHOTO_MAX_PER_ITEM` (12, the collector's own cap). Before a byte leaves the instance, every photo is stripped of **EXIF / GPS / camera parameters / XMP / ICC**, done as pure-JS segment surgery on JPEG, PNG and WebP — no decode/re-encode, so not one pixel is recompressed and chunk checksums stay valid. GIF / HEIC / AVIF / SVG and unrecognised files are **skipped rather than uploaded**: those containers can still hide location data and cannot be cleaned safely in pure JS. Photos above `DATA_COLLECTION_PHOTO_MAX_BYTES` (8 MB) are skipped too. The collector rejects anything still carrying metadata with `400 photo.metadataForbidden`, so a broken stripper becomes a loud failure in the logs instead of a silent leak.
+
+**Where the instance key lives, and what that implies.** It is a single row in a new table, `DataCollectionState`, stored **in plaintext** — the protocol requires presenting it on every call, so there is nothing to hash and still authenticate with. Two consequences worth planning for:
+
+- a database dump or a stolen backup should be treated as **credential compromise**, not merely as data disclosure;
+- **rotation is "delete the row"** — the next run registers again and gets a new key. There is no rotate button, because the key is only usable by whoever holds it.
+
+Log lines print the key prefix only, never the full key.
+
+Degradation: an unconfigured URL, a timeout, an unreachable network or a non-2xx response **only produce a log line** and never block barcode entry or item creation; the frontend only shows "filled from the barcode library" when remote data actually came back. The scheduled run additionally gives up after `DATA_COLLECTION_SYNC_MAX_FAILURES` consecutive failures and simply tries again at the next tick.
 
 ## Self-hosted static assets
 

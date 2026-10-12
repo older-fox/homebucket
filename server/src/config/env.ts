@@ -218,6 +218,49 @@ export const env = {
     const value = Number(process.env.DATA_COLLECTION_TIMEOUT_MS ?? 1500);
     return Number.isFinite(value) && value > 0 ? value : 1500;
   },
+
+  // ---- 定时全量上报（收集器 v1 实例协议，见 collection/collection-sync.service.ts）----
+  /** 是否启用"定时上报所有带条码的物品" */
+  get dataCollectionSyncEnabled(): boolean {
+    return (process.env.DATA_COLLECTION_SYNC_ENABLED ?? 'true').toLowerCase() !== 'false';
+  },
+  /**
+   * 定时表达式，**6 段（含秒）**：@nestjs/schedule 用的是 cron v4，写 5 段会启动报错。
+   * 默认每天 03:00。
+   */
+  get dataCollectionSyncCron(): string {
+    return (process.env.DATA_COLLECTION_SYNC_CRON || '0 0 3 * * *').trim();
+  },
+  /** 单轮最多上报多少个物品（超过就留到下一轮，避免一次性打满收集器的限流预算） */
+  get dataCollectionSyncMaxItems(): number {
+    const value = Number(process.env.DATA_COLLECTION_SYNC_MAX_ITEMS ?? 500);
+    return Number.isFinite(value) && value >= 1 ? Math.trunc(value) : 500;
+  },
+  /** 两次请求之间的最小间隔（毫秒）：收集器默认 240 次/分钟，250ms 刚好留了余量 */
+  get dataCollectionSyncThrottleMs(): number {
+    const value = Number(process.env.DATA_COLLECTION_SYNC_THROTTLE_MS ?? 250);
+    return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 250;
+  },
+  /** 连续失败多少次后中止本轮（断路器：别对着一个死地址空转一整轮） */
+  get dataCollectionSyncMaxFailures(): number {
+    const value = Number(process.env.DATA_COLLECTION_SYNC_MAX_FAILURES ?? 5);
+    return Number.isFinite(value) && value >= 1 ? Math.trunc(value) : 5;
+  },
+  /** 单张照片上传的超时（毫秒）：比文字上报长得多，8MB 的图不是一个量级 */
+  get dataCollectionPhotoTimeoutMs(): number {
+    const value = Number(process.env.DATA_COLLECTION_PHOTO_TIMEOUT_MS ?? 15000);
+    return Number.isFinite(value) && value >= 1000 ? Math.trunc(value) : 15000;
+  },
+  /** 单张照片的字节上限；必须与收集器的 COLLECTOR_PHOTO_MAX_BYTES 对齐（默认 8MB） */
+  get dataCollectionPhotoMaxBytes(): number {
+    const value = Number(process.env.DATA_COLLECTION_PHOTO_MAX_BYTES ?? 8 * 1024 * 1024);
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 8 * 1024 * 1024;
+  },
+  /** 每个物品最多上传几张；必须与收集器的 MAX_IMAGE_URLS(12) 对齐 */
+  get dataCollectionPhotoMaxPerItem(): number {
+    const value = Number(process.env.DATA_COLLECTION_PHOTO_MAX_PER_ITEM ?? 12);
+    return Number.isFinite(value) && value >= 1 ? Math.min(Math.trunc(value), 12) : 12;
+  },
 };
 
 /** 供 multer FileInterceptor 复用的上传限制（后续做文件上传接口时直接用） */

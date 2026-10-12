@@ -6,6 +6,8 @@ import { Template } from '../entities/template.entity';
 import { alive } from '../common/soft-delete';
 import { env } from '../config/env';
 import { parsePackLevels } from '../items/packaging';
+import { CollectorClient } from './collector-client';
+import { CollectorStateService } from './collector-state.service';
 
 /** 收集服务返回的商品信息（由独立的收集服务项目判定与聚合） */
 export interface RemoteProduct {
@@ -43,6 +45,8 @@ export class CollectionService {
   constructor(
     @InjectRepository(Item) private readonly items: Repository<Item>,
     @InjectRepository(Template) private readonly templates: Repository<Template>,
+    private readonly state: CollectorStateService,
+    private readonly client: CollectorClient,
   ) {}
 
   private get ready(): boolean {
@@ -72,9 +76,29 @@ export class CollectionService {
     }
   }
 
-  /** 回传观测（fire-and-forget，失败只记日志） */
+  /**
+   * 回传观测（fire-and-forget，失败只记日志）。
+   *
+   * 有实例凭据就走 v1 的 `contributions`：这样这条上报是**可归属**的 —— 能参与投票、
+   * 能被反馈纠正、也享受收集器那边的重复上报去重。没有凭据（还没注册成功、
+   * 或收集器是老版本）时退回匿名的老契约 `/observations`，保证已部署实例照常可用。
+   */
   async submit(observation: BarcodeObservation): Promise<void> {
     if (!this.ready || !env.dataCollectionSubmit || !observation.barcode) return;
+
+    const key = await this.state.key().catch(() => null);
+    if (key) {
+      const result = await this.client.contribute(key, {
+        barcode: observation.barcode,
+        name: observation.name,
+        manufacturer: observation.manufacturer,
+        model: observation.model,
+      });
+      if (!result.ok) {
+        this.logger.debug(`条码上报失败（${result.error.kind}）：${result.error.message}`);
+      }
+      return;
+    }
 
     const url = `${env.dataCollectionEndpoint}/observations`;
     try {

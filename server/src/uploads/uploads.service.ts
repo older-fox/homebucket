@@ -73,6 +73,19 @@ export class UploadsService {
     };
   }
 
+  /** 读回附件字节；附件不存在或文件已丢失返回 null。跨家庭调用（定时任务用），所以不按 familyId 过滤 */
+  async bytes(attachmentId: number): Promise<{ bytes: Buffer; mime: string } | null> {
+    // 只需要 key/mime 去取文件，不必整行加载
+    const row = await this.attachments.findOne({
+      where: { id: attachmentId },
+      select: { id: true, key: true, mime: true },
+    });
+    if (!row) return null;
+
+    const bytes = await this.storage.get(row.key);
+    return bytes ? { bytes, mime: row.mime } : null;
+  }
+
   async remove(familyId: number, id: number) {
     // 只需要 key 去删文件，不必整行加载
     const row = await this.attachments.findOne({

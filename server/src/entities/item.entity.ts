@@ -136,6 +136,29 @@ export class Item {
   @Column({ type: 'datetime', precision: 3, nullable: true })
   deletedAt: Date | null;
 
+  /*
+   * ── 条码收集：这个物品的上报状态（只对"有条码"的物品有意义）──
+   *
+   * 定时全量上报每轮都要挑出"还没报过 / 报过之后又变了"的物品，没有这三项就只能
+   * 每轮把整库重发一遍（收集器侧有内容指纹去重兜底，但那是白烧限流预算）。
+   *
+   * `collectorFingerprint` 是**本地**指纹（带 `v1:` 前缀），只回答"我上次报完之后变没变"；
+   * 它**不复制**收集器的 contentHash（那会耦合对方的字段截断规则与 JSON 顺序，
+   * 对方改一次我们就全体误判）。真正的去重权威在收集器那边。
+   *
+   * 更新这三列要用 `createQueryBuilder().update()`：`repository.save()` 会顶掉
+   * @UpdateDateColumn，导致按 updatedAt 排序的列表每晚被重排一次。
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  collectorFingerprint: string | null;
+
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  collectorSyncedAt: Date | null;
+
+  /** 非空 = 照片已经传过一轮（不作布尔列：哪天传的本身也是排障信息） */
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  collectorPhotoSyncedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

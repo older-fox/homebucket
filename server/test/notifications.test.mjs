@@ -2,7 +2,8 @@
  * 「取走过久」提醒与账号资料接口的契约护栏（node:test，零依赖，读源码断言）。
  *
  * 守的几条：
- *   1. 提醒是**按需计算**的，不引入 scheduler（否则要部署定时任务、还要处理多实例重复推送）；
+ *   1. 提醒是**按需计算**的 —— 仓库里唯一的定时任务在 src/collection/（条码全量上报），
+ *      scheduler 不得扩散到别处（否则要部署定时任务、还要处理多实例重复推送）；
  *   2. 已遗失 / 已软删除的东西不该继续提醒（否则用户"处理过了"还会被反复骚扰）；
  *   3. 阈值 0 = 关闭提醒，不能因为 0 是 falsy 就回落到默认 7 天；
  *   4. 头像只能指向自己有权限的附件（Attachment 是家庭维度的表）。
@@ -19,6 +20,17 @@ import { fileURLToPath } from 'node:url';
 const SERVER_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const read = (relative) => readFileSync(join(SERVER_ROOT, relative), 'utf8');
+
+/** 递归列出目录下所有 .ts（用来做"某个依赖只允许出现在某处"这类收口断言） */
+function listTs(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listTs(full));
+    else if (entry.name.endsWith('.ts')) out.push(full);
+  }
+  return out;
+}
 
 function methodBody(source, signature, label) {
   const start = source.indexOf(signature);
@@ -50,7 +62,25 @@ test('提醒接口：家庭级守卫 + 按需计算，不引 scheduler', () => {
     );
     assert.ok(!source.includes('@Cron'), `${file} 出现了 @Cron`);
   }
-  assert.ok(!read('package.json').includes('@nestjs/schedule'), 'package.json 里不该出现 @nestjs/schedule');
+  /*
+   * 全仓库范围的收口：@nestjs/schedule 现在在依赖里（条码全量上报要用），
+   * 但只允许两处引用它：
+   *   · src/collection/** —— 用 SchedulerRegistry 挂那条定时任务（幂等，见其注释）；
+   *   · src/app.module.ts —— 组合根，必须在这里 `ScheduleModule.forRoot()`，
+   *     否则注册表不存在、任何模块都挂不上任务。
+   * 其余模块（尤其通知）必须保持按需计算：它们没有幂等保障，加定时任务就要处理
+   * 多实例重复推送。
+   */
+  const allowedScheduleImporters = /src[/\\](collection[/\\]|app\.module\.ts$)/;
+  for (const file of listTs(join(SERVER_ROOT, 'src'))) {
+    const source = readFileSync(file, 'utf8');
+    if (!/from '@nestjs\/schedule'/.test(source)) continue;
+    assert.match(
+      file,
+      allowedScheduleImporters,
+      `@nestjs/schedule 只允许出现在 src/collection/ 与 src/app.module.ts（其余模块必须按需计算）：${file}`,
+    );
+  }
 
   assert.match(read('src/app.module.ts'), /NotificationsModule,/, 'NotificationsModule 没有注册进 AppModule');
 });

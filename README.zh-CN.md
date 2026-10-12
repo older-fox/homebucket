@@ -13,7 +13,7 @@
 - **多成员家庭**：注册即建个人家庭，可通过邀请链接加入别人的家庭；一个用户可同时属于多个家庭并随时切换，所有数据按 `familyId` 强制隔离，角色分 owner / admin / member。
 - **同一物品的多个序列号可以分散在不同位置**：同型号两台落地风扇，一台在储藏室、一台在卧室，各自登记 SN 与位置。
 - **模板 + 条码闭环**：模板可绑定商品条码，扫码即套用；新增物品时条码字段置顶。
-- **条码数据收集（可关）**：内置一个可选的「条码 → 商品信息」收集客户端，扫到新条码可自动补全名称/厂商/型号。
+- **条码数据收集（可关）**：内置一个可选的「条码 → 商品信息」收集客户端，扫到新条码可自动补全名称/厂商/型号；定时任务还会把本实例带条码的物品回传（只发文字字段，照片先脱敏再传）。
 - **开箱即用的多语言**：主中文、次英文，翻译是独立 JSON，社区可直接提交新语言。
 - **单容器部署**：一个镜像同时跑前后端，前端经内置代理访问后端，天然同源无跨域。
 - **两种数据库共用一个模型**：MySQL 与 SQLite（“MySQL light”）共用同一套手写 TypeORM 实体——表结构与行为一致，只有驱动不同。
@@ -201,7 +201,15 @@ npm run dev               # http://<本机IP>:3000
 | `DATA_COLLECTION_ENABLED` | `true` | 总开关；关闭后本实例不向外部发送任何请求 |
 | `DATA_COLLECTION_ENDPOINT` | 占位地址 | 收集服务地址（**独立项目**，需替换成你自己的） |
 | `DATA_COLLECTION_SUBMIT` | `true` | 是否把本实例填写的条码信息回传 |
-| `DATA_COLLECTION_TIMEOUT_MS` | `1500` | 请求超时，超时静默降级 |
+| `DATA_COLLECTION_TIMEOUT_MS` | `1500` | 查询与老契约上报的请求超时，超时静默降级 |
+| `DATA_COLLECTION_SYNC_ENABLED` | `true` | 定时上报所有带条码的物品；设 `false` 即退出（扫码查询不受影响） |
+| `DATA_COLLECTION_SYNC_CRON` | `0 0 3 * * *` | 执行时机。**必须 6 段（秒在前）**，5 段会被判无效、定时任务注册不上 |
+| `DATA_COLLECTION_SYNC_MAX_ITEMS` | `500` | 单轮最多处理多少个物品 |
+| `DATA_COLLECTION_SYNC_THROTTLE_MS` | `250` | 相邻两个物品之间的间隔，避免大库存把收集服务打挂 |
+| `DATA_COLLECTION_SYNC_MAX_FAILURES` | `5` | 连续失败多少次就放弃本轮（下一轮再试） |
+| `DATA_COLLECTION_PHOTO_TIMEOUT_MS` | `15000` | 单张照片的上传超时 |
+| `DATA_COLLECTION_PHOTO_MAX_BYTES` | `8388608` | 单张照片字节上限（8MB），超过就跳过这张 |
+| `DATA_COLLECTION_PHOTO_MAX_PER_ITEM` | `12` | 单个物品最多传几张照片（与收集器单条目图片上限一致） |
 
 ### 认证
 
@@ -432,7 +440,16 @@ kaniko 镜像本身在 gcr.io，走 `gcr.m.daocloud.io/kaniko-project/executor:d
 
 由开发者提供的**独立服务**收集「条码 → 商品信息」，综合判定后同步给各实例，创建物品时可自动补全名称/厂商/型号。开关与地址都在 `.env`，**默认开启**；`DATA_COLLECTION_ENDPOINT` 是占位地址，请替换成你自己的服务。
 
-本仓库自带该服务的**参考实现**，在 [`collector/`](collector/README.md)（单个 Nuxt 4 进程同时提供页面与 API）。把 `DATA_COLLECTION_ENDPOINT` 指向 `http://<收集器地址>:3400/api/v1`，**已经部署出去的实例无需改动**即可接入 —— 收集器逐字实现了下面这份契约（这两个接口不带凭据，因为客户端就是这么发的）。
+本仓库自带该服务的**参考实现**，在 [`collector/`](collector/README.md)（单个 Nuxt 4 进程同时提供页面与 API）。把 `DATA_COLLECTION_ENDPOINT` 指向 `http://<收集器地址>:3400/api/v1`，**已经部署出去的实例无需改动**即可接入 —— 收集器逐字实现了下面这份契约。
+
+同一个地址上跑着两件互不相关的事：
+
+| 方向 | 时机 | 协议 |
+| --- | --- | --- |
+| **读**（补全表单） | 扫到条码的那一刻 | 匿名的 `GET {endpoint}/barcodes/{code}` |
+| **写**（回传本实例物品） | 定时任务，默认每天凌晨 3 点 | 收集器的 **v1 实例协议**（`x-collector-key`），没有 key 时回退到匿名的 `POST {endpoint}/observations` |
+
+### 读：按条码查
 
 本实例对外的接口（前端用）：
 
@@ -442,7 +459,7 @@ GET /api/barcodes/:code/lookup
     collectionEnabled: boolean, collectionAvailable: boolean }
 ```
 
-收集服务需要实现的契约（另一个项目）：
+收集服务需要实现的查询契约 —— 同时也是定时任务在**库里没有 key 时**的回退路径（它不带凭据，因为已经部署出去的客户端就是这么发的）：
 
 ```
 GET  {DATA_COLLECTION_ENDPOINT}/barcodes/{code}
@@ -457,7 +474,36 @@ POST {DATA_COLLECTION_ENDPOINT}/observations
   2xx  → 已接收
 ```
 
-降级策略：未配置地址、超时、网络不可达、非 2xx **都只记日志**，条码填写与物品创建不受影响；前端只在远端有数据时才提示「已用条码库的信息补全」。
+### 写：定时上报
+
+一个 `@nestjs/schedule` 定时任务把所有带条码的物品巡回上报一遍。**默认开启**（`DATA_COLLECTION_SYNC_ENABLED=false` 退出），时机由 `DATA_COLLECTION_SYNC_CRON` 决定（默认 `0 0 3 * * *`，即每天凌晨 3 点）。cron 是运行期按这个变量注册的，而且用的是 **6 段（秒在前）**；写成 5 段会被判为无效表达式，任务根本注册不上。
+
+v1 协议要求有身份，所以首次运行会先注册：
+
+1. `POST /api/v1/instances` → 拿到一把 `hbc_…` key，**只返回这一次**（丢了就只能重新注册）；
+2. key 存下来，之后每次请求都带 `x-collector-key`；
+3. 库里没有 key（老部署、收集器关了注册、首次注册失败）时，回退到上面那个匿名的 `/observations` 契约。
+
+**发什么、不发什么**：
+
+| 发 | 从不发 |
+| --- | --- |
+| `barcode` / `name` / `description` / `model` / `manufacturer` / `baseUnit` | 数量、价格、位置、序列号、追溯码 |
+
+这条分界是设计本身，不是能力所限：收集器公开承诺不收家庭私有状态，而「有几个、多少钱、在哪儿」正是那类状态。另外也没有 `category`——HomeBucket 的 `Item` 没有这一列，所以不会凭空造一个填上去。
+
+**重复运行是幂等的。** 每个物品记了 `collectorFingerprint` / `collectorSyncedAt` / `collectorPhotoSyncedAt`，指纹没变就**连请求都不发**直接跳过；所以多个实例指向同一个收集器（或同一个实例反复跑）都不会堆出一堆重复上报。
+
+**照片按需传，且先脱敏。** 只有收集器回 `wantsPhotos`（该条目一张图都没有）时才传，一次最多 `DATA_COLLECTION_PHOTO_MAX_PER_ITEM` 张（12，与收集器的上限一致）。每一张在离开本实例之前都会先剥掉 **EXIF / GPS / 相机参数 / XMP / ICC**：JPEG、PNG、WebP 走纯 JS 的字节段手术，不解码重编码，所以一个像素都不会被二次压缩，块校验值也天然有效。GIF / HEIC / AVIF / SVG 以及认不出来的格式一律**跳过不传** —— 这些容器同样塞得进位置信息，而纯 JS 没法安全摘干净。超过 `DATA_COLLECTION_PHOTO_MAX_BYTES`（8MB）的照片也跳过。收集器那边还会拒收仍带元数据的图片（`400 photo.metadataForbidden`），所以剥离器一旦失效，表现是日志里响亮的失败，而不是一次悄悄的泄露。
+
+**key 存在哪儿，以及这意味着什么。** 它存在新表 `DataCollectionState` 的**唯一一行里，而且是明文** —— 协议要求每次请求都出示它，没法一边哈希一边认证。两个要提前想清楚的后果：
+
+- 库 dump 或备份泄露应当按**凭据泄露**处理，而不只是数据泄露；
+- **轮换 = 删掉那一行**，下一轮运行会重新注册、拿到新 key。没有"轮换"按钮，因为这把 key 只有持有者自己用得上。
+
+日志只打 key 前缀，从不打完整 key。
+
+降级策略：未配置地址、超时、网络不可达、非 2xx **都只记日志**，条码填写与物品创建不受影响；前端只在远端有数据时才提示「已用条码库的信息补全」。定时任务另外在连续失败 `DATA_COLLECTION_SYNC_MAX_FAILURES` 次后放弃本轮，等下一个周期再试。
 
 ## 静态资源自托管
 
