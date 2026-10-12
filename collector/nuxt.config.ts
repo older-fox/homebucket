@@ -13,11 +13,29 @@ const host = process.env.COLLECTOR_HOST?.trim() || '0.0.0.0';
 
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
-  modules: ['@nuxtjs/color-mode'],
+  /*
+   * Nuxt UI v4 提供组件（UButton/UInput/UCard/UBadge/UAlert…），
+   * i18n 管文案。两者都在构建期展开，不引入额外的运行时请求。
+   */
+  modules: ['@nuxtjs/color-mode', '@nuxt/ui', '@nuxtjs/i18n'],
   css: ['~/assets/css/main.css'],
   vite: { plugins: [tailwindcss()] },
   devtools: { enabled: false },
   devServer: { port, host },
+  /*
+   * i18n：默认中文，策略是 no_prefix —— 收集器是内网自用工具，
+   * URL 上出现 /zh/ 这种前缀只会让老实例的文档链接失效，
+   * 语言选择走 cookie/浏览器偏好即可（顶栏有切换控件）。
+   */
+  i18n: {
+    defaultLocale: 'zh',
+    strategy: 'no_prefix',
+    locales: [
+      { code: 'zh', name: '中文', file: 'zh.json' },
+      { code: 'en', name: 'English', file: 'en.json' },
+    ],
+    detectBrowserLanguage: { useCookie: true, cookieKey: 'hb-collector-locale', redirectOn: 'root' },
+  },
   /**
    * 深色模式跟着系统走，classSuffix 留空 → 挂在 <html class="dark"> 上，
    * 这样 Tailwind v4 的 dark: 变体（@custom-variant 里声明的是 .dark）直接可用。
@@ -29,6 +47,15 @@ export default defineNuxtConfig({
     storageKey: 'hb-collector-color-mode',
   },
   app: {
+    /**
+     * 全站登录守卫在 `app/middleware/login-gate.global.ts`。
+     *
+     * **不要**在这里写 `middleware: ['login-gate']`：`app.middleware` 只接受
+     * 生成器注入的中间件条目，手写名字只会把它注册成**具名**中间件（无人引用），
+     * `globalMiddleware` 里留下的那个空函数就是它 —— 守卫不会执行。
+     * Nuxt 判定全局的唯一依据是文件名以 `.global.ts` 结尾。
+     * 存这条注释是因为这里已经踩过一次坑，删掉注释很容易再写回来。
+     */
     head: {
       title: 'HomeBucket 收集器',
       titleTemplate: '%s · HomeBucket 收集器',

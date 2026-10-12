@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+/**
+ * 应用外壳：左侧固定侧栏(256px) + 顶栏(64px) + 内容区。
+ *
+ * 规范第 10 节要求 `md` 以下隐藏侧栏、改顶部横向导航条。
+ * 这里改成抽屉浮层而**不是**横向导航条：收集器的 5 个入口塞进 64px 顶栏
+ * 会挤掉面包屑，而抽屉同样满足"小屏不用常驻占位"这个目的。
+ * 入口数量、点击区高度（≥40px）与图标风格仍照规范执行。
+ */
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { capture, useApi } from '../composables/useApi';
 import type { HealthView, Loaded } from '../composables/useApi';
 import { adminSession as session, logout, refresh } from '../composables/useAdminSession';
+import type { IconName } from '../components/AppIcon.vue';
 
 const api = useApi();
 const route = useRoute();
+const { t, locale, locales } = useI18n();
 const colorMode = useColorMode();
 
 /** 页脚的版本号与注册开关：公开接口，SSR 期就能取（走 Nitro 内部请求）。 */
@@ -16,27 +26,73 @@ const { data: healthData } = await useAsyncData<Loaded<HealthView>>(
 );
 
 const health = computed(() => healthData.value?.data ?? null);
-const healthMessage = computed(() => healthData.value?.error || '服务端未就绪');
+const healthMessage = computed(() => healthData.value?.error || t('footer.unavailable'));
 
 function toggleTheme(): void {
   colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark';
 }
+
+/**
+ * 侧栏导航项。
+ *
+ * 顺序按"日常使用频率 × 权限门槛"排：查条码是所有人每天都点的，纠错台与来源管理
+ * 只有登录后才有意义，所以放后面。`auth` 为 true 的项在未登录时**置灰而不隐藏**
+ * —— 藏起来使用者会以为功能不存在；置灰则明确告诉他"登录后可用"。
+ *
+ * `icon` 用内联 SVG 的名字而不是 emoji：emoji 在不同系统上字形差异很大，
+ * 而且做不了"一眼认出这是审计"这件事（规范第 8 节要求线性图标）。
+ */
+const NAV_ITEMS: Array<{ to: string; key: string; icon: IconName; hintKey: string; auth: boolean }> = [
+  { to: '/', key: 'nav.search', icon: 'search', hintKey: 'nav.searchHint', auth: false },
+  { to: '/stats', key: 'nav.stats', icon: 'chart', hintKey: 'nav.statsHint', auth: false },
+  { to: '/audit', key: 'nav.audit', icon: 'clipboard', hintKey: 'nav.auditHint', auth: true },
+  { to: '/admin', key: 'nav.admin', icon: 'wrench', hintKey: 'nav.adminHint', auth: true },
+  { to: '/sources', key: 'nav.sources', icon: 'shield', hintKey: 'nav.sourcesHint', auth: true },
+  { to: '/upstream', key: 'nav.upstream', icon: 'upload', hintKey: 'nav.upstreamHint', auth: true },
+];
 
 function isActive(path: string): boolean {
   if (path === '/') return route.path === '/';
   return route.path === path || route.path.startsWith(`${path}/`);
 }
 
-// 会话状态只属于浏览器：SSR 拿不到 httpOnly cookie，所以探测放在 mounted 之后。
-// 公开页面（/、/stats）不主动探测 —— 那里没有要展示的账号信息，探一次只会白拿一个 401。
-const PROTECTED_PATHS = ['/admin', '/audit', '/password'];
+/** 当前页在导航里的 key，用来渲染面包屑；找不到时（详情页等）回落成通用文案 */
+const currentNav = computed(() => NAV_ITEMS.find((item) => isActive(item.to)));
+
 /**
- * 顶栏的账号区必须等挂载后再渲染。
+ * 移动端抽屉：小屏下侧栏是浮层，点任何导航项都要收起来，
+ * 否则新页面会被浮层盖住。桌面端这个值不起作用（侧栏始终可见）。
+ */
+const drawerOpen = ref(false);
+watch(() => route.fullPath, () => {
+  drawerOpen.value = false;
+});
+
+/** 登录后才有意义的入口：未登录时置灰，而不是隐藏（见 NAV_ITEMS 的说明） */
+function lockedFor(item: { auth: boolean }): boolean {
+  return item.auth && mounted.value && session.user === null;
+}
+
+/**
+ * Esc 关闭抽屉。
  *
- * 原因：首屏是 SSR 出来的（服务端没有 cookie，渲染成「登录」），但客户端路由中间件会在
- * **首次渲染之前**就问到会话，于是客户端第一帧想渲染账号名 —— 与服务端 HTML 对不上，
+ * 移动端浮层不给键盘出口的话，键盘用户与部分读屏用户会被困在浮层里。
+ * 绑在 window 上（而不是浮层元素）是因为焦点可能落在任意可点元素上。
+ */
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') drawerOpen.value = false;
+}
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
+
+/**
+ * 顶栏账号区必须等挂载后再渲染。
+ *
+ * 首屏是 SSR 出来的（服务端没有 cookie，渲染成「登录」），但客户端路由中间件会在
+ * **首次渲染之前**就问会话，于是客户端第一帧想渲染账号名 —— 与服务端 HTML 对不上，
  * Vue 报 "Hydration completed but contains mismatches"。挂载标记把第一帧压回同一个形状。
  */
+const PROTECTED_PATHS = ['/admin', '/audit', '/password', '/sources', '/upstream'];
 const mounted = ref(false);
 onMounted(() => {
   mounted.value = true;
@@ -49,99 +105,255 @@ async function onLogout(): Promise<void> {
   await navigateTo('/login');
 }
 
-const navLink =
-  'rounded-full px-3 py-1.5 text-sm text-slate-600 no-underline transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800';
-const navActive = 'bg-brand-50 font-semibold text-brand-700 dark:bg-slate-800 dark:text-brand-100';
-const smallButton =
-  'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] font-medium text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800';
-const chip = 'inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300';
-const chipAccent = 'border-brand-500/30 bg-brand-50 text-brand-700 dark:bg-brand-700/20 dark:text-brand-100';
-const chipOk = 'border-emerald-500/30 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-const chipWarn = 'border-amber-500/30 bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
+const username = computed(() => (mounted.value ? session.user?.username ?? null : null));
+/** 头像里的缩写：取首字符，用户名通常是 ascii */
+const initial = computed(() => (username.value ?? '?').slice(0, 1).toUpperCase());
+
+/**
+ * 语言代码：locales 里既可能是字符串也可能是对象，统一成 code。
+ *
+ * 返回值收窄成配置里声明的那两个字面量（`LocaleCode`）而不是 `string`：
+ * `locale` 是 `Ref<'zh' | 'en'>`，赋一个宽 string 在 typecheck 下会被拒。
+ * i18n 的 locales 配置是运行期读的，这里用声明断言把"配置只声明了这两种"
+ * 这件事写进类型；真加了第三种语言，nuxt.config 与本类型都要同步改。
+ */
+type LocaleCode = 'zh' | 'en';
+
+function codeOf(item: unknown): LocaleCode {
+  return (typeof item === 'string' ? item : (item as { code: string }).code) as LocaleCode;
+}
+function nameOf(item: unknown): string {
+  if (typeof item === 'string') return item;
+  const named = (item as { name?: string; code: string }).name;
+  return named ?? (item as { code: string }).code;
+}
+
+/**
+ * 语言切换（分段控件）。
+ *
+ * 只列配置里声明的那两种：收集器实际只维护 zh/en，列一个空的下拉
+ * 会让使用者以为还有别的可选。no_prefix 策略下写 locale 就落到 cookie 上
+ * （见 nuxt.config 的 detectBrowserLanguage）。
+ */
+function setLocale(code: LocaleCode): void {
+  locale.value = code;
+}
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-    <header
-      class="sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-5 py-2.5 max-sm:px-3.5 dark:border-slate-800 dark:bg-slate-900"
-    >
-      <NuxtLink data-testid="brand" to="/" class="flex items-center gap-2.5 text-inherit no-underline">
-        <span
-          class="grid h-[34px] w-[34px] place-items-center rounded-[9px] bg-gradient-to-br from-brand-500 to-sky-500 text-[13px] font-bold tracking-wide text-white"
-        >
-          HB
-        </span>
-        <span>
-          <strong class="block text-[15px] leading-tight">HomeBucket 收集器</strong>
-          <small class="hidden text-[11px] tracking-wide text-slate-500 sm:block dark:text-slate-400">
-            物品信息收集器 · HomeBucket Collector
-          </small>
-        </span>
-      </NuxtLink>
+  <div class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-white">
+    <!--
+      移动端抽屉遮罩。桌面端（md 以上）侧栏是常驻的，这层永远不出现。
+      遮罩点击即关，键盘用户按 Esc 也能关（见上面的 keydown 处理）。
+    -->
+    <div
+      v-if="drawerOpen"
+      data-testid="sidebar-overlay"
+      class="fixed inset-0 z-30 bg-gray-900/40 backdrop-blur-[1px] md:hidden"
+      @click="drawerOpen = false"
+    />
 
-      <nav class="order-last flex w-full flex-wrap gap-1 sm:order-none sm:ml-auto sm:w-auto" aria-label="主导航">
-        <NuxtLink data-testid="nav-search" to="/" :class="[navLink, isActive('/') ? navActive : '']">查条码</NuxtLink>
-        <NuxtLink data-testid="nav-stats" to="/stats" :class="[navLink, isActive('/stats') ? navActive : '']">
-          统计概览
+    <aside
+      data-testid="sidebar"
+      :class="[
+        'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-gray-200 bg-white transition-transform duration-200 dark:border-gray-800 dark:bg-gray-900',
+        drawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+      ]"
+    >
+      <!-- 品牌区：高度 64px，与顶栏对齐（两处必须一致，否则右侧内容会错位一行） -->
+      <div class="flex h-16 shrink-0 items-center border-b border-gray-200 px-5 dark:border-gray-800">
+        <NuxtLink data-testid="brand" to="/" class="flex min-w-0 items-center gap-3 text-inherit no-underline">
+          <span
+            class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-bold tracking-wide text-white shadow-md shadow-blue-600/25"
+          >
+            HB
+          </span>
+          <span class="min-w-0">
+            <strong class="block truncate text-base leading-tight font-semibold">{{ t('brand.name') }}</strong>
+            <small class="block truncate text-xs text-gray-500 dark:text-gray-400">{{ t('brand.tagline') }}</small>
+          </span>
         </NuxtLink>
-        <NuxtLink data-testid="nav-audit" to="/audit" :class="[navLink, isActive('/audit') ? navActive : '']">
-          上报审计
-        </NuxtLink>
-        <NuxtLink data-testid="nav-admin" to="/admin" :class="[navLink, isActive('/admin') ? navActive : '']">
-          纠错台
+      </div>
+
+      <nav class="flex-1 overflow-y-auto p-3" :aria-label="t('nav.ariaMain')">
+        <NuxtLink
+          v-for="item in NAV_ITEMS"
+          :key="item.to"
+          :to="item.to"
+          :title="lockedFor(item) ? t('nav.lockedHint', { hint: t(item.hintKey) }) : t(item.hintKey)"
+          :aria-disabled="lockedFor(item) ? 'true' : undefined"
+          :class="[
+            'flex items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-medium no-underline transition-colors duration-150',
+            isActive(item.to)
+              ? 'bg-blue-50 text-blue-700 shadow-sm dark:bg-blue-950/60 dark:text-blue-300'
+              : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800/70',
+            lockedFor(item) ? 'cursor-not-allowed opacity-45 hover:bg-transparent dark:hover:bg-transparent' : '',
+          ]"
+          :data-testid="`nav-${item.to === '/' ? 'search' : item.to.slice(1)}`"
+        >
+          <AppIcon
+            :name="item.icon"
+            :stroke-width="2"
+            :class="['h-[18px] w-[18px] shrink-0', isActive(item.to) ? 'text-blue-600 dark:text-blue-400' : '']"
+          />
+          <span class="min-w-0 flex-1 truncate">{{ t(item.key) }}</span>
+          <AppIcon v-if="lockedFor(item)" name="lock" class="h-3.5 w-3.5 shrink-0 opacity-70" />
         </NuxtLink>
       </nav>
 
-      <div class="ml-auto flex items-center gap-2 sm:ml-0">
-        <template v-if="mounted && session.user">
-          <span :class="[chip, chipAccent]" data-testid="nav-account" :title="`已登录：${session.user.username}`">
-            {{ session.user.username }}
-          </span>
-          <NuxtLink data-testid="nav-password" to="/password" :class="smallButton">修改密码</NuxtLink>
-          <button
-            data-testid="nav-logout"
-            :class="smallButton"
-            type="button"
-            :disabled="session.pending"
-            @click="onLogout"
-          >
-            退出登录
-          </button>
+      <!--
+        用户区固定在侧栏底部：登录状态是"当前身份"的开关，
+        位置固定才不用每次去找它。36px 圆形头像 + 用户名（规范 6.6）。
+      -->
+      <div class="shrink-0 border-t border-gray-200 p-3 dark:border-gray-800">
+        <template v-if="username">
+          <div class="mb-2 flex items-center gap-3 px-1" data-testid="nav-account">
+            <span
+              class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-semibold text-white"
+              aria-hidden="true"
+            >
+              {{ initial }}
+            </span>
+            <span class="min-w-0 flex-1">
+              <strong class="block truncate text-sm font-medium">{{ username }}</strong>
+              <small class="block truncate text-xs text-gray-500 dark:text-gray-400">
+                {{ t('auth.signedInAs') }}
+              </small>
+            </span>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <UButton
+              to="/password"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              block
+              data-testid="nav-password"
+            >
+              <AppIcon name="key" class="h-4 w-4" />
+              {{ t('auth.changePassword') }}
+            </UButton>
+            <UButton
+              color="neutral"
+              variant="outline"
+              size="sm"
+              block
+              :disabled="session.pending"
+              data-testid="nav-logout"
+              @click="onLogout"
+            >
+              <AppIcon name="logout" class="h-4 w-4" />
+              {{ t('auth.signOut') }}
+            </UButton>
+          </div>
         </template>
-        <NuxtLink v-else data-testid="nav-login" to="/login" :class="smallButton">登录</NuxtLink>
-        <button
+        <UButton
+          v-else
+          to="/login"
+          color="neutral"
+          variant="outline"
+          size="sm"
+          block
+          data-testid="nav-login"
+        >
+          <AppIcon name="logout" class="h-4 w-4" />
+          {{ t('auth.signIn') }}
+        </UButton>
+      </div>
+    </aside>
+
+    <div class="flex min-w-0 flex-col md:pl-64">
+      <!--
+        顶栏 64px，sticky + 毛玻璃（规范 6.7）。
+        左：移动端汉堡 + 面包屑；右：语言分段控件 + 主题切换。
+      -->
+      <header
+        class="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white/85 px-6 backdrop-blur max-sm:px-4 dark:border-gray-800 dark:bg-gray-900/80"
+      >
+        <!-- 移动端汉堡：无文字按钮，aria-label 必填（规范 §6.1）；图标用内联 SVG -->
+        <UButton
+          class="md:hidden"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          :aria-label="t('nav.openMenu')"
+          :aria-expanded="drawerOpen ? 'true' : 'false'"
+          data-testid="sidebar-toggle"
+          @click="drawerOpen = !drawerOpen"
+        >
+          <AppIcon name="menu" class="h-5 w-5" />
+        </UButton>
+
+        <nav class="min-w-0 flex-1" :aria-label="t('nav.ariaBreadcrumb')">
+          <ol class="flex min-w-0 items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+            <li class="shrink-0">{{ t('brand.short') }}</li>
+            <li aria-hidden="true" class="shrink-0 text-gray-300 dark:text-gray-600">/</li>
+            <li class="min-w-0 truncate font-medium text-gray-900 dark:text-white">
+              {{ currentNav ? t(currentNav.key) : t('nav.other') }}
+            </li>
+          </ol>
+        </nav>
+
+        <!-- 语言切换：分段控件（外层灰底 + 激活项白底投影） -->
+        <div
+          class="hidden shrink-0 items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 sm:flex dark:bg-gray-800"
+          role="group"
+          :aria-label="t('locale.switch')"
+        >
+          <button
+            v-for="item in locales"
+            :key="codeOf(item)"
+            type="button"
+            :data-testid="`locale-${codeOf(item)}`"
+            :aria-pressed="locale === codeOf(item) ? 'true' : 'false'"
+            :class="[
+              'rounded-md px-2.5 py-1 text-xs font-medium transition-colors duration-150',
+              locale === codeOf(item)
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200',
+            ]"
+            @click="setLocale(codeOf(item))"
+          >
+            {{ nameOf(item) }}
+          </button>
+        </div>
+
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          :aria-label="t('theme.toggle')"
           data-testid="theme-toggle"
-          :class="smallButton"
-          type="button"
-          aria-label="切换明暗主题"
           @click="toggleTheme"
         >
-          <span class="dark:hidden" aria-hidden="true">🌙</span>
-          <span class="hidden dark:inline" aria-hidden="true">☀️</span>
-        </button>
-      </div>
-    </header>
+          <AppIcon :name="colorMode.value === 'dark' ? 'sun' : 'moon'" class="h-5 w-5" />
+        </UButton>
+      </header>
 
-    <main class="mx-auto w-full max-w-[1120px] flex-1 px-5 pt-6 pb-12 max-sm:px-3.5">
-      <slot />
-    </main>
+      <main class="mx-auto w-full max-w-7xl flex-1 px-6 py-8 max-sm:px-4">
+        <slot />
+      </main>
 
-    <footer
-      class="flex flex-wrap items-center gap-3 border-t border-slate-200 bg-white px-5 py-3.5 text-[12.5px] text-slate-500 max-sm:px-3.5 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
-    >
-      <template v-if="health">
-        <span>v{{ health.version }} · {{ health.storage.provider }}</span>
-        <span>
-          {{ health.storage.items }} 条资料 / {{ health.storage.contributions }} 次上报 /
-          {{ health.storage.instances }} 个实例
-        </span>
-        <span :class="[chip, health.registrationOpen ? chipOk : chipWarn]">
-          {{ health.registrationOpen ? '实例注册开放' : '实例注册已关闭' }}
-        </span>
-        <span class="flex-1" />
-        <span class="font-mono text-xs">{{ health.storage.dataFile }}</span>
-      </template>
-      <span v-else>{{ healthMessage }}</span>
-    </footer>
+      <footer
+        class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-6 py-4 text-xs text-gray-500 max-sm:px-4 dark:border-gray-800 dark:text-gray-400"
+      >
+        <template v-if="health">
+          <span class="tabular">v{{ health.version }} · {{ health.storage.provider }}</span>
+          <span class="tabular">
+            {{ t('footer.totals', {
+              items: health.storage.items,
+              contributions: health.storage.contributions,
+              instances: health.storage.instances,
+            }) }}
+          </span>
+          <UBadge :color="health.registrationOpen ? 'success' : 'warning'" variant="soft" size="sm">
+            {{ health.registrationOpen ? t('footer.registrationOpen') : t('footer.registrationClosed') }}
+          </UBadge>
+          <span class="flex-1" />
+          <span class="truncate font-mono">{{ health.storage.dataFile }}</span>
+        </template>
+        <span v-else>{{ healthMessage }}</span>
+      </footer>
+    </div>
   </div>
 </template>

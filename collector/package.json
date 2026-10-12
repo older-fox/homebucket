@@ -15,7 +15,9 @@
     "db:check-drift": "node --import tsx scripts/check-drift.mjs"
   },
   "dependencies": {
+    "@nuxt/ui": "^4.11.3",
     "@nuxtjs/color-mode": "^4.0.1",
+    "@nuxtjs/i18n": "^10.6.0",
     "better-sqlite3": "^13.0.3",
     "nuxt": "^4.6.1",
     "typeorm": "^1.1.2"
@@ -27,6 +29,7 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
+    "vue-i18n": "^11.4.14",
     "vue-tsc": "^3.3.13"
   }
 }

@@ -1,13 +1,61 @@
 @import "tailwindcss";
+@import "@nuxt/ui";
 
 /* 深色模式：@nuxtjs/color-mode 的 classSuffix 留空 → <html class="dark"> */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* 收集器的自定义色彩令牌：主色沿用 HomeBucket 的蓝，避免两套视觉语言 */
+/*
+ * 全局设计令牌。
+ *
+ * 这一层照《界面风格与设计规范》落地：克制的现代管理后台 —— 蓝色是唯一强调色，
+ * 大面积中性灰底 + 白色卡片，细边框代替重阴影，圆角统一，浅色/深色同等对待。
+ * 这里只管**能被复用的那一层**：字体、圆角、品牌色阶与组件默认观感；
+ * "某一页该怎么长"由页面自己决定。
+ */
 @theme {
-  --color-brand-50: oklch(0.97 0.014 254);
-  --color-brand-100: oklch(0.93 0.032 254);
-  --color-brand-500: oklch(0.62 0.16 254);
-  --color-brand-600: oklch(0.55 0.17 254);
-  --color-brand-700: oklch(0.48 0.16 254);
+  /*
+   * 品牌主色。规范要求唯一强调色是 blue-600；收集器沿用 HomeBucket 的蓝，
+   * 但把它**映射到 blue 色阶本身** —— 于是组件里可以直接写 blue-600/blue-700，
+   * 与规范原文逐字对应，不会再出现"brand- 和 blue- 到底哪个才对"的疑问。
+   */
+  --color-brand-50: var(--color-blue-50);
+  --color-brand-100: var(--color-blue-100);
+  --color-brand-200: var(--color-blue-200);
+  --color-brand-300: var(--color-blue-300);
+  --color-brand-400: var(--color-blue-400);
+  --color-brand-500: var(--color-blue-500);
+  --color-brand-600: var(--color-blue-600);
+  --color-brand-700: var(--color-blue-700);
+  --color-brand-800: var(--color-blue-800);
+  --color-brand-900: var(--color-blue-900);
+  --color-brand-950: var(--color-blue-950);
+
+  /*
+   * 纯系统字体栈，**不加载任何 Web Font**。
+   * 收集器常部署在没有外网的局域网里，远程字体拉不到时会退化得很难看；
+   * 中文回退顺序也在这里固定下来，避免不同机器上中文字形不一致。
+   */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+}
+
+/*
+ * Nuxt UI 的基础令牌。
+ *
+ * `--ui-radius: 0.625rem` ≈ 10px 是规范给控件定的圆角（按钮、输入框、导航项）；
+ * 大卡片仍由页面自己写 rounded-2xl（16px）—— 两档圆角，不混用更多。
+ */
+:root {
+  --ui-radius: 0.625rem;
+}
+
+html {
+  font-family: var(--font-sans);
+  /* 明暗切换时整页底色要跟着过渡，否则白→黑是一下子闪过去的 */
+  transition: background-color 150ms ease;
+}
+
+/* 数值一律等宽，否则刷新一次列宽就跳一下 */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
