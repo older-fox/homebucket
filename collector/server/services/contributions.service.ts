@@ -39,6 +39,11 @@ export interface ContributeOutcome {
   created: boolean;
   applied: string[];
   contributionId: number;
+  /**
+   * 命中"同一实例 + 同一内容指纹"：没有新写贡献行，contributionId 是已有那一条的 id。
+   * 重发一份一模一样的上报不是冲突（所以仍回 201），只是什么都不用再记一次。
+   */
+  deduped: boolean;
 }
 
 /**
@@ -93,6 +98,32 @@ export class ContributionsService {
 
     // 未来时间夹回现在：实例时钟不可信，否则一条"2099 年"的上报会永远压住后续观测
     const observedAt = clampObservedAt(normalizeObservedAt(dto.observedAt));
+
+    /*
+     * 重复上报：同一实例报上来的同一份内容只记一条。
+     *
+     * `contentHashOf` 覆盖 barcode 与全部有效字段（含 imageUrls 与 attributes），
+     * 命中即说明"这份数据我已经有过了" —— 定时全量上报的客户端每轮都会把没变过的
+     * 物品再发一遍，没有这一层就是每轮一整库的新流水。
+     *
+     * **按实例判重，不按全局**：不同实例报出相同的商品数据，正是投票系统要衡量的
+     * 相互印证（confidence / instanceCount 都靠它）。全局去重会把票基塌成一行。
+     *
+     * **匿名上报不判重**：老客户端没有凭据、认不出身份，把它的重复上报静默丢掉，
+     * 代价比多存一条记录高得多。
+     */
+    if (instanceId !== null) {
+      const existing = await this.findDuplicate(instanceId, contentHashOf(barcode, fields));
+      if (existing) {
+        return {
+          itemId: existing.catalogItemId,
+          created: false,
+          applied: [],
+          contributionId: existing.id,
+          deduped: true,
+        };
+      }
+    }
 
     // 唯一索引冲突重试一次：两个实例同时首次上报同一个新物品时，
     // 两边都会走"建档"分支，其中一个必然撞 identityKey 唯一索引。
@@ -181,7 +212,16 @@ export class ContributionsService {
       created,
       applied,
       contributionId: saved.id,
+      deduped: false,
     };
+  }
+
+  /** 同一实例已经报过的一份完全相同的内容（按 instanceId + contentHash 命中） */
+  private async findDuplicate(instanceId: number, contentHash: string) {
+    return contributionsRepo().findOne({
+      where: { instanceId, contentHash },
+      order: { id: 'ASC' },
+    });
   }
 
   /**

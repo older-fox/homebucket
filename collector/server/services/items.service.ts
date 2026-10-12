@@ -4,6 +4,7 @@ import {
   emptyFields,
   fieldsFromPayload,
   isLocked,
+  MAX_IMAGE_URLS,
   mergeItemFields,
   normalizeBarcode,
   normalizeFields,
@@ -12,6 +13,7 @@ import {
 } from '../utils/identity';
 import { parseJson, stringifyJson } from '../utils/json';
 import { normalizePaging } from '../utils/pagination';
+import { photoIntentOf } from '../utils/photos';
 import {
   buildFieldSources,
   type FieldDecision,
@@ -31,6 +33,10 @@ export interface ItemSummaryView {
   category: string | null;
   baseUnit: string | null;
   imageUrls: string[];
+  /** 已有几张图（数组长度谁都会算，但上报方不该为了问这个去下载整个 imageUrls） */
+  imageCount: number;
+  /** 单条目图片上限 */
+  maxImages: number;
   contributionCount: number;
   instanceCount: number;
   updatedAt: string;
@@ -38,6 +44,13 @@ export interface ItemSummaryView {
 
 export interface ItemDetailView extends ItemSummaryView {
   identityKey: string;
+  /**
+   * 收集器还缺不缺这个物品的照片（`imageCount === 0`）。
+   *
+   * 放在详情视图而不是摘要视图：它是"本站当下了收不收图"的服务层结论，
+   * 挂到摘要上会顺着列表与 export 载荷泄漏出去，而那里没有消费方。
+   */
+  wantsPhotos: boolean;
   description: string | null;
   attributes: Record<string, string>;
   lockedFields: string[];
@@ -193,8 +206,11 @@ export class ItemsService {
     const decisionMap: Record<string, FieldDecision> = {};
     for (const [field, decision] of decisions) decisionMap[field] = decision;
 
+    const summary = this.toSummary(item);
+
     return {
-      ...this.toSummary(item),
+      ...summary,
+      wantsPhotos: photoIntentOf(summary.imageUrls).wantsPhotos,
       name: voted.name ?? null,
       model: voted.model ?? null,
       manufacturer: voted.manufacturer ?? null,
@@ -394,6 +410,8 @@ export class ItemsService {
       category: item.category,
       baseUnit: item.baseUnit,
       imageUrls: parseJson<string[]>(item.imageUrls, []),
+      imageCount: parseJson<string[]>(item.imageUrls, []).length,
+      maxImages: MAX_IMAGE_URLS,
       contributionCount: item.contributionCount,
       instanceCount: item.instanceCount,
       updatedAt: item.updatedAt.toISOString(),

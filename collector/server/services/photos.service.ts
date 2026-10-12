@@ -1,4 +1,5 @@
 import { env } from '../utils/env';
+import { scanImageMetadata } from '../utils/exif';
 import { badRequest } from '../utils/http';
 import { photosRepo } from './repositories';
 import {
@@ -46,6 +47,21 @@ export class PhotosService {
         'photo.unsupportedType',
         '只接受 PNG / JPEG / WebP / GIF 图片（按文件内容识别）',
       );
+    }
+
+    /*
+     * 拒收仍带元数据的图片：上报端应当已经剥过 EXIF/GPS/相机参数，
+     * 这里还扫得到，就说明那边的剥离没生效 —— 与其存下来，不如明确拒绝，
+     * 让"谁在上传未脱敏照片"变成一个能在日志里看见的事实。
+     */
+    if (env.photo.rejectExif) {
+      const scan = scanImageMetadata(bytes);
+      if (scan.present) {
+        throw badRequest(
+          'photo.metadataForbidden',
+          `图片仍包含元数据（${scan.segments.join('、')}）：请先剥离 EXIF/GPS/相机参数再上传`,
+        );
+      }
     }
 
     const hash = hashOfPhoto(bytes);

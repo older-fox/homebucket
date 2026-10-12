@@ -413,6 +413,15 @@ function photoConfig() {
      * 但匿名上传受全局 IP 限流约束；要完全关掉就把这项设为 false。
      */
     allowAnonymousUpload: parseBool(process.env.COLLECTOR_PHOTO_ALLOW_ANONYMOUS, true),
+    /**
+     * 是否拒收仍带元数据的照片（EXIF/GPS/相机参数/XMP）。
+     *
+     * 收集器公开承诺不收"存放位置"，而一张照片的 EXIF 里可能正带着 GPS ——
+     * 上报端负责先剥离，这里负责拒收残留（剥离器失效时拒收就是警报）。
+     * 留这个开关是因为万一某种格式在现网误判，运维能一次重启放开，
+     * 而不是等一个发版。
+     */
+    rejectExif: parseBool(process.env.COLLECTOR_PHOTO_REJECT_EXIF, true),
     s3,
   };
 }

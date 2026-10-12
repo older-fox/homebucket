@@ -73,7 +73,7 @@ npm start                   # node scripts/start.mjs，3400 上同时提供 API 
 | `COLLECTOR_LOGIN_RATE_WINDOW_MS` | `600000` | 登录限流窗口长度（毫秒）。 |
 | `COLLECTOR_REGISTRATION_OPEN` | `true` | 是否允许新实例自我注册。关掉后新实例拿到 403，已注册的照常上报。 |
 | `COLLECTOR_CORS_ORIGIN` | `*` | 允许的跨域来源；多个用逗号分隔。 |
-| `COLLECTOR_MAX_BODY_SIZE` | `64kb` | 请求体上限（无单位的数字按字节算）。 |
+| `COLLECTOR_MAX_BODY_SIZE` | `64kb` | 请求体上限（无单位的数字按字节算）。**`/api/v1/photos` 不走这个上限**，改用 `COLLECTOR_PHOTO_MAX_BYTES`。 |
 | `COLLECTOR_RATE_LIMIT` | `240` | 每个来源 IP 在每个窗口内的请求数上限（查询/注册/上报共用）。 |
 | `COLLECTOR_RATE_WINDOW_MS` | `60000` | 限流窗口长度。 |
 | `COLLECTOR_TRUST_PROXY` | `false` | 是否信任 `x-forwarded-for`。**只在收集器确实位于可信反向代理之后时才开**，否则客户端可以自己伪造来源 IP。 |
@@ -84,6 +84,7 @@ npm start                   # node scripts/start.mjs，3400 上同时提供 API 
 | `COLLECTOR_PHOTO_PUBLIC_BASE` | 空 | 图片对外地址前缀；留空返回本站相对路径。 |
 | `COLLECTOR_PHOTO_MAX_BYTES` / `_MAX_FILES` | `8mb` / `20000` | 单图上限；local 驱动下的文件总数上限。 |
 | `COLLECTOR_PHOTO_ALLOW_ANONYMOUS` | `true` | 是否允许不带实例身份的匿名图片上传。 |
+| `COLLECTOR_PHOTO_REJECT_EXIF` | `true` | 是否拒收**仍带元数据**（EXIF/GPS/相机参数/XMP/ICC/IPTC）的照片：命中即 400 `photo.metadataForbidden`。上报端本该先剥离，这里还扫得到就说明那边的剥离失效了 —— 与其存下来不如明确拒绝。某个格式在现网误判时可临时关掉。 |
 | `COLLECTOR_S3_ENDPOINT` / `_REGION` / `_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | 空 / `us-east-1` / 空 / 空 / 空 | `s3` 驱动必填四项（endpoint/bucket/ak/sk），缺一即启动失败。 |
 | `COLLECTOR_S3_PREFIX` / `_FORCE_PATH_STYLE` / `_PUBLIC_BASE` | `photos/` / `true` / 空 | 对象键前缀；MinIO 等需要 path-style；直链前缀。 |
 | `COLLECTOR_SYNC_TRANSPORT` | `off` | 出站同步传输：`off` / `http` / `file`（选 http 必须配 ENDPOINT、file 必须配 DIR）。 |
@@ -170,7 +171,9 @@ curl http://127.0.0.1:3400/api/v1/items/6901234567890
 #      "source": "instance", "instanceId": 3, "instanceName": "书房那台", "observedAt": "...", "locked": false,
 #      "voted": true, "decided": false, "voteCount": 2, "voteWeight": 2.4, "totalWeight": 3.4,
 #      "candidates": [ { "value": "...", "weight": 1.2, "count": 1 }, ... ] }, ... ],
-#      "imageUrls": [...], "attributes": {...}, "lockedFields": [...], "mergedIntoId": null }
+#      "imageUrls": [...], "imageCount": 2, "wantsPhotos": false, "maxImages": 12,
+#      "attributes": {...}, "lockedFields": [...], "mergedIntoId": null }
+#    搜索/列表返回的是同一份摘要，同样带 imageCount / maxImages（没有 wantsPhotos）
 
 # 某个条码的上报记录（审计，公开可读）
 curl http://127.0.0.1:3400/api/v1/items/6901234567890/contributions
@@ -205,6 +208,22 @@ curl -X POST http://127.0.0.1:3400/api/v1/photos/import \
 ```
 
 上报里的 `imageUrls` 可以**混用**外链与本站地址（`/api/photos/…` 会被放行，不再当成非法相对路径）。
+图片是**累加合并**的（见[数据合并规则](#数据合并规则)），所以补图时只需要把新拿到的 url 发上来，
+不必把已有的重发一遍。
+
+照片这一路有两条容易踩的约定：
+
+- **请求体上限按路径分开取**。全局的 `COLLECTOR_MAX_BODY_SIZE`（默认 64KB）只管上报/查询这类小 JSON；
+  照片路由跑在它**之后**，如果共用同一个上限，任何一张真实照片都会先被 413 挡掉、接口等于没开 ——
+  所以 `/api/v1/photos` 改用 `COLLECTOR_PHOTO_MAX_BYTES`（默认 8MB，另加 64KB 的 multipart 边界余量）。
+  ⚠️ 已知缺口：chunked 上传没有 `content-length`，中间件这道闸拦不住，只能由路由在
+  `readMultipartFormData` 之后按实际字节数兜底。
+- **仍带元数据的图直接拒收**：`400 photo.metadataForbidden`（`message` 里会列出命中的段，如
+  `jpeg:APP1/Exif`、`png:eXIf`、`webp:EXIF`）。检测按文件头走：JPEG（APP1/Exif、APP1/XMP、APP2/ICC、
+  APP13/IPTC）、PNG（`eXIf`、`iTXt` 里的 XMP）、WebP（`EXIF` / `XMP ` / `ICCP` 三个 RIFF chunk）。
+  GIF 没有标准化的 EXIF 容器，本版本不判（上报端同样跳过 GIF）。
+  **这里刻意不做"服务端顺手剥离"**：剥不干净的权利在上报端，一旦那边失效，这里必须是响亮的失败，
+  否则坏掉的剥离器永远不会被发现。`COLLECTOR_PHOTO_REJECT_EXIF=false` 是现网误判时的逃生阀。
 
 需要身份的写入：
 
@@ -213,8 +232,9 @@ curl -X POST http://127.0.0.1:3400/api/v1/photos/import \
 curl -X POST http://127.0.0.1:3400/api/v1/instances \
   -H 'content-type: application/json' \
   -d '{"name":"书房那台","platform":"linux","version":"1.4.0"}'
-# → { "instance": {...}, "key": "hbc_<40位十六进制>", "keyPrefix": "hbc_ab12cd34",
-#      "note": "请把 key 保存到实例配置里：这是唯一一次返回明文" }
+# → { "id": 2, "name": "书房那台", "key": "hbc_<40位十六进制>", "keyPrefix": "hbc_ab12cd34",
+#      "createdAt": "...", "note": "请把 key 保存到实例配置里：这是唯一一次返回明文" }
+#   注意响应是**扁平**的：id/name 就是实例本身的，没有再包一层 instance。
 
 # 2) 查自己的身份与累计上报数
 curl http://127.0.0.1:3400/api/v1/instances/me -H 'x-collector-key: hbc_...'
@@ -224,10 +244,18 @@ curl -X POST http://127.0.0.1:3400/api/v1/contributions \
   -H 'content-type: application/json' -H 'x-collector-key: hbc_...' \
   -d '{"barcode":"6901234567890","name":"5 号碱性电池","manufacturer":"南孚","model":"LR6","category":"电池","attributes":{"容量":"2500mAh"}}'
 # → 201 { "created": false, "applied": ["name","manufacturer","model","category"],
-#        "contributionId": 42, "item": {...} }
+#        "contributionId": 42, "deduped": false, "wantsPhotos": true, "item": {...} }
 ```
 
-`applied` 是"这次真正写进物品的字段"：被人工锁定的字段不会覆盖既有值。
+- `applied` 是"这次真正写进物品的字段"：被人工锁定的字段不会覆盖既有值。
+- `deduped: true` 表示**这一份内容你已经报过了**：按 `instanceId + contentHash` 命中已有上报后直接返回
+  201，`applied` 为空、不写新流水、不投票、不累加计数，`contributionId` 指回原来那一条。
+  定时全量上报的客户端每轮都会把没变过的物品再发一遍，没有这一层就是每轮一整库的新流水。
+  判重是**按实例**的、不是全局的 —— 不同实例报出相同的商品数据，正是投票系统要衡量的相互印证，
+  全局去重会把票基塌成一行。匿名上报（老契约）不判重：它认不出身份，静默丢掉比多存一条记录代价高得多。
+- `wantsPhotos: true` 表示这个条目**现在一张图都没有**，收集器希望你接着补图 —— 省掉一次
+  "先上报、再 GET 回查有没有图"的往返。补图就是先 `POST /api/v1/photos` 拿到 url，
+  再把它放进下一次上报的 `imageUrls`（图片累加，只发新增的即可）。
 
 管理接口（登录后的会话 cookie，见 [管理台](#管理台)）：`/api/admin/...`。
 
@@ -242,7 +270,8 @@ HomeBucket 主仓库 `server/src/collection/collection.service.ts` 里的客户�
 curl http://127.0.0.1:3400/api/v1/barcodes/6901234567890
 # → { "barcode": "6901234567890", "name": "...", "manufacturer": "...", "model": "...",
 #      "category": "...", "imageUrl": null, "confidence": 0.5, "sources": 1,
-#      "description": null, "attributes": {}, "updatedAt": "..." }
+#      "description": null, "attributes": {}, "updatedAt": "...",
+#      "imageCount": 0, "wantsPhotos": true }   # 后两个是纯新增，老客户端忽略即可
 
 # 上报：fire-and-forget，实例不关心响应体，只要 2xx
 curl -X POST http://127.0.0.1:3400/api/v1/observations \
@@ -255,8 +284,10 @@ curl -X POST http://127.0.0.1:3400/api/v1/observations \
 
 1. **`barcode` 回显请求里的写法**，而不是库里的归一化条码。实例可能拿它跟自己的扫码结果比对或直接落库，
    回显它的输入最不容易出意外（`BOSCH-GSB18V55` 就回 `BOSCH-GSB18V55`）。要看规范化后的身份，走 v1 的详情接口。
-2. 返回体里多了 `description` / `attributes` / `updatedAt` 三个字段。老客户端只读它认识的键，多余字段无害；
-   收集器自己的前端则可以直接复用同一个响应。
+2. 返回体里多了 `description` / `attributes` / `updatedAt` 三个字段，现在又加了 `imageCount` 与 `wantsPhotos`。
+   都是**加法**：老客户端只读它认识的键，多余字段无害；收集器自己的前端则可以直接复用同一个响应。
+   `wantsPhotos` 为 true 就表示这个条目一张图都没有，实例可以顺手补一张 —— 有了它，
+   "查到商品 → 发现没图 → 补图"就不再需要先上报一次再回查一次。
 
 ### C. 与上级数据库之间（`COLLECTOR_SYNC_*` 配置）
 
@@ -317,7 +348,14 @@ DATA_COLLECTION_TIMEOUT_MS=1500
 1. 首次启动时 `POST /api/v1/instances` 拿到 `hbc_...`，把 key 存进本地配置（**只返回一次**）；
 2. 扫码后 `GET /api/v1/items/:barcode`：命中就预填表单，未收录（404）就让用户自己填；
 3. 用户确认保存物品时，`POST /api/v1/contributions` 把这次观测报上去，带上 `x-collector-key`；
-4. 可选：详情页把 `fields[]` 渲染出来，让用户看到"这个字段是谁报的、什么时候"。
+   响应里的 `deduped: true` 表示这份内容你已经报过（没写新流水，可以忽略）；
+4. 同一份响应里的 `wantsPhotos: true` 表示收集器还没有这个条目的图 —— 这时再
+   `POST /api/v1/photos` 传一张（**先剥掉 EXIF/GPS**，否则 400 `photo.metadataForbidden`），
+   把返回的 url 放进下一次上报的 `imageUrls`；
+5. 可选：详情页把 `fields[]` 渲染出来，让用户看到"这个字段是谁报的、什么时候"。
+
+全量定时上报的实例（比如 HomeBucket 的夜间同步）可以每轮把全部带条码的物品重发一遍：
+重复的那部分会拿到 `deduped: true`，不会多写流水。
 
 ## 数据合并规则
 
@@ -489,6 +527,9 @@ POST   /api/admin/sync/run                  # { force, limit } 手动触发一�
 - **匿名上报是刻意的**：老契约不带身份，因为要兼容已经部署出去的实例。匿名≠免审计 ——
   匿名上报同样进审计页（来源 `api`、无实例 id），管理员照样能屏蔽单条。
 - 带 key 的上报会记实例身份，被封禁的实例直接 403（`instance.blocked`），它的历史上报仍在审计台可见、可逐条处理。
+- **照片是按"已脱敏"收的**。收集器公开承诺不收存放位置，但一张货架照片的 EXIF 里可能就带着 GPS 坐标 ——
+  那等于绕过了这条承诺。所以剥离在上报端做（HomeBucket 上传前先剥），收集器只负责**拒收残留**
+  （`400 photo.metadataForbidden`）：改成"服务端顺手剥"的话，坏掉的剥离器就永远不会被发现。
 - 限流按来源 IP 固定窗口计数（默认 240 次/分钟），管理接口不占这个额度。
 - 库里的 key 只有 `sha256`，明文只在注册响应里出现一次；列表只显示前 12 位前缀。
 

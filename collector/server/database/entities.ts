@@ -169,6 +169,12 @@ export const Contribution = new EntitySchema<ContributionRow>({
     { columns: ['catalogItemId', 'observedAt'] },
     { columns: ['instanceId'] },
     { columns: ['contentHash'] },
+    /**
+     * 去重专用：定时全量上报的客户端每轮都会重发没变过的物品，收上来时先按
+     * "同一实例 + 同一内容指纹"查一遍（见 ContributionsService.create）。
+     * 只靠 contentHash 那个索引也能查，但带上 instanceId 才不用回表过滤。
+     */
+    { columns: ['instanceId', 'contentHash'] },
     { columns: ['blocked'] },
     { columns: ['createdAt'] },
   ],

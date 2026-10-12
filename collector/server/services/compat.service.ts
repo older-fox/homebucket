@@ -20,6 +20,10 @@ export interface RemoteProductView {
   model: string | null;
   category: string | null;
   imageUrl: string | null;
+  /** 已有几张图（imageUrl 只给了第一张，补图前要先知道"一张都没有"还是"已有几张"） */
+  imageCount: number;
+  /** 收集器还缺不缺这个物品的照片 */
+  wantsPhotos: boolean;
   confidence: number;
   sources: number;
   /** 契约之外的补充字段：老客户端会忽略，新前端可以直接用 */
@@ -95,6 +99,10 @@ export class CompatService {
       model: detail.model,
       category: detail.category,
       imageUrl: detail.imageUrls[0] ?? null,
+      // 附加字段：老客户端不认识就忽略（当年 description/attributes 也是这么加的）。
+      // 有了它们，"查到商品 → 发现收集器没图 → 补一张"就不用先上报再回查一次。
+      imageCount: detail.imageUrls.length,
+      wantsPhotos: detail.wantsPhotos,
       confidence: confidenceOf(agreed, comparable.length),
       sources: contributions.length,
       description: detail.description,

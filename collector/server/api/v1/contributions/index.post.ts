@@ -37,13 +37,19 @@ export default defineEventHandler(
     const items = new ItemsService();
     const result = await contributions.create(identity.id, dto, sourceHintsFrom(event, body));
     const item = await items.requireById(result.itemId);
+    const detail = await items.detail(item);
 
     setResponseStatus(event, 201);
     return {
       created: result.created,
       applied: result.applied,
       contributionId: result.contributionId,
-      item: await items.detail(item),
+      // 重发同一份内容时是 true：没写新流水，contributionId 指回已有那一条。
+      deduped: result.deduped,
+      // 收集器还缺不缺这个物品的照片（imageCount === 0）。上报方据此决定要不要接着传图，
+      // 省掉一次"先上报、再 GET 查一次有没有图"的往返。
+      wantsPhotos: detail.wantsPhotos,
+      item: detail,
     };
   }),
 );
