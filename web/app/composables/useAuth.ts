@@ -5,6 +5,11 @@ export interface AuthUser {
   /** 邮箱选填（不再作为登录凭据） */
   email: string | null;
   username: string;
+  /**
+   * 实例管理员：能读写「设置 → 实例设置」里的全局配置。
+   * 只用于决定那个 tab 显不显示 —— 真正的权限在服务端守卫上，改这个字段绕过不了接口。
+   */
+  isInstanceAdmin: boolean;
 }
 
 interface AuthResult {

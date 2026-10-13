@@ -329,7 +329,198 @@
     "apiKeyExpired": "已过期",
     "apiKeyRevoked": "已撤销",
     "apiKeyRevokeConfirm": "确定撤销「{name}」？正在使用它的程序会立刻失效。",
-    "apiKeyLimitHint": "最多同时保留 20 把未撤销的 key"
+    "apiKeyLimitHint": "最多同时保留 20 把未撤销的 key",
+    "instance": "实例设置",
+    "instanceHint": "整个安装的全局配置。这里保存的值优先于 .env（数据库 > .env > 内置默认值）；标了「需重启生效」的项要重启后端才会应用。",
+    "restartRequired": "需重启生效",
+    "pendingRestart": "已保存，重启后生效",
+    "sourceDb": "已覆盖",
+    "sourceEnv": "来自 .env",
+    "sourceDefault": "内置默认",
+    "resetToDefault": "重置为默认",
+    "searchPlaceholder": "搜索配置项",
+    "saveInstance": "保存实例设置",
+    "dirtyCount": "{count} 项待保存",
+    "secretSet": "已设置，留空不修改",
+    "secretUnset": "未设置",
+    "secretKeepHint": "出于安全考虑不回显密钥明文；留空表示保持原值不变。",
+    "groups": {
+      "general": "通用",
+      "server": "后端服务",
+      "logging": "日志",
+      "storage": "数据与存储",
+      "bootstrap": "初始化与管理员",
+      "auth": "认证",
+      "collection": "条码数据收集"
+    },
+    "warning": {
+      "serverPort": "改错会导致后端端口变了、访问不到，只能改回 .env 再重启。",
+      "apiPrefix": "改错会让路由、媒体地址与前端代理同时失效。",
+      "corsOrigin": "限制来源后，浏览器可能整站访问不了。",
+      "jwtSecret": "改后所有用户会被强制登出，旧凭证全部失效。",
+      "storagePath": "更改数据目录 / 上传目录 / 存储驱动后，已有附件可能读取不到。",
+      "s3Credentials": "密钥不回显；填错会导致对象存储读写失败。",
+      "defaultAdmin": "默认管理员只在空库首次启动时创建，之后修改不影响已有账号。",
+      "collectionEndpoint": "填第三方地址后，本实例会向它发送条码与物品文字信息（不含数量、价格、位置、序列号）。"
+    },
+    "fields": {
+      "NODE_ENV": {
+        "label": "运行环境",
+        "hint": "development / production / test；只在启动时读取。"
+      },
+      "SERVER_PORT": {
+        "label": "后端监听端口",
+        "hint": "后端 HTTP 端口，默认 3001。"
+      },
+      "API_PREFIX": {
+        "label": "路由前缀",
+        "hint": "后端 API 的路径前缀（最终形如 /api/items），默认 api。"
+      },
+      "CORS_ORIGIN": {
+        "label": "允许的跨域来源",
+        "hint": "逗号分隔的多个来源；* 表示全部放行（默认）。"
+      },
+      "MAX_UPLOAD_SIZE": {
+        "label": "上传体积上限",
+        "hint": "支持 1024 / 10mb / 1gb 写法，默认 1gb。"
+      },
+      "LOG_LEVEL": {
+        "label": "日志级别",
+        "hint": "error / warn / info / debug / verbose，默认 info。"
+      },
+      "LOG_FORMAT": {
+        "label": "日志格式",
+        "hint": "pretty（可读彩色）/ json / nginx，默认 pretty。"
+      },
+      "LOG_ACCESS": {
+        "label": "访问日志",
+        "hint": "是否输出 HTTP 访问日志，默认开。"
+      },
+      "DATA_DIR": {
+        "label": "数据根目录",
+        "hint": "相对路径按 server/ 运行目录解析，默认 data；Docker 里建议 /data 并挂卷。"
+      },
+      "UPLOAD_DIR": {
+        "label": "上传目录",
+        "hint": "留空表示取「数据根目录/uploads」。"
+      },
+      "STORAGE_DRIVER": {
+        "label": "存储驱动",
+        "hint": "local 落本地磁盘并由后端提供；s3 走 S3 兼容对象存储。"
+      },
+      "S3_ENDPOINT": {
+        "label": "S3 Endpoint",
+        "hint": "面向 MinIO 等自建对象存储；留空用 AWS 默认。"
+      },
+      "S3_REGION": {
+        "label": "S3 区域",
+        "hint": "默认 us-east-1。"
+      },
+      "S3_BUCKET": {
+        "label": "S3 存储桶",
+        "hint": "使用 s3 驱动时必填。"
+      },
+      "S3_ACCESS_KEY": {
+        "label": "S3 Access Key",
+        "hint": "只写不回显；填错会导致对象存储读写失败。"
+      },
+      "S3_SECRET_KEY": {
+        "label": "S3 Secret Key",
+        "hint": "只写不回显；填错会导致对象存储读写失败。"
+      },
+      "S3_FORCE_PATH_STYLE": {
+        "label": "S3 路径风格",
+        "hint": "默认开（MinIO 等自建服务需要）；AWS 原生可关。"
+      },
+      "AUTO_CREATE_ADMIN": {
+        "label": "自动创建默认管理员",
+        "hint": "空库首次启动时按下面三项建号，默认开。"
+      },
+      "DEFAULT_ADMIN_USERNAME": {
+        "label": "默认管理员用户名",
+        "hint": "仅空库首次启动使用，默认 admin。"
+      },
+      "DEFAULT_ADMIN_PASSWORD": {
+        "label": "默认管理员密码",
+        "hint": "仅空库首次启动使用，默认 admin；正式环境务必修改。"
+      },
+      "DEFAULT_ADMIN_EMAIL": {
+        "label": "默认管理员邮箱",
+        "hint": "仅用于记录与通知，不作登录凭据。"
+      },
+      "DEFAULT_CURRENCY": {
+        "label": "新家庭默认货币",
+        "hint": "新家庭的主货币，默认 CNY。"
+      },
+      "DEFAULT_LOCALE": {
+        "label": "新家庭默认语言",
+        "hint": "默认 zh-CN。"
+      },
+      "PUBLIC_BASE_URL": {
+        "label": "对外站点地址",
+        "hint": "二维码会写成「该地址/r/token」；留空则只写 token。"
+      },
+      "JWT_SECRET": {
+        "label": "JWT 签名密钥",
+        "hint": "登录凭证的签名密钥；修改后所有人会被强制登出。"
+      },
+      "JWT_EXPIRES_IN": {
+        "label": "登录有效期",
+        "hint": "默认 7d，也可写 12h / 30d。"
+      },
+      "ALLOW_REGISTRATION": {
+        "label": "开放注册",
+        "hint": "关闭后拒绝一切注册（含邀请链接），已有账号照常登录。"
+      },
+      "DATA_COLLECTION_ENABLED": {
+        "label": "启用条码数据收集",
+        "hint": "总开关；关闭后本实例完全不向外部发送请求。"
+      },
+      "DATA_COLLECTION_ENDPOINT": {
+        "label": "收集服务地址",
+        "hint": "独立服务的地址（形如 https://…/api/v1）；留空视为未配置。"
+      },
+      "DATA_COLLECTION_SUBMIT": {
+        "label": "回传新条码信息",
+        "hint": "是否把本实例填写的新条码信息回传，帮助其他实例。"
+      },
+      "DATA_COLLECTION_TIMEOUT_MS": {
+        "label": "查询/上报超时",
+        "hint": "单位毫秒，默认 1500；超时静默降级。"
+      },
+      "DATA_COLLECTION_SYNC_ENABLED": {
+        "label": "启用定时全量上报",
+        "hint": "把本实例所有带条码的物品报给收集服务；关闭后扫码查询不受影响。"
+      },
+      "DATA_COLLECTION_SYNC_CRON": {
+        "label": "定时执行时间",
+        "hint": "cron 表达式，必须 6 段（秒 分 时 日 月 周），默认 0 0 3 * * *（每天 03:00）。"
+      },
+      "DATA_COLLECTION_SYNC_MAX_ITEMS": {
+        "label": "单轮最多物品数",
+        "hint": "默认 500，超出部分留到下一轮。"
+      },
+      "DATA_COLLECTION_SYNC_THROTTLE_MS": {
+        "label": "相邻物品间隔",
+        "hint": "单位毫秒，默认 250，避免把收集服务打挂。"
+      },
+      "DATA_COLLECTION_SYNC_MAX_FAILURES": {
+        "label": "连续失败上限",
+        "hint": "默认 5；达到后放弃本轮，下一轮再试。"
+      },
+      "DATA_COLLECTION_PHOTO_TIMEOUT_MS": {
+        "label": "照片上传超时",
+        "hint": "单位毫秒，默认 15000。"
+      },
+      "DATA_COLLECTION_PHOTO_MAX_BYTES": {
+        "label": "单张照片字节上限",
+        "hint": "默认 8388608（8MB）；超过就跳过这张。"
+      },
+      "DATA_COLLECTION_PHOTO_MAX_PER_ITEM": {
+        "label": "单物品照片数上限",
+        "hint": "默认 12（与收集器的上限一致）。"
+      }
+    }
   },
   "notifications": {
     "title": "提醒",
@@ -577,7 +768,17 @@
     "notifier.sendFailed": "发送失败",
     "scan.notFound": "没有找到对应的物品或位置",
     "scan.consumableNotTakeable": "消耗品不能取走，请用「用掉」",
-    "scan.notTakeable": "位置和模板不能取走或放回"
+    "scan.notTakeable": "位置和模板不能取走或放回",
+    "settings.adminOnly": "仅实例管理员可访问",
+    "settings.unknownKey": "未知的配置项",
+    "settings.invalidBody": "请求内容不合法",
+    "settings.invalidBoolean": "该配置项只能填 true / false",
+    "settings.invalidNumber": "该配置项需要数字，或超出允许范围",
+    "settings.invalidSize": "尺寸格式不正确，例如 1024 / 10mb / 1gb",
+    "settings.invalidEnum": "取值不在允许范围内",
+    "settings.invalidCron": "cron 表达式必须是 6 段（秒 分 时 日 月 周）",
+    "settings.invalidUrl": "请填写合法的 http/https 地址",
+    "settings.invalidString": "内容为空或过长"
   },
   "errors": {
     "network": "网络异常，请稍后重试",

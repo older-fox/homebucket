@@ -272,6 +272,14 @@
           </ul>
         </section>
       </template>
+
+      <!--
+        实例设置：整个安装的全局配置（原 .env 里除数据库外那些项）。
+        只有实例管理员能看到这个 tab；面板内部还会再按同一个标记决定要不要拉数据。
+      -->
+      <template #instance>
+        <InstanceSettingsPanel />
+      </template>
     </UTabs>
 
     <UModal v-model:open="notifierOpen" :title="notifierEditing ? t('common.edit') : t('settings.notifierAdd')">
@@ -379,6 +387,8 @@ interface Profile {
   takenOutAlertDays: number;
   avatarId: number | null;
   avatarUrl: string | null;
+  /** 实例管理员（决定「实例设置」这个 tab 显不显示；真正的权限在服务端） */
+  isInstanceAdmin: boolean;
 }
 
 const NOTIFIER_FIELDS: Record<string, string[]> = {
@@ -403,17 +413,31 @@ const { copy } = useClipboard();
 const { money, date, relative } = useFormat();
 const { families, current, load, switchTo, refresh: refreshFamilies } = useFamily();
 
+const { user } = useAuth();
+
+/**
+ * 实例设置只在管理员可见。
+ *
+ * 用登录用户身上的标记（中间件每次导航都会刷新它），而不是本页 `loadAccount()` 拿到的
+ * profile：tab 列表在 setup 期就要算出来，那时 profile 还没拉回来。
+ * 这只影响显隐 —— 接口那边由 `InstanceAdminGuard` 把关，改前端绕过不了。
+ */
+const isInstanceAdmin = computed(() => user.value?.isInstanceAdmin === true);
+
 const tabs = computed(() => [
   { label: t('settings.family'), value: 'family', slot: 'family' as const, icon: 'i-lucide-users' },
   { label: t('settings.account'), value: 'account', slot: 'account' as const, icon: 'i-lucide-user-round' },
   { label: t('settings.apiKeys'), value: 'apiKeys', slot: 'apiKeys' as const, icon: 'i-lucide-key-round' },
   { label: t('settings.system'), value: 'system', slot: 'system' as const, icon: 'i-lucide-settings' },
   { label: t('settings.notifiers'), value: 'notifiers', slot: 'notifiers' as const, icon: 'i-lucide-bell' },
+  ...(isInstanceAdmin.value
+    ? [{ label: t('settings.instance'), value: 'instance', slot: 'instance' as const, icon: 'i-lucide-server-cog' }]
+    : []),
 ]);
 
 /**
  * 初始 tab：顶栏提醒角标会带着 ?tab=account 跳进来（提醒已关闭时给用户的出口）。
- * 认不出就落回第一个 tab。
+ * 认不出就落回第一个 tab —— 非管理员手敲 ?tab=instance 也走这条路，不会看到一个空 tab。
  */
 const requestedTab = typeof route.query.tab === 'string' ? route.query.tab : '';
 const activeTab = ref(tabs.value.some((tab) => tab.value === requestedTab) ? requestedTab : 'family');
@@ -438,7 +462,7 @@ const settings = reactive({ name: '', currency: 'CNY', locale: 'zh-CN', timeZone
 const savingSettings = ref(false);
 
 // 账号资料（GET/PATCH /auth/me）
-const profile = ref<Profile>({ id: 0, username: '', email: null, takenOutAlertDays: 7, avatarId: null, avatarUrl: null });
+const profile = ref<Profile>({ id: 0, username: '', email: null, takenOutAlertDays: 7, avatarId: null, avatarUrl: null, isInstanceAdmin: false });
 const accountForm = reactive({ takenOutAlertDays: 7 });
 const savingAccount = ref(false);
 

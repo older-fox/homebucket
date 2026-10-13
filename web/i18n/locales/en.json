@@ -329,7 +329,198 @@
     "apiKeyExpired": "Expired",
     "apiKeyRevoked": "Revoked",
     "apiKeyRevokeConfirm": "Revoke \"{name}\"? Anything using it stops working immediately.",
-    "apiKeyLimitHint": "Up to 20 unrevoked keys at a time"
+    "apiKeyLimitHint": "Up to 20 unrevoked keys at a time",
+    "instance": "Instance",
+    "instanceHint": "Global configuration for this installation. Values saved here override .env (database > .env > built-in default); fields marked \"restart required\" apply only after the backend restarts.",
+    "restartRequired": "Restart required",
+    "pendingRestart": "Saved, applies after restart",
+    "sourceDb": "Overridden",
+    "sourceEnv": "From .env",
+    "sourceDefault": "Built-in default",
+    "resetToDefault": "Reset to default",
+    "searchPlaceholder": "Search settings",
+    "saveInstance": "Save instance settings",
+    "dirtyCount": "{count} unsaved",
+    "secretSet": "Set; leave blank to keep",
+    "secretUnset": "Not set",
+    "secretKeepHint": "Secrets are never sent back to the browser; leaving this blank keeps the current value.",
+    "groups": {
+      "general": "General",
+      "server": "Server",
+      "logging": "Logging",
+      "storage": "Data and storage",
+      "bootstrap": "Bootstrap and admin",
+      "auth": "Authentication",
+      "collection": "Barcode collection"
+    },
+    "warning": {
+      "serverPort": "A wrong value makes the backend unreachable; recovery means editing .env and restarting.",
+      "apiPrefix": "A wrong value breaks routing, media URLs and the frontend proxy at once.",
+      "corsOrigin": "Restricting origins may block browser access entirely.",
+      "jwtSecret": "Changing this signs everyone out and invalidates all existing tokens.",
+      "storagePath": "Changing these may make existing attachments unreadable.",
+      "s3Credentials": "Secrets are never displayed; a wrong value breaks object storage.",
+      "defaultAdmin": "The default admin is created only on first boot with an empty database; later edits do not affect existing accounts.",
+      "collectionEndpoint": "Pointing this at a third party sends them barcodes and item text (no quantity, price, location or serial numbers)."
+    },
+    "fields": {
+      "NODE_ENV": {
+        "label": "Runtime environment",
+        "hint": "development / production / test; read only at startup."
+      },
+      "SERVER_PORT": {
+        "label": "Backend port",
+        "hint": "HTTP port of the backend, default 3001."
+      },
+      "API_PREFIX": {
+        "label": "Route prefix",
+        "hint": "Path prefix of the API (routes look like /api/items), default api."
+      },
+      "CORS_ORIGIN": {
+        "label": "Allowed CORS origins",
+        "hint": "Comma-separated origins; * allows all (default)."
+      },
+      "MAX_UPLOAD_SIZE": {
+        "label": "Max upload size",
+        "hint": "Accepts 1024 / 10mb / 1gb, default 1gb."
+      },
+      "LOG_LEVEL": {
+        "label": "Log level",
+        "hint": "error / warn / info / debug / verbose, default info."
+      },
+      "LOG_FORMAT": {
+        "label": "Log format",
+        "hint": "pretty (colour, human readable) / json / nginx, default pretty."
+      },
+      "LOG_ACCESS": {
+        "label": "Access log",
+        "hint": "Whether to write HTTP access logs, default on."
+      },
+      "DATA_DIR": {
+        "label": "Data directory",
+        "hint": "Relative paths resolve from the server/ directory, default data; prefer /data with a volume in Docker."
+      },
+      "UPLOAD_DIR": {
+        "label": "Upload directory",
+        "hint": "Leave blank to use the data directory plus /uploads."
+      },
+      "STORAGE_DRIVER": {
+        "label": "Storage driver",
+        "hint": "local keeps files on disk and serves them via the backend; s3 uses S3-compatible object storage."
+      },
+      "S3_ENDPOINT": {
+        "label": "S3 endpoint",
+        "hint": "For self-hosted stores such as MinIO; blank uses the AWS default."
+      },
+      "S3_REGION": {
+        "label": "S3 region",
+        "hint": "Default us-east-1."
+      },
+      "S3_BUCKET": {
+        "label": "S3 bucket",
+        "hint": "Required when the s3 driver is used."
+      },
+      "S3_ACCESS_KEY": {
+        "label": "S3 access key",
+        "hint": "Write-only and never displayed; a wrong value breaks object storage."
+      },
+      "S3_SECRET_KEY": {
+        "label": "S3 secret key",
+        "hint": "Write-only and never displayed; a wrong value breaks object storage."
+      },
+      "S3_FORCE_PATH_STYLE": {
+        "label": "S3 path style",
+        "hint": "Default on (needed by MinIO and similar); turn it off for native AWS."
+      },
+      "AUTO_CREATE_ADMIN": {
+        "label": "Create default admin",
+        "hint": "Creates an account from the three fields below on first boot with an empty database, default on."
+      },
+      "DEFAULT_ADMIN_USERNAME": {
+        "label": "Default admin username",
+        "hint": "Used only on first boot with an empty database, default admin."
+      },
+      "DEFAULT_ADMIN_PASSWORD": {
+        "label": "Default admin password",
+        "hint": "Used only on first boot with an empty database, default admin; change it in production."
+      },
+      "DEFAULT_ADMIN_EMAIL": {
+        "label": "Default admin email",
+        "hint": "Record and notifications only; not a login credential."
+      },
+      "DEFAULT_CURRENCY": {
+        "label": "Default currency for new families",
+        "hint": "Primary currency of a new family, default CNY."
+      },
+      "DEFAULT_LOCALE": {
+        "label": "Default locale for new families",
+        "hint": "Default zh-CN."
+      },
+      "PUBLIC_BASE_URL": {
+        "label": "Public base URL",
+        "hint": "QR codes become this URL plus /r/<token>; blank writes the token only."
+      },
+      "JWT_SECRET": {
+        "label": "JWT signing secret",
+        "hint": "Signs login tokens; changing it signs everyone out."
+      },
+      "JWT_EXPIRES_IN": {
+        "label": "Token lifetime",
+        "hint": "Default 7d; also accepts 12h / 30d."
+      },
+      "ALLOW_REGISTRATION": {
+        "label": "Open registration",
+        "hint": "When off, all sign-ups are refused (including invite links); existing accounts still sign in."
+      },
+      "DATA_COLLECTION_ENABLED": {
+        "label": "Enable barcode data collection",
+        "hint": "Master switch; when off this instance sends nothing to the outside."
+      },
+      "DATA_COLLECTION_ENDPOINT": {
+        "label": "Collection service URL",
+        "hint": "Address of the standalone service (like https://.../api/v1); blank means not configured."
+      },
+      "DATA_COLLECTION_SUBMIT": {
+        "label": "Submit new barcode data",
+        "hint": "Whether to send back barcode data entered on this instance to help others."
+      },
+      "DATA_COLLECTION_TIMEOUT_MS": {
+        "label": "Lookup and report timeout",
+        "hint": "Milliseconds, default 1500; timeouts degrade silently."
+      },
+      "DATA_COLLECTION_SYNC_ENABLED": {
+        "label": "Enable scheduled full sync",
+        "hint": "Reports every item with a barcode to the collection service; barcode lookups are unaffected when off."
+      },
+      "DATA_COLLECTION_SYNC_CRON": {
+        "label": "Sync schedule",
+        "hint": "Cron expression with 6 fields (second minute hour day month weekday), default 0 0 3 * * * (daily at 03:00)."
+      },
+      "DATA_COLLECTION_SYNC_MAX_ITEMS": {
+        "label": "Max items per run",
+        "hint": "Default 500; the rest waits for the next run."
+      },
+      "DATA_COLLECTION_SYNC_THROTTLE_MS": {
+        "label": "Delay between items",
+        "hint": "Milliseconds, default 250, to avoid overloading the collection service."
+      },
+      "DATA_COLLECTION_SYNC_MAX_FAILURES": {
+        "label": "Max consecutive failures",
+        "hint": "Default 5; the run is abandoned and retried next time."
+      },
+      "DATA_COLLECTION_PHOTO_TIMEOUT_MS": {
+        "label": "Photo upload timeout",
+        "hint": "Milliseconds, default 15000."
+      },
+      "DATA_COLLECTION_PHOTO_MAX_BYTES": {
+        "label": "Max photo size",
+        "hint": "Default 8388608 (8MB); larger photos are skipped."
+      },
+      "DATA_COLLECTION_PHOTO_MAX_PER_ITEM": {
+        "label": "Max photos per item",
+        "hint": "Default 12 (matches the collector)."
+      }
+    }
   },
   "notifications": {
     "title": "Alerts",
@@ -577,7 +768,17 @@
     "notifier.sendFailed": "Send failed",
     "scan.notFound": "No matching item or location",
     "scan.consumableNotTakeable": "Consumables cannot be taken out; use Use instead",
-    "scan.notTakeable": "Locations and templates cannot be taken out or put back"
+    "scan.notTakeable": "Locations and templates cannot be taken out or put back",
+    "settings.adminOnly": "Instance admin only",
+    "settings.unknownKey": "Unknown setting",
+    "settings.invalidBody": "Invalid request body",
+    "settings.invalidBoolean": "This setting accepts true or false",
+    "settings.invalidNumber": "This setting needs a number, or is out of range",
+    "settings.invalidSize": "Invalid size, for example 1024 / 10mb / 1gb",
+    "settings.invalidEnum": "Value is not one of the allowed choices",
+    "settings.invalidCron": "Cron expression must have 6 fields (second minute hour day month weekday)",
+    "settings.invalidUrl": "Enter a valid http/https URL",
+    "settings.invalidString": "Value is empty or too long"
   },
   "errors": {
     "network": "Network error, please retry",
