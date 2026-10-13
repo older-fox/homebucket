@@ -11,7 +11,7 @@ import { buildDataSourceOptions } from './data-source';
  *   2. 少一次 Node 进程启动 + 一次 schema 生成，启动更快
  *
  * 用独立的 DataSource 而不是 Nest 里那个：这样迁移在 NestFactory.create() 之前就已完成，
- * 后面的 bootstrapAdmin（首次启动建管理员）才能安全地查表。
+ * 后面的实例设置覆盖层（读 AppSetting）与首启引导才能安全查表。
  *
  * 失败时抛出，由调用方决定是否阻断启动（main.ts 里只记日志，让 /health 报 degraded）。
  */

@@ -16,7 +16,7 @@
  *   · 前端 Nuxt 进程的 WEB_HOST / WEB_PORT / NUXT_* / API_PROXY_TARGET：见 WEB_ENV_NAMES。
  */
 
-export type SettingGroup = 'general' | 'server' | 'logging' | 'storage' | 'bootstrap' | 'collection' | 'auth';
+export type SettingGroup = 'general' | 'server' | 'logging' | 'storage' | 'collection' | 'auth';
 
 /**
  * 取值类型，同时决定界面用什么控件：
@@ -114,12 +114,6 @@ export const SETTINGS: readonly SettingDef[] = [
   { envName: 'S3_SECRET_KEY', group: 'storage', type: 'secret', maxLength: 191, default: '', allowEmpty: true, restartRequired: true, warning: 's3Credentials' },
   { envName: 'S3_FORCE_PATH_STYLE', group: 'storage', type: 'bool', default: 'true', restartRequired: true },
 
-  // ---- 首次初始化 / 默认管理员 ----
-  { envName: 'AUTO_CREATE_ADMIN', group: 'bootstrap', type: 'bool', default: 'true', restartRequired: true, warning: 'defaultAdmin' },
-  { envName: 'DEFAULT_ADMIN_USERNAME', group: 'bootstrap', type: 'string', maxLength: 191, default: 'admin', restartRequired: true, warning: 'defaultAdmin' },
-  { envName: 'DEFAULT_ADMIN_PASSWORD', group: 'bootstrap', type: 'secret', maxLength: 191, default: 'admin', restartRequired: true, warning: 'defaultAdmin' },
-  { envName: 'DEFAULT_ADMIN_EMAIL', group: 'bootstrap', type: 'string', maxLength: 191, default: 'admin@example.com', restartRequired: true, warning: 'defaultAdmin' },
-
   // ---- 本地化与对外地址（运行期读取，保存即生效）----
   { envName: 'DEFAULT_CURRENCY', group: 'general', type: 'string', maxLength: 8, default: 'CNY', restartRequired: false },
   { envName: 'DEFAULT_LOCALE', group: 'general', type: 'string', maxLength: 16, default: 'zh-CN', restartRequired: false },
@@ -159,7 +153,6 @@ export const SETTING_GROUPS: readonly SettingGroup[] = [
   'server',
   'logging',
   'storage',
-  'bootstrap',
   'auth',
   'collection',
 ];

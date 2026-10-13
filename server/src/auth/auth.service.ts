@@ -78,6 +78,41 @@ export class AuthService {
     return this.toAuthResult(user);
   }
 
+  /**
+   * 首启引导专用：创建**第一个**账号，并直接给它实例管理员位。
+   *
+   * 与 `register()` 有三处刻意的不同：
+   *   1. **不看 `allowRegistration`** —— 引导必须能在"已关闭注册"的实例上完成；
+   *      而且引导期间 `/api/auth/*` 被门禁挡着，注册接口本来也不可达。
+   *   2. **带 `isInstanceAdmin: true`** —— 它就是这份安装的负责人（原来这活儿由
+   *      .env 的 DEFAULT_ADMIN_* 在启动时干，现在改由引导页）。
+   *   3. **库里已有任何用户就拒绝** —— 这一条让该接口在引导完成后**不可能**被用来提权，
+   *      所以它不需要额外的鉴权（这个阶段也还没有账号可以登录）。
+   *
+   * 用户名/密码/邮箱的格式校验走的是同一个 `RegisterDto`，与普通注册保持一致。
+   */
+  async createInitialAdmin(dto: RegisterDto) {
+    if ((await this.users.count()) > 0) {
+      throw new ForbiddenException({ code: 'setup.alreadyCompleted', message: '该实例已完成初始化' });
+    }
+
+    const user = await this.users.save(
+      this.users.create({
+        username: dto.username.trim(),
+        email: dto.email?.trim().toLowerCase() || null,
+        passwordHash: await hash(dto.password, SALT_ROUNDS),
+        defaultFamilyId: null,
+        // 空库的第一个账号 = 这份安装的负责人
+        isInstanceAdmin: true,
+      }),
+    );
+
+    // 与普通注册一致：每个用户都有一个自己的个人家庭
+    await this.families.ensurePersonalFamily(user.id, user.username);
+
+    return this.toAuthResult(user);
+  }
+
   /** 登录：使用用户名 + 密码（邮箱不再作为登录凭据） */
   async login(dto: LoginDto) {
     const username = dto.username.trim();

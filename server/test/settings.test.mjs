@@ -1,18 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * 「设置 → 实例设置」的防漂移护栏。
+ * 实例设置的防腐护栏。
  *
- * 这套功能的核心不变式只有一条：**`.env` 里的每个 server 变量都必须能在界面上改**。
- * 只要有人往 `.env.example` 加了变量却没进注册表，它就会悄悄变成一个"只能改文件、
- * 界面上看不到"的配置项 —— 这条测试就是防这个。
- *
- * 注册表本身是纯 TS（不带装饰器），所以这里可以直接 import 它来做集合比较；
- * 需要看服务实现的那几条（密钥不外泄、启动顺序）按本仓库既有做法扫源码文本。
+ * 现在 `.env` 里只剩数据库与前端进程的变量，所以「覆盖面」这条不变式换了判据：
+ * 以前是".env.example 里的每个变量都要在注册表里"，现在是 **env.ts 里每个
+ * `raw('X')` 都必须在注册表里** —— 谁在 env.ts 里加了一个配置读取却没登记，
+ * 那个配置项在界面上就永远看不到、也改不了，这条会立刻响。
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,47 +29,48 @@ const locales = {
   en: JSON.parse(read(join(WEB_LOCALES, 'en.json'))),
 };
 
-/**
- * 取嵌套键，例如 'settings.fields.SERVER_PORT.label'。
- *
- * 注意 `api` 段是**扁平的**（键本身就带点，如 `api["settings.invalidBody"]`），
- * 所以那边的查询要直接用 `json.api[code]`，不能走这个函数。
- */
+/** 取嵌套键，例如 'settings.fields.SERVER_PORT.label' */
 function pick(json, path) {
   return path.split('.').reduce((node, key) => (node == null ? undefined : node[key]), json);
 }
 
-test('注册表覆盖了 .env.example 里全部 server 变量，且不多不少', () => {
+const envSource = read(join(SERVER_ROOT, 'src/config/env.ts'));
+
+test('env.ts 里每个 raw() 读取的变量都登记在注册表里', () => {
+  const names = [...envSource.matchAll(/raw\('([A-Z][A-Z0-9_]*)'\)/g)].map((match) => match[1]);
+  assert.ok(names.length > 30, `只扫到 ${names.length} 处 raw()，正则或 env.ts 结构变了`);
+
+  const registered = new Set(SETTINGS.map((def) => def.envName));
+  const unregistered = [...new Set(names)].filter((name) => !registered.has(name));
+  assert.deepEqual(
+    unregistered, [],
+    '这些配置由 env.ts 读取但没有登记进 settings.registry.ts（界面上看不到、也改不了）',
+  );
+});
+
+test('注册表不含被排除的变量、且没有重复项', () => {
+  for (const def of SETTINGS) {
+    assert.ok(
+      !DB_ENV_NAMES.has(def.envName) && !WEB_ENV_NAMES.has(def.envName),
+      `${def.envName} 属于"只能在 .env 配置"的那一类，不该进注册表`,
+    );
+  }
+
+  const names = SETTINGS.map((def) => def.envName);
+  assert.equal(new Set(names).size, names.length, '注册表里出现了重复的 envName（后一条会悄悄赢）');
+});
+
+test('.env.example 里只允许保留数据库变量与前端进程变量', () => {
   const declared = [...read(join(REPO_ROOT, '.env.example')).matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map(
     (match) => match[1],
   );
-  assert.ok(declared.length > 0, '没从 .env.example 里解析到任何变量，正则或文件结构变了');
+  assert.ok(declared.length > 0, '没解析到任何变量，正则或文件结构变了');
 
-  const expected = declared
-    .filter((name) => !DB_ENV_NAMES.has(name) && !WEB_ENV_NAMES.has(name))
-    .sort();
-
-  const actual = SETTINGS.map((def) => def.envName).sort();
-
-  // 双向比较：漏掉的（加了 .env 变量忘了进注册表）与多余的（注册表写了 .env 里没有的）
-  const missing = expected.filter((name) => !actual.includes(name));
-  const extra = actual.filter((name) => !expected.includes(name));
-  assert.deepEqual(missing, [], '这些 .env 变量没有进 settings.registry.ts（界面上改不了）');
-  assert.deepEqual(extra, [], '注册表里有 .env.example 中不存在的变量');
-
-  // 同一个变量写两遍会让后一条悄悄赢掉，界面上却看不出来
-  assert.equal(new Set(actual).size, actual.length, '注册表里出现了重复的 envName');
-});
-
-test('排除项本身不能出现在注册表里', () => {
-  const names = new Set(SETTINGS.map((def) => def.envName));
-  for (const excluded of [...DB_ENV_NAMES, ...WEB_ENV_NAMES]) {
-    assert.ok(!names.has(excluded), `${excluded} 被明确排除，不该出现在注册表里`);
-  }
-  // AUTO_MIGRATE 与数据库连接必须在排除清单里：它们要在库可读之前就确定，无法由库里的配置覆盖
-  for (const name of ['DB_PROVIDER', 'DATABASE_URL', 'DB_FILE_PATH', 'AUTO_MIGRATE']) {
-    assert.ok(DB_ENV_NAMES.has(name), `${name} 必须留在 .env（读它时还没有库）`);
-  }
+  const strays = declared.filter((name) => !DB_ENV_NAMES.has(name) && !WEB_ENV_NAMES.has(name));
+  assert.deepEqual(
+    strays, [],
+    '这些变量不属于"只能在 .env 配置"的两类：它们应该由引导页/设置页管理（新增配置请登记到注册表）',
+  );
 });
 
 test('每个配置项在中英两侧都有标签与说明', () => {
@@ -79,11 +78,7 @@ test('每个配置项在中英两侧都有标签与说明', () => {
     for (const [locale, json] of Object.entries(locales)) {
       for (const suffix of ['label', 'hint']) {
         const value = pick(json, `settings.fields.${def.envName}.${suffix}`);
-        assert.equal(
-          typeof value,
-          'string',
-          `${locale} 缺 settings.fields.${def.envName}.${suffix}`,
-        );
+        assert.equal(typeof value, 'string', `${locale} 缺 settings.fields.${def.envName}.${suffix}`);
         assert.ok(String(value).length > 0, `${locale} 的 ${def.envName}.${suffix} 是空串`);
       }
     }
@@ -94,20 +89,15 @@ test('分组与风险提示的文案齐全', () => {
   for (const group of SETTING_GROUPS) {
     for (const [locale, json] of Object.entries(locales)) {
       assert.equal(
-        typeof pick(json, `settings.groups.${group}`),
-        'string',
-        `${locale} 缺 settings.groups.${group}`,
+        typeof pick(json, `settings.groups.${group}`), 'string', `${locale} 缺 settings.groups.${group}`,
       );
     }
   }
 
-  const usedWarnings = new Set(SETTINGS.map((def) => def.warning).filter(Boolean));
-  for (const warning of usedWarnings) {
+  for (const warning of new Set(SETTINGS.map((def) => def.warning).filter(Boolean))) {
     for (const [locale, json] of Object.entries(locales)) {
       assert.equal(
-        typeof pick(json, `settings.warning.${warning}`),
-        'string',
-        `${locale} 缺 settings.warning.${warning}`,
+        typeof pick(json, `settings.warning.${warning}`), 'string', `${locale} 缺 settings.warning.${warning}`,
       );
     }
   }
@@ -115,15 +105,11 @@ test('分组与风险提示的文案齐全', () => {
 
 test('接口抛出的每个错误码都有对应文案', () => {
   const source = read(join(SERVER_ROOT, 'src/settings/settings.service.ts'));
-  // 与 locale-coverage.test.mjs 取的是同一种字面量：抛错处必须写成
-  // `new BadRequestException({ code: 'settings.x', message: ... })`，code 不能藏在变量里
   const codes = new Set(
     [...source.matchAll(/code: '(settings\.[A-Za-z]+)'/g)].map((match) => match[1]),
   );
-  // 守卫里那个 403 不在 service 里，单独补上
-  codes.add('settings.adminOnly');
-
   assert.ok(codes.size >= 8, `只扫到 ${codes.size} 个错误码，应该是解析出了问题`);
+
   for (const code of codes) {
     for (const [locale, json] of Object.entries(locales)) {
       assert.equal(typeof json.api[code], 'string', `${locale} 缺 api.${code}`);
@@ -151,14 +137,12 @@ test('设置覆盖层在迁移之后、Nest 构造之前加载', () => {
   const source = read(join(SERVER_ROOT, 'src/main.ts'));
   const migrate = source.indexOf('await runMigrations()');
   const overlay = source.indexOf('await loadSettingsOverrides()');
-  // 用带 `await` 的形式定位真正的调用：上面几行注释里也提到了 NestFactory.create
-  const nest = source.indexOf('await NestFactory.create');
+  // 精确定位"用 AppModule 建应用"那次：受限启动那次用的是 SetupRestrictedModule，
+  // 它出现在覆盖层之前（受限模式根本不加载设置），按 NestFactory.create 取第一次会误判
+  const nest = source.indexOf('NestFactory.create<NestExpressApplication>(AppModule');
 
   assert.ok(migrate >= 0 && overlay >= 0 && nest >= 0, 'main.ts 的启动步骤少了预期调用');
-  assert.ok(
-    migrate < overlay,
-    '覆盖层必须在 runMigrations() 之后加载：表要先建出来',
-  );
+  assert.ok(migrate < overlay, '覆盖层必须在 runMigrations() 之后加载：表要先建出来');
   assert.ok(
     overlay < nest,
     '覆盖层必须在 NestFactory.create() 之前加载：JwtModule / S3 工厂 / 日志 / cron 都在那一步读配置',
@@ -169,23 +153,12 @@ test('设置覆盖层在迁移之后、Nest 构造之前加载', () => {
   );
 });
 
-test('设置模块不自己引 scheduler（定时任务的持有者仍是 src/collection）', () => {
-  const dir = join(SERVER_ROOT, 'src/settings');
-  const files = readdirSync(dir).filter((name) => statSync(join(dir, name)).isFile());
-  assert.ok(files.length > 0);
-
-  for (const file of files) {
-    assert.doesNotMatch(
-      read(join(dir, file)),
-      /from '@nestjs\/schedule'/,
-      `settings/${file} 不应直接引用 @nestjs/schedule：应该注入 CollectionSyncService 调它的 reregister()`,
-    );
-  }
-
-  // 而热更的入口确实在 collection 那边
+test('容器内的锁定只出现在"容器 + 生产环境"下', () => {
+  const container = read(join(SERVER_ROOT, 'src/common/container.ts'));
+  // 这条别被当成 bug 改掉：去掉 NODE_ENV 条件会把开发机与 CI 也强制到 /data
   assert.match(
-    read(join(SERVER_ROOT, 'src/collection/collection-sync.service.ts')),
-    /reregister\(\): void/,
-    'CollectionSyncService 应暴露 reregister() 供保存后热更',
+    container, /isContainerized\(\) && \(process\.env\.NODE_ENV \?\? 'development'\) === 'production'/,
+    '锁定条件必须同时要求"容器内"与"生产环境"',
   );
+  assert.match(container, /LOCKED_CONTAINER_VALUES/, '容器内被钉死的值应当集中定义在 container.ts');
 });

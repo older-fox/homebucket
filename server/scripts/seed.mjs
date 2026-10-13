@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // 演示/测试数据填充（可重复执行）：npm run build && npm run seed
-// 数据全部归属 .env 中 DEFAULT_ADMIN_* 指定的账号；只清理该账号自己的旧数据，不影响其它用户。
+// 数据归属：默认挂在**最早的实例管理员**名下，也可用 --username=<用户名> 指定另一个已有账号
+// （第一个管理员由首启引导页创建，seed 不再自己建号）；只清理该账号自己的旧数据，不影响其它用户。
 //
 // ⚠️ 需要先 `npm run build`：本脚本跑的是编译产物（dist/），和 scripts/db-baseline.mjs 同一套路。
 //    这样它既能用在开发机，也能直接用在只装了生产依赖的容器里（不必带 ts-node 与源码）。
@@ -40,11 +41,19 @@ const { In, IsNull, Not } = require('typeorm');
 // 共享 helper：qrToken / 邀请 token 用的就是短随机串，别在这里再抄一遍 randomBytes
 const { shortToken } = require(resolve(root, 'dist/common/id.js'));
 
-const ADMIN = {
-  email: (process.env.DEFAULT_ADMIN_EMAIL || 'admin@example.com').trim().toLowerCase(),
-  username: (process.env.DEFAULT_ADMIN_USERNAME || 'admin').trim(),
-  password: process.env.DEFAULT_ADMIN_PASSWORD || 'admin',
-};
+/**
+ * 演示数据挂到哪个账号：`--username=xxx` 指定，省略则取**最早的实例管理员**。
+ *
+ * 为什么不再从 .env 读 DEFAULT_ADMIN_*：那组变量已下线，第一个管理员现在由**首启
+ * 引导页**创建（见 server/src/setup/）。seed 只负责"填充演示数据"，不再建账号 ——
+ * 更不该去改一个已存在账号的密码（那会把用户自己的口令换掉）。
+ */
+function argValue(name) {
+  const hit = process.argv.find((item) => item.startsWith(`--${name}=`));
+  return hit ? hit.slice(name.length + 3).trim() : '';
+}
+const SEED_USERNAME = argValue('username');
+
 const PARTNER = { email: 'family@homebucket.local', username: 'family', password: 'homebucket123' };
 const KID = { email: 'kid@homebucket.local', username: 'kid', password: 'homebucket123' };
 
@@ -377,7 +386,7 @@ const NOTIFIERS = [
   ['bark', '手机推送（Bark）', 'item_created', { serverKey: 'demo-key', serverUrl: 'https://api.day.app' }],
   ['telegram', 'Telegram 家庭群', 'item_created,item_updated', { botToken: 'demo-token', chatId: 'demo-chat' }],
   ['dingtalk', '钉钉告警群', 'item_created', { webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=demo', secret: 'demo-secret' }],
-  ['smtp', '邮件周报', '', { host: 'smtp.example.com', port: '587', secure: 'true', user: 'bot@example.com', pass: 'demo', from: 'bot@example.com', to: ADMIN.email }],
+  ['smtp', '邮件周报', '', { host: 'smtp.example.com', port: '587', secure: 'true', user: 'bot@example.com', pass: 'demo', from: 'bot@example.com', to: 'demo@example.com' }],
 ];
 
 // ---------------------------------------------------------------- 工具
@@ -419,9 +428,12 @@ async function createImage(familyId, userId, label, index) {
   );
 }
 
-async function cleanupUser(email) {
+/**
+ * 按**用户名**清理（而不是邮箱）：邮箱现在是选填项，只有用户名才是必然存在的登录凭据。
+ */
+async function cleanupUser(username) {
   const userRepo = dataSource.getRepository(User);
-  const user = await userRepo.findOne({ where: { email }, select: { id: true } });
+  const user = await userRepo.findOne({ where: { username }, select: { id: true } });
   if (!user) return;
 
   // 只删这个账号**自己拥有**的家庭：家庭下面的位置/物品/标签/通知器等靠外键
@@ -476,14 +488,24 @@ async function main() {
   const templateRepo = dataSource.getRepository(Template);
   const channelRepo = dataSource.getRepository(NotificationChannel);
 
-  console.log('清理旧数据…');
-  for (const email of [ADMIN.email, PARTNER.email, KID.email]) await cleanupUser(email);
+  // 承载演示数据的账号必须是**已存在**的（由首启引导创建，或用 --username 指定）；
+  // 注意只清它的数据、不删这个账号本身 —— 它是实例管理员，删了就进不去了
+  const demo = SEED_USERNAME
+    ? await userRepo.findOne({ where: { username: SEED_USERNAME } })
+    : await userRepo.findOne({ where: { isInstanceAdmin: true }, order: { id: 'ASC' } });
+  if (!demo) {
+    console.error(
+      '没有可承载演示数据的账号。请先完成首启引导页（创建第一个账号），或用 --username=<已存在的用户名> 指定一个。\n' +
+        '（DEFAULT_ADMIN_* 已下线：seed 不再自己建管理员账号）',
+    );
+    process.exitCode = 1;
+    return;
+  }
 
-  console.log('创建账号…');
-  const passwordHash = await hash(ADMIN.password, 10);
-  const demo = await userRepo.save(
-    userRepo.create({ email: ADMIN.email, username: ADMIN.username, passwordHash, locale: 'zh-CN' }),
-  );
+  console.log('清理旧数据…');
+  for (const username of [demo.username, PARTNER.username, KID.username]) await cleanupUser(username);
+
+  console.log('创建演示账号…');
   const partner = await userRepo.save(
     userRepo.create({
       email: PARTNER.email,
@@ -503,17 +525,25 @@ async function main() {
 
   // 个人家庭。原来 Prisma 的 `members: { create: ... }` 是嵌套写，TypeORM 没有对应写法，
   // 改成"先建家庭、再单独插成员行"，最终数据完全一致
-  const personal = await familyRepo.save(
-    familyRepo.create({
-      name: `${ADMIN.username} 的家`,
-      isPersonal: true,
-      currency: 'CNY',
-      locale: 'zh-CN',
-      timeZone: 'Asia/Shanghai',
-      ownerId: demo.id,
-    }),
-  );
-  await memberRepo.save(memberRepo.create({ familyId: personal.id, userId: demo.id, role: 'owner' }));
+  // 个人家庭：引导建号时已经建过一个，这里**复用**（没有才补），
+  // 否则每次 seed 都会给这个账号多塞一个"XXX 的家"
+  let personal = await familyRepo.findOne({
+    where: { ownerId: demo.id, isPersonal: true },
+    select: { id: true },
+  });
+  if (!personal) {
+    personal = await familyRepo.save(
+      familyRepo.create({
+        name: `${demo.username} 的家`,
+        isPersonal: true,
+        currency: 'CNY',
+        locale: 'zh-CN',
+        timeZone: 'Asia/Shanghai',
+        ownerId: demo.id,
+      }),
+    );
+    await memberRepo.save(memberRepo.create({ familyId: personal.id, userId: demo.id, role: 'owner' }));
+  }
   await userRepo.update(demo.id, { defaultFamilyId: personal.id });
 
   const shared = await familyRepo.save(
@@ -739,7 +769,8 @@ async function main() {
   if (missingLocation) console.error(`  ! 有 ${missingLocation} 组物品没匹配到位置，已落到无位置`);
 
   console.log('\n完成 ✓  登录用「用户名 + 密码」（邮箱仅作记录，不再用于登录）：');
-  console.log(`  用户名 ${ADMIN.username}   密码 ${ADMIN.password}   （owner，默认家庭「样板间」）`);
+  // 主账号是复用的已有账号，密码不变 —— 这里不能打印它（我们也不知道）
+  console.log(`  用户名 ${demo.username}   密码 <你自己的密码>   （owner，默认家庭「样板间」）`);
   console.log(`  用户名 ${PARTNER.username}   密码 ${PARTNER.password}   （admin 角色）`);
   console.log(`  用户名 ${KID.username}   密码 ${KID.password}   （member 角色）`);
   console.log('数据量：', counts);

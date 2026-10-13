@@ -14,6 +14,7 @@ import { LocationsModule } from './locations/locations.module';
 import { NotifiersModule } from './notifiers/notifiers.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
+import { SetupModule } from './setup/setup.module';
 import { DatabaseModule } from './database/database.module';
 import { ScanModule } from './scan/scan.module';
 import { SearchModule } from './search/search.module';
@@ -46,6 +47,7 @@ import { env } from './config/env';
     NotifiersModule,
     NotificationsModule,
     SettingsModule,
+    SetupModule,
     ApiKeysModule,
     V1Module,
     DashboardModule,

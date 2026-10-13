@@ -6,6 +6,7 @@ import { DataCollectionState } from './data-collection-state.entity';
 import { Family } from './family.entity';
 import { FamilyInvite } from './family-invite.entity';
 import { FamilyMember } from './family-member.entity';
+import { InstanceState } from './instance-state.entity';
 import { Item } from './item.entity';
 import { ItemUnit } from './item-unit.entity';
 import { Location } from './location.entity';
@@ -56,6 +57,7 @@ export const entities = [
   ApiKey,
   AppSetting,
   DataCollectionState,
+  InstanceState,
 ];
 
 export {
@@ -67,6 +69,7 @@ export {
   Family,
   FamilyInvite,
   FamilyMember,
+  InstanceState,
   Item,
   ItemUnit,
   Location,

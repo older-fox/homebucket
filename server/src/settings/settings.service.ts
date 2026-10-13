@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppSetting } from '../entities/app-setting.entity';
-import { hasOverride, isPendingRestart, isValidSizeLiteral, raw } from '../config/env';
+import { hasOverride, isLockedEnv, isPendingRestart, isValidSizeLiteral, raw } from '../config/env';
 import { CollectionSyncService } from '../collection/collection-sync.service';
 import { applySettingRows } from './settings.bootstrap';
 import {
@@ -186,7 +186,12 @@ export class SettingsService {
   ) {}
 
   async list(): Promise<SettingsView> {
-    return { groups: SETTING_GROUPS, items: SETTINGS.map((def) => this.view(def)) };
+    return {
+      groups: SETTING_GROUPS,
+      // 被钉死的项（容器内的数据/上传目录）**不出现**在列表里 —— 要求是"前端消失"，
+      // 而不是显示成一个改不动的只读输入框。接口这一层也顺手拒绝修改，见 update()。
+      items: SETTINGS.filter((def) => !isLockedEnv(def.envName)).map((def) => this.view(def)),
+    };
   }
 
   /**
@@ -207,6 +212,14 @@ export class SettingsService {
       const def = settingByEnv(envName);
       if (!def) {
         throw new BadRequestException({ code: 'settings.unknownKey', message: `未知的配置项：${envName}` });
+      }
+      // 容器内被钉死的项（数据/上传目录）连改都不许改：list() 已经不返回它们了，
+      // 这里是纵深防御 —— 直接构造请求也改不动。
+      if (isLockedEnv(envName)) {
+        throw new BadRequestException({
+          code: 'settings.locked',
+          message: `${envName} 在容器内由系统固定，不能修改`,
+        });
       }
 
       // null = 删掉覆盖，回落 .env / 内置默认

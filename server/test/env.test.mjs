@@ -192,7 +192,6 @@ test('布尔开关：只有显式 false 才算关（默认开）', () => {
     ['ALLOW_REGISTRATION', () => env.allowRegistration],
     ['AUTO_MIGRATE', () => env.autoMigrate],
     ['LOG_ACCESS', () => env.accessLog],
-    ['AUTO_CREATE_ADMIN', () => env.autoCreateAdmin],
     ['S3_FORCE_PATH_STYLE', () => env.s3ForcePathStyle],
     ['DATA_COLLECTION_ENABLED', () => env.dataCollectionEnabled],
     ['DATA_COLLECTION_SUBMIT', () => env.dataCollectionSubmit],
@@ -243,25 +242,19 @@ test('本地化与对外地址：币种大写、尾部斜杠剥掉、超时值�
   }
 });
 
-test('默认管理员与 JWT：未配置时给出开发默认值（生产部署必须覆盖）', () => {
-  withEnv(
-    {
-      JWT_SECRET: undefined,
-      JWT_EXPIRES_IN: undefined,
-      DEFAULT_ADMIN_USERNAME: undefined,
-      DEFAULT_ADMIN_PASSWORD: undefined,
-      DEFAULT_ADMIN_EMAIL: undefined,
-    },
-    () => {
-      assert.equal(env.jwtSecret, 'homebucket-dev-secret');
-      assert.equal(env.jwtExpiresIn, '7d');
-      assert.equal(env.defaultAdminUsername, 'admin');
-      assert.equal(env.defaultAdminPassword, 'admin');
-      assert.equal(env.defaultAdminEmail, 'admin@example.com');
-    },
-  );
-  withEnv({ DEFAULT_ADMIN_USERNAME: '   ', JWT_EXPIRES_IN: '1h' }, () => {
-    assert.equal(env.defaultAdminUsername, 'admin', '空白值视为未配置');
+/**
+ * JWT：未配置时用开发默认值（生产部署必须覆盖）。
+ *
+ * 原先这里还断言 DEFAULT_ADMIN_* 的默认值 —— 那组变量已整体下线：
+ * 第一个管理员改由**首启引导页**创建（见 server/src/setup/），
+ * 不再从 .env 里读一个可预测的口令（那也是个默认口令隐患）。
+ */
+test('JWT：未配置时给出开发默认值（生产部署必须覆盖）', () => {
+  withEnv({ JWT_SECRET: undefined, JWT_EXPIRES_IN: undefined }, () => {
+    assert.equal(env.jwtSecret, 'homebucket-dev-secret');
+    assert.equal(env.jwtExpiresIn, '7d');
+  });
+  withEnv({ JWT_EXPIRES_IN: '1h' }, () => {
     assert.equal(env.jwtExpiresIn, '1h');
   });
 });

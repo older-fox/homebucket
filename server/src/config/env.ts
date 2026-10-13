@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { LogLevel } from '@nestjs/common';
 
@@ -86,8 +87,38 @@ const overrides = new Map<string, string>();
 let bootEffective = new Map<string, string | undefined>();
 let bootSnapshotTaken = false;
 
-/** 所有配置的唯一读取口：数据库覆盖优先，其次 process.env（含 dotenv 读进来的 .env） */
+/**
+ * 被**钉死**的值（容器内是数据/上传目录与 SQLite 库文件，见 common/container.ts）。
+ *
+ * 优先级最高 —— 连数据库里的覆盖值也要让位，否则老库里一行脏数据就能把数据目录
+ * 指到容器临时层上，容器一重建数据就没了。谁来填：`main.ts` 在启动最早处调
+ * `applyLockedValues()`（只有它知道"是不是容器 + 生产环境"）。
+ */
+const pinned = new Map<string, string>();
+
+/** 钉死一批值（容器内启动时调用一次） */
+export function applyLockedValues(values: Readonly<Record<string, string>>): void {
+  for (const [name, value] of Object.entries(values)) pinned.set(name, value);
+}
+
+/** 该项是否被钉死（设置接口据此把它从列表里摘掉、并拒绝修改） */
+export function isLockedEnv(name: string): boolean {
+  return pinned.has(name);
+}
+
+/** 只取"钉死"那一层：数据库参数用的就是它（那些键不走数据库覆盖，但容器内仍会被钉死） */
+export function pinnedValue(name: string): string | undefined {
+  return pinned.get(name);
+}
+
+/** 被钉死的全部环境变量名 */
+export function lockedEnvNames(): string[] {
+  return [...pinned.keys()];
+}
+
+/** 所有配置的唯一读取口：钉死值 > 数据库覆盖 > process.env（含 dotenv 读进来的 .env） */
 export function raw(name: string): string | undefined {
+  if (pinned.has(name)) return pinned.get(name);
   return overrides.has(name) ? overrides.get(name) : process.env[name];
 }
 
@@ -132,6 +163,59 @@ export function snapshotBootValues(names: readonly string[]): void {
 export function isPendingRestart(name: string): boolean {
   if (!bootSnapshotTaken) return false;
   return bootEffective.has(name) && bootEffective.get(name) !== raw(name);
+}
+
+/**
+ * 数据库连接参数还可以来自一份**独立配置文件**（只由引导流程写，平时不存在）。
+ *
+ * 位置：`DB_CONFIG_FILE` 指定，默认 `${DATA_DIR}/db.config.json`。
+ *
+ * 为什么需要它：连不上库时后端进"受限启动"，此时用户在引导页填的连接参数
+ * **没法存进库**（正是因为没有库可用）。容器里唯一持久可写的地方是 `/data`
+ * （`/app` 是镜像临时层），所以这份文件放数据目录下。
+ *
+ * ⚠️ 它是**明文**（含数据库密码），与通知器 SMTP 配置、收集器实例 key 同一类取舍：
+ * 权限 0600、不进任何接口响应、日志不打内容。
+ *
+ * 优先级：**本文件 > process.env/.env > 内置默认**。写了它就一定生效 ——
+ * 这份文件只可能由引导流程产生，也就是用户当场确认过的连接参数。
+ */
+interface DbFileConfig {
+  provider?: 'mysql' | 'sqlite';
+  /** 完整连接串（与 DATABASE_URL 同格式），可选 */
+  url?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  database?: string;
+  /** provider=sqlite 时的库文件路径 */
+  filePath?: string;
+}
+
+let dbFileLoaded = false;
+let dbFileValue: DbFileConfig | null = null;
+
+/** 配置文件位置：`DB_CONFIG_FILE` > `${DATA_DIR}/db.config.json` */
+export function dbConfigFilePath(): string {
+  const explicit = process.env.DB_CONFIG_FILE?.trim();
+  return explicit ? absolute(explicit) : resolve(env.dataDir, 'db.config.json');
+}
+
+/**
+ * 读取并缓存这份文件。不存在 / 内容坏了都按"没配"处理，回落到 .env ——
+ * 不能因为一个坏文件让整个进程起不来（连不上库时我们还要靠受限启动去引导用户）。
+ */
+export function dbFileConfig(): DbFileConfig | null {
+  if (dbFileLoaded) return dbFileValue;
+  dbFileLoaded = true;
+  try {
+    const parsed = JSON.parse(readFileSync(dbConfigFilePath(), 'utf8')) as DbFileConfig;
+    dbFileValue = parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    dbFileValue = null;
+  }
+  return dbFileValue;
 }
 
 /**
@@ -180,12 +264,13 @@ export const env = {
     return (raw('ALLOW_REGISTRATION') ?? 'true').toLowerCase() !== 'false';
   },
 
-  // ---- 数据库连接（不参与数据库覆盖，只能来自 .env）----
+  // ---- 数据库连接（不参与数据库覆盖，只能来自 .env 或引导写的 db.config.json）----
   /**
-   * MySQL 连接参数。仍然以 `DATABASE_URL` 为准（沿用 Prisma 时代的格式，
+   * MySQL 连接参数。以 `DATABASE_URL` 为准（沿用 Prisma 时代的格式，
    * 这样已有部署的 .env 不用改），格式：mysql://user:pass@host:3306/dbname。
    * 另外允许用 DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME 单独覆盖。
    *
+   * 每一项的取值顺序：**db.config.json > process.env/.env > 连接串里的值 > 内置默认**。
    * 直接读 `process.env` 而**不走 `raw()`**：要连上库才能读到库里的配置，
    * 用库里的配置去配数据库是循环依赖。
    */
@@ -196,7 +281,8 @@ export const env = {
     password: string;
     database: string;
   } {
-    const url = (process.env.DATABASE_URL ?? '').trim();
+    const fromFile = dbFileConfig();
+    const url = (fromFile?.url ?? process.env.DATABASE_URL ?? '').trim();
     let parsed: URL | null = null;
     if (url) {
       try {
@@ -205,18 +291,24 @@ export const env = {
         console.warn('[env] DATABASE_URL 格式不合法，将只使用 DB_* 变量');
       }
     }
-    const database = process.env.DB_NAME?.trim() || parsed?.pathname.replace(/^\//, '') || '';
+    const database =
+      fromFile?.database?.trim() || process.env.DB_NAME?.trim() || parsed?.pathname.replace(/^\//, '') || '';
     return {
-      host: process.env.DB_HOST?.trim() || parsed?.hostname || '127.0.0.1',
-      port: Number(process.env.DB_PORT ?? parsed?.port ?? 3306),
-      username: process.env.DB_USER?.trim() || (parsed ? decodeURIComponent(parsed.username) : ''),
-      password: process.env.DB_PASSWORD ?? (parsed ? decodeURIComponent(parsed.password) : ''),
+      host: fromFile?.host?.trim() || process.env.DB_HOST?.trim() || parsed?.hostname || '127.0.0.1',
+      port: Number(fromFile?.port ?? process.env.DB_PORT ?? parsed?.port ?? 3306),
+      username:
+        fromFile?.username?.trim() ||
+        process.env.DB_USER?.trim() ||
+        (parsed ? decodeURIComponent(parsed.username) : ''),
+      password:
+        fromFile?.password ?? process.env.DB_PASSWORD ?? (parsed ? decodeURIComponent(parsed.password) : ''),
       database,
     };
   },
-  /** 同上：连接参数之一，直接读 process.env */
+  /** 同上：provider 也允许由 db.config.json 决定（引导页里选 sqlite/mysql） */
   get dbProvider(): 'mysql' | 'sqlite' {
-    return (process.env.DB_PROVIDER ?? 'mysql').toLowerCase() === 'sqlite' ? 'sqlite' : 'mysql';
+    const value = dbFileConfig()?.provider ?? process.env.DB_PROVIDER ?? 'mysql';
+    return value.toLowerCase() === 'sqlite' ? 'sqlite' : 'mysql';
   },
   /** 同上：它决定"启动时要不要跑迁移"，而迁移正是建出 AppSetting 表的那一步，也是循环 */
   get autoMigrate(): boolean {
@@ -226,9 +318,15 @@ export const env = {
    * SQLite 数据库文件绝对路径。
    * 兼容 Prisma 时代的 `file:./data/homebucket.db` 写法：剥掉 `file:` 前缀，
    * 相对路径按 server/ 运行目录解析（与 DATA_DIR 的规则一致）。
+   * 取值顺序：**钉死值（容器内）> db.config.json > .env > 默认**。
    */
   get sqliteFile(): string {
-    const value = (process.env.DB_FILE_PATH ?? './data/homebucket.db').trim();
+    const value = (
+      pinnedValue('DB_FILE_PATH') ||
+      dbFileConfig()?.filePath?.trim() ||
+      process.env.DB_FILE_PATH ||
+      './data/homebucket.db'
+    ).trim();
     return absolute(value.replace(/^file:/i, ''));
   },
 
@@ -272,21 +370,6 @@ export const env = {
   /** 对外可访问的站点根地址，用于二维码里写完整链接；留空则二维码只写 token */
   get publicBaseUrl(): string {
     return (raw('PUBLIC_BASE_URL') || '').replace(/\/+$/, '');
-  },
-
-  // ---- 首次初始化 / 默认管理员 ----
-  /** 库中还没有任何用户时，是否按下面的配置自动创建管理员 */
-  get autoCreateAdmin(): boolean {
-    return (raw('AUTO_CREATE_ADMIN') ?? 'true').toLowerCase() !== 'false';
-  },
-  get defaultAdminUsername(): string {
-    return raw('DEFAULT_ADMIN_USERNAME')?.trim() || 'admin';
-  },
-  get defaultAdminPassword(): string {
-    return raw('DEFAULT_ADMIN_PASSWORD')?.trim() || 'admin';
-  },
-  get defaultAdminEmail(): string {
-    return raw('DEFAULT_ADMIN_EMAIL')?.trim() || 'admin@example.com';
   },
 
   // ---- 条码数据收集（默认开启，指向独立的收集服务）----
