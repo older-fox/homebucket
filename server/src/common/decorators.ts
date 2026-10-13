@@ -2,6 +2,7 @@ import { createParamDecorator, ExecutionContext, applyDecorators, UseGuards } fr
 import type { AuthUser } from '../auth/jwt-auth.guard';
 import type { ApiKeyContext } from '../api-keys/api-key.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { InstanceAdminGuard } from '../auth/instance-admin.guard';
 import { FamilyContext, FamilyContextGuard } from './family-context.guard';
 
 type RequestWithContext = {
@@ -41,3 +42,10 @@ export const CurrentApiKey = createParamDecorator(
 export const FamilyScoped = () => applyDecorators(UseGuards(JwtAuthGuard, FamilyContextGuard));
 /** 仅登录（不要求家庭上下文） */
 export const Authed = () => applyDecorators(UseGuards(JwtAuthGuard));
+/**
+ * 实例级管理员（JWT + `isInstanceAdmin`）。
+ *
+ * 用在**不属于任何家庭**的全局接口上（如实例设置）：刻意不挂 FamilyContextGuard，
+ * 因为那要求带 `x-family-id`，而"改这个安装的端口"跟当前选中哪个家庭无关。
+ */
+export const InstanceAdmin = () => applyDecorators(UseGuards(JwtAuthGuard, InstanceAdminGuard));

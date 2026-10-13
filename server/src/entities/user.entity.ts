@@ -52,6 +52,17 @@ export class User {
   takenOutAlertDays: number;
 
   /**
+   * 实例管理员：可以读写「设置 → 实例设置」里的全局配置。
+   *
+   * 与家庭角色（`FamilyMember.role`）是两回事：家庭角色管"这个家里的物品"，
+   * 这个位管"整个安装"的配置（端口、SMTP、上报地址、注册开关…）。
+   * 只有引导创建的管理员（以及升级时回填的最早那个用户）为 true；
+   * 授予他人的入口 v1 没做，需要时再加 `PATCH /admin/users/:id`。
+   */
+  @Column({ type: 'boolean', default: false })
+  isInstanceAdmin: boolean;
+
+  /**
    * 头像附件 id；没设头像时前端回退到用户名首字母。
    *
    * 为什么不像 `Item.coverImageId` 那样声明成 `@ManyToOne` 关系（即没有数据库外键）：

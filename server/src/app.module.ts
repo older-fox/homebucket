@@ -13,6 +13,7 @@ import { AccessLogMiddleware } from './logger/access-log.middleware';
 import { LocationsModule } from './locations/locations.module';
 import { NotifiersModule } from './notifiers/notifiers.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SettingsModule } from './settings/settings.module';
 import { DatabaseModule } from './database/database.module';
 import { ScanModule } from './scan/scan.module';
 import { SearchModule } from './search/search.module';
@@ -44,6 +45,7 @@ import { env } from './config/env';
     TemplatesModule,
     NotifiersModule,
     NotificationsModule,
+    SettingsModule,
     ApiKeysModule,
     V1Module,
     DashboardModule,

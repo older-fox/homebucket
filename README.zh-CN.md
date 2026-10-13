@@ -74,7 +74,7 @@
 │       ├── config/bootstrap-admin.ts# 空库首次启动创建管理员
 │       ├── common/                  # 家庭上下文守卫、参数装饰器、校验归一化
 │       ├── logger/                  # 应用日志 + nginx 风格访问日志
-│       ├── entities/                # 11 个实体类（唯一来源）+ index.ts + transformer
+│       ├── entities/                # 15 个实体类（唯一来源）+ index.ts + transformer
 │       ├── database/                # data-source / DatabaseModule / auto-migrate / migrations/{mysql,sqlite}
 │       ├── auth/                    # 注册 / 登录 / me（用户名 + 密码，JWT）
 │       ├── families/                # 家庭、成员、邀请链接
@@ -140,13 +140,13 @@ npm install
 npm run dev               # http://<本机IP>:3000
 ```
 
-接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`（用户名 + 密码，邮箱选填）、`POST /api/auth/login`（**用户名** + 密码）、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）。
+接口：`GET /api`（信息）、`GET /api/health`（健康检查）、`POST /api/auth/register`（用户名 + 密码，邮箱选填）、`POST /api/auth/login`（**用户名** + 密码）、`GET /api/auth/me`（需 `Authorization: Bearer <token>`）、`GET`/`PATCH /api/admin/settings`（运行期实例设置，需实例管理员）。
 
 想直接看效果：`cd server && npm run build && npm run seed`（见下方「演示数据」）。
 
 ## 配置
 
-全部配置集中在根目录 `.env`，前端构建/运行与后端进程共用。
+全部配置的起点是根目录 `.env`，前端构建/运行与后端进程共用。自「实例设置」（本节最后一小节）上线后，后端自己的取值顺序是 **数据库 > `.env` > 内置默认值** —— 也就是说下面这些表里填的是**默认值**，绝大多数项运行时也能在界面里改。
 
 ### 通用 / 数据库
 
@@ -211,6 +211,8 @@ npm run dev               # http://<本机IP>:3000
 | `DATA_COLLECTION_PHOTO_MAX_BYTES` | `8388608` | 单张照片字节上限（8MB），超过就跳过这张 |
 | `DATA_COLLECTION_PHOTO_MAX_PER_ITEM` | `12` | 单个物品最多传几张照片（与收集器单条目图片上限一致） |
 
+收集服务地址、定时上报开关与 cron 表达式都可以在「设置 → 实例设置」里随时改；其中 cron 保存即生效（会重新注册那个定时任务），不需要重启。
+
 ### 认证
 
 | 变量 | 默认值 | 说明 |
@@ -218,6 +220,26 @@ npm run dev               # http://<本机IP>:3000
 | `JWT_SECRET` | — | 登录凭证签名密钥（正式环境务必改） |
 | `JWT_EXPIRES_IN` | `7d` | 凭证有效期 |
 | `ALLOW_REGISTRATION` | `true` | 是否开放注册；为 `false` 时拒绝所有注册请求（含凭邀请链接注册），已有账号照常登录，前端注册入口会自动隐藏 |
+
+### 运行期设置（实例设置）
+
+除数据库连接之外，**所有 server 配置都可以存进数据库**，并在「设置 → 实例设置」里随时修改。优先级是 **数据库 > `.env` > 内置默认值** —— 上面那些表里填的是**默认值**：界面上保存过的以界面为准，字段上的「重置为默认」会清掉覆盖、回落到 `.env`。
+
+只能在 `.env` 里改的变量及原因：
+
+- `DB_PROVIDER`、`DATABASE_URL`、`DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME`、`DB_FILE_PATH` —— 要连上库才能读到"配置存在库里"，用库里的配置去配数据库是循环。
+- `AUTO_MIGRATE` —— 它决定要不要跑迁移，而迁移正是建出那张配置表的一步。
+- `WEB_HOST`、`WEB_PORT`、`NUXT_PUBLIC_API_BASE`、`NUXT_API_BASE`、`API_PROXY_TARGET` —— 属于前端 Nuxt 进程（且 `API_PROXY_TARGET` 在构建期就烘焙进产物），后端改不了它们。
+
+多数项保存即生效。只在启动时读取的那些 —— 后端端口、路由前缀、跨域来源、上传上限、日志设置、数据/上传目录、存储驱动、全部 `S3_*`、`JWT_SECRET`、`JWT_EXPIRES_IN`、默认管理员那几项 —— 在界面上标为**需重启生效**，保存后还会显示「已保存，重启后生效」，直到后端重启。定时上报开关与 cron 表达式是热生效的。
+
+密钥（`JWT_SECRET`、`S3_ACCESS_KEY`、`S3_SECRET_KEY`、`DEFAULT_ADMIN_PASSWORD`）存进数据库，与既有的通知器配置、收集器实例凭据是同一个取舍。接口**永不回传**它们，只回「是否已设置」；界面显示星号占位，密钥框留空表示保持原值不变。
+
+改这些需要**实例管理员**权限，它与家庭角色（owner/admin/member）是两回事，落在 `User.isInstanceAdmin` 这一列。空库首次启动创建的管理员天然拥有；迁移也会把已有部署里最早的那个用户提上来，避免升级后没人能进。目前没有"把位子交给别人"的界面 —— 需要时直接改这一列。
+
+每项都记录最后修改人与时间。配置变更**不进 activity log**：那个日志是家庭维度的（`familyId NOT NULL`），而实例配置不属于任何家庭，硬接进去要再加一次迁移。这版有意不做成"半个审计"，而不是假装有。
+
+接口：`GET /api/admin/settings` 返回每一项及其来源（`db` / `env` / `default`）、是否待重启、校验范围；`PATCH /api/admin/settings` 的 body 形如 `{ "values": { "SERVER_PORT": "8080", "JWT_EXPIRES_IN": null } }` —— 省略某个键表示不改，`null` 表示重置回 `.env`/默认，密钥传空串表示保持原值。两者都需要实例管理员。
 
 ### 前端 Nuxt
 
@@ -237,7 +259,7 @@ npm run dev               # http://<本机IP>:3000
 
 ### 一套实体，两个 provider
 
-数据模型就是 `server/src/entities/*.entity.ts` 里的**手写实体类**（共 **11 个**，清单见 `server/src/entities/index.ts`），同一套实体同时驱动 MySQL 与 SQLite。数据访问通过注入的 `Repository<T>`（`@InjectRepository`）：全局 `DatabaseModule` 导出了 `TypeOrmModule.forFeature(entities)`，业务模块直接注入仓库即可，不必每个模块重复写一遍 `forFeature` 清单。
+数据模型就是 `server/src/entities/*.entity.ts` 里的**手写实体类**（共 **15 个**，清单见 `server/src/entities/index.ts`），同一套实体同时驱动 MySQL 与 SQLite。数据访问通过注入的 `Repository<T>`（`@InjectRepository`）：全局 `DatabaseModule` 导出了 `TypeOrmModule.forFeature(entities)`，业务模块直接注入仓库即可，不必每个模块重复写一遍 `forFeature` 清单。
 
 `entities/index.ts` 顶部记录的三条跨 provider 约定（改实体时务必遵守）：
 

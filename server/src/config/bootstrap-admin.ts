@@ -30,6 +30,9 @@ export async function bootstrapAdmin(
       passwordHash: await hash(env.defaultAdminPassword, 10),
       locale: env.defaultLocale,
       defaultFamilyId: null,
+      // 空库的第一个账号 = 这份安装的负责人：给它「实例管理员」位，
+      // 否则「设置 → 实例设置」一上线就没人能进（已有部署由迁移回填最早的用户）。
+      isInstanceAdmin: true,
     }),
   );
 

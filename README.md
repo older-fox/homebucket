@@ -77,7 +77,7 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 │       ├── config/bootstrap-admin.ts# creates the admin on first boot of an empty DB
 │       ├── common/                  # family-context guard, param decorators, validation, media URLs, pagination, ids
 │       ├── logger/                  # app logger + nginx-style access log
-│       ├── entities/                # 12 entity classes (single source of truth) + index.ts + transformers + column-spec.ts
+│       ├── entities/                # 15 entity classes (single source of truth) + index.ts + transformers + column-spec.ts
 │       ├── database/                # data-source / DatabaseModule / auto-migrate / migrations/{mysql,sqlite}
 │       ├── auth/                    # register / login / me (username + password, JWT)
 │       ├── families/                # families, members, invite links
@@ -157,13 +157,13 @@ cd web    && npm run typecheck
 
 `npm test` is a [node:test](https://nodejs.org/api/test.html) suite (54 assertions, no test dependencies); `db:check-drift` migrates a throwaway SQLite file and fails if `schema:log` is not empty, which catches "entity changed but no migration written".
 
-Endpoints: `GET /api` (info), `GET /api/health` (health check), `POST /api/auth/register` (username + password, email optional), `POST /api/auth/login` (**username** + password), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
+Endpoints: `GET /api` (info), `GET /api/health` (health check), `POST /api/auth/register` (username + password, email optional), `POST /api/auth/login` (**username** + password), `GET /api/auth/me` (requires `Authorization: Bearer <token>`), `GET`/`PATCH /api/admin/settings` (runtime instance settings, requires an instance admin).
 
 Want to see it populated right away? `cd server && npm run build && npm run seed` (see "Demo data" below).
 
 ## Configuration
 
-Everything lives in the root `.env`, shared by the frontend build/runtime and the backend process.
+Everything starts in the root `.env`, shared by the frontend build/runtime and the backend process. Since the instance-settings feature (last subsection below), the backend resolves its own configuration as **database > `.env` > built-in default** — so the tables here are the *defaults*, and almost every value can also be changed at runtime from the UI.
 
 ### General / database
 
@@ -228,6 +228,8 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 | `DATA_COLLECTION_PHOTO_MAX_BYTES` | `8388608` | Per-photo byte cap (8 MB); bigger photos are skipped |
 | `DATA_COLLECTION_PHOTO_MAX_PER_ITEM` | `12` | Max photos per item (matches the collector's per-item image cap) |
 
+The collection endpoint, the scheduled-sync switch and the cron expression can all be changed at runtime from **Settings → Instance settings**; the cron takes effect immediately (the job is re-registered on save), no restart needed.
+
 ### Auth
 
 | Variable | Default | Description |
@@ -235,6 +237,26 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 | `JWT_SECRET` | — | Signing key for login tokens (change in production) |
 | `JWT_EXPIRES_IN` | `7d` | Token lifetime |
 | `ALLOW_REGISTRATION` | `true` | Whether sign-up is open; when `false` every registration request is rejected (including sign-up via an invite link), existing accounts keep working and the frontend hides its sign-up entries |
+
+### Runtime settings (instance settings)
+
+Every server setting **except the database connection** can also be stored in the database and edited at runtime under **Settings → Instance settings**. Precedence is **database > `.env` > built-in default**, so the tables above are defaults: a value saved in the UI wins, and the "reset to default" button on a field clears the override and falls back to `.env`.
+
+What stays `.env`-only, and why:
+
+- `DB_PROVIDER`, `DATABASE_URL`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_FILE_PATH` — reading settings stored in the database needs a database connection, so configuring the database from the database is circular.
+- `AUTO_MIGRATE` — it decides whether migrations run, and the migration is what creates the settings table.
+- `WEB_HOST`, `WEB_PORT`, `NUXT_PUBLIC_API_BASE`, `NUXT_API_BASE`, `API_PROXY_TARGET` — they belong to the separate Nuxt frontend process (and `API_PROXY_TARGET` is baked into the frontend build), so the backend cannot apply them.
+
+Most settings take effect immediately. The ones read only during startup — server port, API prefix, CORS origins, upload size, log settings, data/upload directories, storage driver, all `S3_*`, `JWT_SECRET`, `JWT_EXPIRES_IN` and the default-admin fields — are marked **restart required** in the UI, which shows a "saved, applies after restart" badge until the backend is restarted. The scheduled-sync switch and its cron expression are hot-applied.
+
+Secrets (`JWT_SECRET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `DEFAULT_ADMIN_PASSWORD`) are stored in the database, the same tradeoff the notifier config and the collector instance key already make. The API **never** returns them: it only reports whether a value is set. The UI shows an asterisk-style placeholder, and leaving a secret field blank keeps the current value.
+
+Editing requires an **instance admin**, which is separate from the family roles (owner/admin/member): the `User.isInstanceAdmin` column. The admin created on first boot has it, and the migration grants it to the earliest existing user so upgraded installs are not locked out. There is no UI for handing it to someone else yet — update the column directly if you need to move it.
+
+Each field records who last changed it and when. Settings changes do **not** appear in the activity log: that log is family-scoped (`familyId NOT NULL`) while settings are instance-wide, so wiring it up would need another migration. Full auditing is deliberately out of scope for now rather than half-implemented.
+
+API: `GET /api/admin/settings` returns every item with its source (`db` / `env` / `default`), whether a restart is pending, and its validation bounds. `PATCH /api/admin/settings` takes `{ "values": { "SERVER_PORT": "8080", "JWT_EXPIRES_IN": null } }` — an omitted key is left unchanged, `null` resets it to `.env`/default, and an empty string on a secret means "keep the current value". Both require an instance admin.
 
 ### Frontend (Nuxt)
 
@@ -254,7 +276,7 @@ Everything lives in the root `.env`, shared by the frontend build/runtime and th
 
 ### One entity set, two providers
 
-The data model lives in hand-written entity classes in `server/src/entities/*.entity.ts` (**12 entities**, listed in `server/src/entities/index.ts`); that one set drives both MySQL and SQLite. Column widths and money precision live in one place, `server/src/entities/column-spec.ts` (`STRING_LENGTH`, `MONEY_PRECISION`, `MONEY_SCALE`) instead of being repeated per entity. Data access goes through injected `Repository<T>` (`@InjectRepository`): the global `DatabaseModule` exports `TypeOrmModule.forFeature(entities)`, so business modules inject repositories without repeating a `forFeature` list.
+The data model lives in hand-written entity classes in `server/src/entities/*.entity.ts` (**15 entities**, listed in `server/src/entities/index.ts`); that one set drives both MySQL and SQLite. Column widths and money precision live in one place, `server/src/entities/column-spec.ts` (`STRING_LENGTH`, `MONEY_PRECISION`, `MONEY_SCALE`) instead of being repeated per entity. Data access goes through injected `Repository<T>` (`@InjectRepository`): the global `DatabaseModule` exports `TypeOrmModule.forFeature(entities)`, so business modules inject repositories without repeating a `forFeature` list.
 
 Three cross-provider conventions are documented at the top of `entities/index.ts` and worth keeping in mind when editing entities:
 

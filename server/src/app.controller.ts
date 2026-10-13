@@ -12,7 +12,8 @@ export class AppController {
   info() {
     return {
       name: 'homebucket-server',
-      env: process.env.NODE_ENV ?? 'development',
+      env: env.nodeEnv,
+      // DB_PROVIDER 走 process.env：它是"不进设置的数据库变量"，见 config/env.ts 的说明
       db: process.env.DB_PROVIDER ?? 'mysql',
     };
   }

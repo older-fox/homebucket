@@ -149,6 +149,11 @@ export class AuthService {
       takenOutAlertDays: user.takenOutAlertDays,
       avatarId: user.avatarId,
       avatarUrl: mediaUrl(avatar),
+      /**
+       * 前端据此决定要不要显示「设置 → 实例设置」这个 tab。
+       * 只用于显隐，真正的权限在服务端 `InstanceAdminGuard` 上 —— 改这个字段绕过不了接口。
+       */
+      isInstanceAdmin: user.isInstanceAdmin === true,
     };
   }
 

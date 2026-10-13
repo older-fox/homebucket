@@ -14,7 +14,8 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AppLogger } from './logger/app.logger';
-import { env } from './config/env';
+import { env, snapshotBootValues } from './config/env';
+import { loadSettingsOverrides, SETTING_ENV_NAMES } from './settings/settings.bootstrap';
 import { bootstrapAdmin } from './config/bootstrap-admin';
 import { FamiliesService } from './families/families.service';
 import { runMigrations } from './database/auto-migrate';
@@ -31,6 +32,20 @@ async function bootstrap() {
       console.error(`[migrate] 迁移失败：${(error as Error).message}`);
     }
   }
+
+  // 「设置 → 实例设置」存在数据库里的值在这里叠加到配置之上（数据库 > .env > 默认值）。
+  //
+  // 位置很关键：必须在 NestFactory.create() **之前** —— JwtModule、S3 存储工厂、AppLogger
+  // 的字段初始化、cron 注册都在那一步期间读取配置，放前面它们才能拿到库里的值；
+  // 又必须在 runMigrations() **之后** —— 表得先建出来。
+  // 读不到（老库 + AUTO_MIGRATE=false、或库暂时连不上）只记日志，继续用 .env 启动。
+  try {
+    await loadSettingsOverrides();
+  } catch (error) {
+    console.error(`[settings] 数据库设置读取失败，本次一律用 .env 兜底：${(error as Error).message}`);
+  }
+  // 记下"本次进程启动时各配置的实际生效值"，用于判断某项是否"已保存但需重启才生效"
+  snapshotBootValues(SETTING_ENV_NAMES);
 
   // bodyParser 交给下面手动注册，以便套用 MAX_UPLOAD_SIZE
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {

@@ -1,6 +1,7 @@
 import { Attachment } from './attachment.entity';
 import { ActivityLog } from './activity-log.entity';
 import { ApiKey } from './api-key.entity';
+import { AppSetting } from './app-setting.entity';
 import { DataCollectionState } from './data-collection-state.entity';
 import { Family } from './family.entity';
 import { FamilyInvite } from './family-invite.entity';
@@ -53,6 +54,7 @@ export const entities = [
   NotificationChannel,
   ActivityLog,
   ApiKey,
+  AppSetting,
   DataCollectionState,
 ];
 
@@ -60,6 +62,7 @@ export {
   Attachment,
   ActivityLog,
   ApiKey,
+  AppSetting,
   DataCollectionState,
   Family,
   FamilyInvite,

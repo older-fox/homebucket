@@ -51,7 +51,27 @@ export class CollectionSyncService implements OnModuleInit {
     private readonly uploads: UploadsService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
+    this.reregister();
+  }
+
+  /**
+   * 按**当前**配置注册（或注销）定时任务。
+   *
+   * 在 `onModuleInit` 与「设置 → 实例设置」保存之后各调用一次 —— 这样
+   * `DATA_COLLECTION_SYNC_ENABLED` / `DATA_COLLECTION_SYNC_CRON` 是**热生效**的，
+   * 不需要重启（用户改了 cron 却发现第二天才动，会以为是坏的）。
+   *
+   * 之所以能这样：注册用的是 SchedulerRegistry 而不是 `@Cron(env.x)` 装饰器 ——
+   * 装饰器参数在类定义（= import）期求值，那时 dotenv 还没加载（详见下面注释）。
+   *
+   * 关掉开关时**只删不建**（不 return 掉整个方法），否则旧的 job 会一直留在注册表里跑。
+   */
+  reregister(): void {
+    if (this.registry.doesExist('cron', COLLECTION_SYNC_JOB)) {
+      this.registry.deleteCronJob(COLLECTION_SYNC_JOB);
+    }
+
     if (!env.dataCollectionEnabled || !env.dataCollectionEndpoint) return;
     if (!env.dataCollectionSyncEnabled) return;
 
@@ -67,7 +87,8 @@ export class CollectionSyncService implements OnModuleInit {
       job.start();
       this.logger.log(`条码收集定时上报已注册（${env.dataCollectionSyncCron}）`);
     } catch (error) {
-      // 表达式写错不能让应用起不来：收集上报是旁路功能
+      // 表达式写错不能让应用起不来：收集上报是旁路功能。
+      // 设置接口那侧还会在保存前挡一次（settings.service 校验 6 段），这里是纵深防御。
       this.logger.error(
         `定时上报的 cron 表达式无效（${env.dataCollectionSyncCron}）：${(error as Error).message}`,
       );
