@@ -106,7 +106,10 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     UPLOAD_DIR=/data/uploads
 
-# 容器内数据目录统一放 /data：sqlite 库文件 + 上传图片，挂卷即可持久化
+# 容器内数据目录统一放 /data：sqlite 库文件 + 上传图片，挂卷即可持久化。
+# 这三条是**钉死**的（见 server/src/common/container.ts）：容器 + 生产环境下
+# DATA_DIR/UPLOAD_DIR/DB_FILE_PATH 强制取这里的值，设置页不显示、接口也不允许改 ——
+# 指到容器临时层的话，容器一重建数据就没了。要换数据位置请改挂卷。
 VOLUME ["/data"]
 RUN mkdir -p /data/uploads
 

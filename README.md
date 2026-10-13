@@ -37,7 +37,7 @@ Once you own enough things, "where did I put this?" becomes a recurring question
 
 - **Single-container deployment**: one Docker container runs the Nest backend and the Nuxt frontend together; the frontend reaches the backend through a built-in proxy, so it is same-origin with no CORS.
 - **No external dependencies at runtime**: fonts, icons and the logo are all self-hosted (local woff2 + local lucide icon set) — works on a LAN or fully offline.
-- **Migrate on boot**: an empty database creates its tables on first start and seeds an admin from `DEFAULT_ADMIN_*`.
+- **Migrate on boot**: an empty database creates its tables on first start. The first admin account is not seeded — a new install opens the setup wizard instead (see "First run" below).
 - **i18n**: Chinese primary, English secondary; translation files are standalone and community-submittable. The backend only returns machine-readable `code`s.
 - **Real mobile support**: bottom tab bar with a scan hub, drill-down navigation for locations, swipe actions, in-page scrolling layouts — not just a re-flowed desktop page.
 - **Two database backends**: MySQL (default) and SQLite ("MySQL light"), from one shared set of TypeORM entities.
@@ -204,13 +204,6 @@ Everything starts in the root `.env`, shared by the frontend build/runtime and t
 | `DEFAULT_LOCALE` | `zh-CN` | Default language (overridable per household in settings) |
 | `PUBLIC_BASE_URL` | empty | Site root written into QR codes, e.g. `http://192.168.1.10:3000`; empty means QR codes contain only the token |
 
-### First-run / default admin
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `AUTO_CREATE_ADMIN` | `true` | Create the admin automatically on first boot of an empty DB |
-| `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` / `DEFAULT_ADMIN_EMAIL` | `admin` / `admin` / `admin@example.com` | Account used on first init (empty DB boot or `npm run seed`); **login uses the username**, the email is only a record. Change these in production |
-
 ### Barcode data collection
 
 | Variable | Default | Description |
@@ -248,11 +241,11 @@ What stays `.env`-only, and why:
 - `AUTO_MIGRATE` — it decides whether migrations run, and the migration is what creates the settings table.
 - `WEB_HOST`, `WEB_PORT`, `NUXT_PUBLIC_API_BASE`, `NUXT_API_BASE`, `API_PROXY_TARGET` — they belong to the separate Nuxt frontend process (and `API_PROXY_TARGET` is baked into the frontend build), so the backend cannot apply them.
 
-Most settings take effect immediately. The ones read only during startup — server port, API prefix, CORS origins, upload size, log settings, data/upload directories, storage driver, all `S3_*`, `JWT_SECRET`, `JWT_EXPIRES_IN` and the default-admin fields — are marked **restart required** in the UI, which shows a "saved, applies after restart" badge until the backend is restarted. The scheduled-sync switch and its cron expression are hot-applied.
+Most settings take effect immediately. The ones read only during startup — server port, API prefix, CORS origins, upload size, log settings, data/upload directories, storage driver, all `S3_*`, `JWT_SECRET` and `JWT_EXPIRES_IN` — are marked **restart required** in the UI, which shows a "saved, applies after restart" badge until the backend is restarted. The scheduled-sync switch and its cron expression are hot-applied.
 
-Secrets (`JWT_SECRET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `DEFAULT_ADMIN_PASSWORD`) are stored in the database, the same tradeoff the notifier config and the collector instance key already make. The API **never** returns them: it only reports whether a value is set. The UI shows an asterisk-style placeholder, and leaving a secret field blank keeps the current value.
+Secrets (`JWT_SECRET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`) are stored in the database, the same tradeoff the notifier config and the collector instance key already make. The API **never** returns them: it only reports whether a value is set. The UI shows an asterisk-style placeholder, and leaving a secret field blank keeps the current value.
 
-Editing requires an **instance admin**, which is separate from the family roles (owner/admin/member): the `User.isInstanceAdmin` column. The admin created on first boot has it, and the migration grants it to the earliest existing user so upgraded installs are not locked out. There is no UI for handing it to someone else yet — update the column directly if you need to move it.
+Editing requires an **instance admin**, which is separate from the family roles (owner/admin/member): the `User.isInstanceAdmin` column. The account created by the setup wizard has it, and the migration grants it to the earliest existing user so upgraded installs are not locked out. There is no UI for handing it to someone else yet — update the column directly if you need to move it.
 
 Each field records who last changed it and when. Settings changes do **not** appear in the activity log: that log is family-scoped (`familyId NOT NULL`) while settings are instance-wide, so wiring it up would need another migration. Full auditing is deliberately out of scope for now rather than half-implemented.
 
@@ -352,7 +345,20 @@ On startup (`AUTO_MIGRATE=true`, the default) the backend runs TypeORM's migrato
 
 To control it yourself: `AUTO_MIGRATE=false`, then `cd server && npm run db:run`.
 
-On the **first boot of an empty database** an admin is also created from `DEFAULT_ADMIN_*` (disable with `AUTO_CREATE_ADMIN=false`); the credentials are printed to the log — change the password after logging in.
+### First run: the setup wizard
+
+There is no default admin account any more. A brand-new installation starts in **setup mode**: every route redirects to `/setup`, and until it is finished all business endpoints answer `503 setup.required` (only `/api/setup/*`, `/api/admin/settings`, `/api/config` and `/api/health` are reachable).
+
+The wizard has four steps:
+
+1. **Database** — if the connection works it shows what it detected (provider, host/database, or the SQLite file path) with a "test connection" button. If the database is unreachable the backend starts in a *restricted* mode that serves only the setup endpoints, so you can enter the connection here; saving writes `/data/db.config.json` and the container restarts the backend with the new settings.
+2. **Admin account** — username + password (email optional). It is created as the **instance admin** and you are signed in immediately.
+3. **Instance settings** — everything else, prefilled with the current values. Logging-related and other non-essential fields are already filled with defaults; just continue if those are fine.
+4. **Data collection** — an explicit choice about syncing barcodes and item text with the shared collection service.
+
+Values you set in the environment (`.env` / `docker run -e`) are pre-filled into the wizard, so you only change what differs. After step 4 the instance is marked initialised and `/setup` closes permanently (the create-admin endpoint also refuses once any user exists, so it cannot be used to escalate later).
+
+To redo it, delete the single row in the `InstanceState` table.
 
 ### SQLite ("MySQL light")
 
@@ -378,6 +384,8 @@ docker run -d --name homebucket --env-file .env -v hb-data:/data -p 3000:3000 ho
 ```
 
 - All container data lives under `/data` (SQLite file + uploaded images) and `VOLUME ["/data"]` is declared, so mounting a volume persists it. Usually only port 3000 needs to be exposed.
+- **Inside a container the data location is pinned**: `DATA_DIR=/data`, `UPLOAD_DIR=/data/uploads` and the SQLite file `/data/homebucket.db`. Those three are not shown in the settings UI and the API rejects changes to them, because pointing them at the ephemeral container layer would silently lose everything on rebuild. If you set `DB_FILE_PATH` to something else it is ignored with a startup warning. Changing where data lives means changing the volume mount.
+- A `.env` is **not** required: since the setup wizard, the only variables you may still need are the database ones and `WEB_HOST`/`WEB_PORT`. An installation with no `.env` at all simply comes up in setup mode and asks you for the database in the browser (it uses SQLite under `/data` by default once you pick it).
 - Migrations run automatically when the backend process starts (TypeORM's migrator, in-process).
 - The base image is `node:24-bookworm-slim`. The old `openssl` apt layer is **gone** (it existed only for the Prisma query engine), and with it the `APT_MIRROR` build arg and the apt-source rewriting.
 - The `DB_PROVIDER` **build arg is gone**: the image is provider-agnostic because both `mysql2` and `better-sqlite3` are production dependencies and the driver is chosen at runtime by the `DB_PROVIDER` env var. There is no `prisma generate` build step any more either.
@@ -587,7 +595,7 @@ cd server && npm run build && npm run seed   # seed runs against dist/, so build
 
 This wipes and rebuilds only the demo accounts' data (other users are untouched) and produces a showcase-ready sample:
 
-- Log in with **username + password** (email is only a record field): the main account comes from `.env` `DEFAULT_ADMIN_*` (defaults `admin` / `admin`) and owns the "Sample Home" household
+- Log in with **username + password** (email is only a record field): the demo data is attached to the **earliest instance admin** (the one created by the setup wizard), or to `--username=<existing user>` if you pass it; that account owns the "Sample Home" household. `npm run seed` no longer creates the admin — finish the setup wizard first
 - A shared member: `family@homebucket.local` / `homebucket123` (a regular member, handy for testing multi-household and permissions)
 - Content: 41 locations (three-level tree), 17 tags, 147 items (about ¥59,924 total), 20 serial numbers across 12 items (including one item whose SNs sit in different locations), 14 templates, 4 disabled notifiers, 3 invite links
 - Take-out examples: two items are left "taken out" (one today, one nine days ago) and one serial number is out on its own, each with the matching history entry — so the orange chips, the item detail sheet and the timeline all have something to show on a fresh demo. The seed writes repositories directly, so it updates `takenOutAt` and inserts the `item.take_out` log row itself to keep the two consistent
