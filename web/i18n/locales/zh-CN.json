@@ -349,7 +349,6 @@
       "server": "后端服务",
       "logging": "日志",
       "storage": "数据与存储",
-      "bootstrap": "初始化与管理员",
       "auth": "认证",
       "collection": "条码数据收集"
     },
@@ -360,7 +359,6 @@
       "jwtSecret": "改后所有用户会被强制登出，旧凭证全部失效。",
       "storagePath": "更改数据目录 / 上传目录 / 存储驱动后，已有附件可能读取不到。",
       "s3Credentials": "密钥不回显；填错会导致对象存储读写失败。",
-      "defaultAdmin": "默认管理员只在空库首次启动时创建，之后修改不影响已有账号。",
       "collectionEndpoint": "填第三方地址后，本实例会向它发送条码与物品文字信息（不含数量、价格、位置、序列号）。"
     },
     "fields": {
@@ -432,22 +430,10 @@
         "label": "S3 路径风格",
         "hint": "默认开（MinIO 等自建服务需要）；AWS 原生可关。"
       },
-      "AUTO_CREATE_ADMIN": {
-        "label": "自动创建默认管理员",
-        "hint": "空库首次启动时按下面三项建号，默认开。"
-      },
-      "DEFAULT_ADMIN_USERNAME": {
-        "label": "默认管理员用户名",
-        "hint": "仅空库首次启动使用，默认 admin。"
-      },
-      "DEFAULT_ADMIN_PASSWORD": {
-        "label": "默认管理员密码",
-        "hint": "仅空库首次启动使用，默认 admin；正式环境务必修改。"
-      },
-      "DEFAULT_ADMIN_EMAIL": {
-        "label": "默认管理员邮箱",
-        "hint": "仅用于记录与通知，不作登录凭据。"
-      },
+      "AUTO_CREATE_ADMIN": {},
+      "DEFAULT_ADMIN_USERNAME": {},
+      "DEFAULT_ADMIN_PASSWORD": {},
+      "DEFAULT_ADMIN_EMAIL": {},
       "DEFAULT_CURRENCY": {
         "label": "新家庭默认货币",
         "hint": "新家庭的主货币，默认 CNY。"
@@ -778,7 +764,13 @@
     "settings.invalidEnum": "取值不在允许范围内",
     "settings.invalidCron": "cron 表达式必须是 6 段（秒 分 时 日 月 周）",
     "settings.invalidUrl": "请填写合法的 http/https 地址",
-    "settings.invalidString": "内容为空或过长"
+    "settings.invalidString": "内容为空或过长",
+    "setup.required": "实例尚未完成初始化，请先完成引导",
+    "setup.alreadyCompleted": "该实例已完成初始化",
+    "setup.databaseInvalid": "数据库连接参数不完整或不合法",
+    "setup.databaseUnreachable": "连不上数据库",
+    "setup.writeFailed": "写入数据库配置失败",
+    "settings.locked": "该项在容器内由系统固定，不能修改"
   },
   "errors": {
     "network": "网络异常，请稍后重试",
@@ -787,5 +779,34 @@
     "notFound": "内容不存在",
     "server": "服务端出错了",
     "unknown": "操作失败"
+  },
+  "setup": {
+    "title": "初始化 HomeBucket",
+    "subtitle": "几分钟就好：先接上数据库、创建第一个账号，再确认一遍实例设置。",
+    "steps.database": "数据库",
+    "steps.admin": "管理员账号",
+    "steps.settings": "实例设置",
+    "steps.collection": "数据收集授权",
+    "dbDetected": "已探测到当前连接（如需改动点「修改连接」）。",
+    "dbIntro": "填好数据库连接。保存后后端会按新配置重启一次，接着继续下一步。",
+    "dbEdit": "修改连接",
+    "dbProvider": "数据库类型",
+    "dbFilePath": "SQLite 库文件路径",
+    "dbHost": "主机",
+    "dbPort": "端口",
+    "dbName": "数据库名",
+    "dbUser": "用户名",
+    "dbPassword": "密码",
+    "dbTest": "测试连接",
+    "dbTestOk": "连接成功",
+    "dbSave": "保存并重启",
+    "dbLockedHint": "容器内库文件固定存放在 /data（唯一挂卷点），不可修改。",
+    "restartTimeout": "后端重启超时，请查看容器日志后刷新本页重试。",
+    "adminIntro": "这个账号会成为实例管理员：只有它能改实例级设置。",
+    "adminCreate": "创建并继续",
+    "settingsIntro": "下面这些都已填好当前值（来自 .env 或内置默认），只改你需要的就行。",
+    "collectionIntro": "是否把条码与物品信息同步到公共收集服务？可以随时关闭。",
+    "collectionConsent": "开启后，本实例会向收集服务发送：条码，以及物品的文字字段（名称、说明、型号、制造商、基本单位）；照片在上传前会剥离 EXIF/GPS/相机参数等全部元数据。数量、价格、存放位置、序列号、追溯码一律不发送。",
+    "finish": "完成初始化"
   }
 }

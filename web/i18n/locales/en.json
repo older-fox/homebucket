@@ -349,7 +349,6 @@
       "server": "Server",
       "logging": "Logging",
       "storage": "Data and storage",
-      "bootstrap": "Bootstrap and admin",
       "auth": "Authentication",
       "collection": "Barcode collection"
     },
@@ -360,7 +359,6 @@
       "jwtSecret": "Changing this signs everyone out and invalidates all existing tokens.",
       "storagePath": "Changing these may make existing attachments unreadable.",
       "s3Credentials": "Secrets are never displayed; a wrong value breaks object storage.",
-      "defaultAdmin": "The default admin is created only on first boot with an empty database; later edits do not affect existing accounts.",
       "collectionEndpoint": "Pointing this at a third party sends them barcodes and item text (no quantity, price, location or serial numbers)."
     },
     "fields": {
@@ -432,22 +430,10 @@
         "label": "S3 path style",
         "hint": "Default on (needed by MinIO and similar); turn it off for native AWS."
       },
-      "AUTO_CREATE_ADMIN": {
-        "label": "Create default admin",
-        "hint": "Creates an account from the three fields below on first boot with an empty database, default on."
-      },
-      "DEFAULT_ADMIN_USERNAME": {
-        "label": "Default admin username",
-        "hint": "Used only on first boot with an empty database, default admin."
-      },
-      "DEFAULT_ADMIN_PASSWORD": {
-        "label": "Default admin password",
-        "hint": "Used only on first boot with an empty database, default admin; change it in production."
-      },
-      "DEFAULT_ADMIN_EMAIL": {
-        "label": "Default admin email",
-        "hint": "Record and notifications only; not a login credential."
-      },
+      "AUTO_CREATE_ADMIN": {},
+      "DEFAULT_ADMIN_USERNAME": {},
+      "DEFAULT_ADMIN_PASSWORD": {},
+      "DEFAULT_ADMIN_EMAIL": {},
       "DEFAULT_CURRENCY": {
         "label": "Default currency for new families",
         "hint": "Primary currency of a new family, default CNY."
@@ -778,7 +764,13 @@
     "settings.invalidEnum": "Value is not one of the allowed choices",
     "settings.invalidCron": "Cron expression must have 6 fields (second minute hour day month weekday)",
     "settings.invalidUrl": "Enter a valid http/https URL",
-    "settings.invalidString": "Value is empty or too long"
+    "settings.invalidString": "Value is empty or too long",
+    "setup.required": "This instance is not initialized yet; finish the setup first",
+    "setup.alreadyCompleted": "This instance is already initialized",
+    "setup.databaseInvalid": "Database settings are incomplete or invalid",
+    "setup.databaseUnreachable": "Could not reach the database",
+    "setup.writeFailed": "Failed to write the database config",
+    "settings.locked": "This field is fixed by the container and cannot be changed"
   },
   "errors": {
     "network": "Network error, please retry",
@@ -787,5 +779,34 @@
     "notFound": "Not found",
     "server": "Server error",
     "unknown": "Something went wrong"
+  },
+  "setup": {
+    "title": "Set up HomeBucket",
+    "subtitle": "A couple of minutes: connect a database, create the first account, then confirm the instance settings.",
+    "steps.database": "Database",
+    "steps.admin": "Admin account",
+    "steps.settings": "Instance settings",
+    "steps.collection": "Data collection",
+    "dbDetected": "Detected the current connection (use \"Change\" to edit it).",
+    "dbIntro": "Enter the database connection. After saving, the backend restarts with the new settings and the wizard continues.",
+    "dbEdit": "Change",
+    "dbProvider": "Database type",
+    "dbFilePath": "SQLite file path",
+    "dbHost": "Host",
+    "dbPort": "Port",
+    "dbName": "Database name",
+    "dbUser": "Username",
+    "dbPassword": "Password",
+    "dbTest": "Test connection",
+    "dbTestOk": "Connection succeeded",
+    "dbSave": "Save and restart",
+    "dbLockedHint": "Inside a container the database file is fixed at /data (the only mount point) and cannot be changed.",
+    "restartTimeout": "Timed out waiting for the backend to restart; check the container logs and reload this page.",
+    "adminIntro": "This account becomes the instance admin: only it can change instance-level settings.",
+    "adminCreate": "Create and continue",
+    "settingsIntro": "These are prefilled with the current values (from .env or the built-in defaults); change only what you need.",
+    "collectionIntro": "Sync barcodes and item info with the shared collection service? You can turn this off at any time.",
+    "collectionConsent": "When enabled this instance sends the collector: barcodes and the item text fields (name, description, model, manufacturer, base unit). Photos have all metadata (EXIF, GPS, camera parameters) stripped before upload. Quantity, price, location, serial numbers and trace codes are never sent.",
+    "finish": "Finish setup"
   }
 }

@@ -118,6 +118,17 @@ export function useApi() {
         token.value = null;
       }
 
+      /*
+       * 实例还没完成首启引导：兜底跳引导页。
+       *
+       * 正常情况下 `00.setup.global.ts` 已经先拦住了这一层，这里是防首屏竞态 ——
+       * 中间件那次探测可能正赶上后端在重启（引导第 1 步保存配置后短暂不可用），
+       * 于是放行了，随后的业务请求才暴露出"还没初始化"。
+       */
+      if (body?.code === 'setup.required') {
+        void navigateTo('/setup');
+      }
+
       const message =
         body?.code === 'validation.failed' ? translateValidation(body) : translateError(body, status);
       throw { status, code: body?.code ?? 'unknown', message } satisfies ApiError;

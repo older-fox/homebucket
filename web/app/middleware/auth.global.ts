@@ -1,4 +1,7 @@
-const PUBLIC_PATHS = ['/login', '/register'];
+// `/setup` 也必须在这里放行：引导页是未登录状态访问的，若不放行，落到引导页后
+// 会被下面的"未登录 → /login"逻辑踢走，而登录接口此时也被服务端的引导门禁挡着，
+// 于是变成 /setup → /login → /setup 的死循环。
+const PUBLIC_PATHS = ['/login', '/register', '/setup'];
 
 /**
  * 未登录时跳登录页；邀请页允许未登录访问（页面自己会引导）。
